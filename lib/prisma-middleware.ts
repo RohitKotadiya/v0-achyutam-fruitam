@@ -1,4 +1,4 @@
-import "server-only"
+// import "server-only"
 import type { PrismaClient } from "@prisma/client"
 import { calculateStock } from "./helpers"
 
