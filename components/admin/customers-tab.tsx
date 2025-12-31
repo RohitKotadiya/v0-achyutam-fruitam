@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Search } from "lucide-react"
-import { formatCurrency } from "@/lib/helpers"
+import { formatCurrency } from "@/lib/client-helpers"
 
 interface Customer {
   id: string

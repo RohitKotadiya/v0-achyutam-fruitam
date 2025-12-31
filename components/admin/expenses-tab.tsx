@@ -18,7 +18,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Pencil, Trash2, Plus, TrendingDown } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { formatCurrency, formatIndianDate } from "@/lib/helpers"
+import { formatCurrency, formatIndianDate } from "@/lib/client-helpers"
 
 interface Expense {
   id: string

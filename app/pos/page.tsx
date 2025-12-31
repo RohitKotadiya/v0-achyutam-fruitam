@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { QuantityModal } from "@/components/pos/quantity-modal"
 import { MixDishModal } from "@/components/pos/mix-dish-modal"
 import { useToast } from "@/hooks/use-toast"
-import { formatCurrency } from "@/lib/helpers"
+import { formatCurrency } from "@/lib/client-helpers"
 import { generateWhatsAppMessage, getWhatsAppUrl } from "@/lib/whatsapp"
 import { generatePrintHTML } from "@/lib/print"
 

@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Download, BarChart3, TrendingUp, TrendingDown, DollarSign } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { formatCurrency } from "@/lib/helpers"
+import { formatCurrency } from "@/lib/client-helpers"
 
 interface PLReport {
   period: string

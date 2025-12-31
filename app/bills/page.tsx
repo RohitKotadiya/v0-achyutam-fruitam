@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Search, Eye, Trash2, ArrowLeft } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { formatCurrency, formatIndianDate } from "@/lib/helpers"
+import { formatCurrency, formatIndianDate } from "@/lib/client-helpers"
 import Link from "next/link"
 
 interface Bill {
