@@ -1,0 +1,380 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PaymentMethod {
+  CASH
+  ONLINE
+  PENDING
+}
+
+enum PaymentStatus {
+  PAID
+  PARTIALLY_PAID
+  PENDING
+}
+
+enum UserRole {
+  ADMIN
+  USER
+  STAFF
+}
+
+// Users (for authentication)
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String    // Hashed with bcrypt
+  role          UserRole  @default(USER)
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([email])
+  @@index([role])
+}
+
+// Dynamic Category Management
+model ProductCategory {
+  id            String    @id @default(cuid())
+  name          String    @unique  // Internal name (e.g., 'fruit_bomb')
+  displayName   String              // Display name (e.g., 'Fruit Bomb')
+  description   String?
+  sortOrder     Int       @default(0)
+  color         String    @default("#8b5cf6") // Hex color code
+  icon          String?   // Icon name or emoji
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  products      Product[]
+  changeHistory CategoryChangeHistory[]
+
+  @@index([name])
+  @@index([isActive])
+  @@index([sortOrder])
+}
+
+model CategoryChangeHistory {
+  id            String          @id @default(cuid())
+  dateTime      DateTime        @default(now())
+  categoryId    String
+  category      ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  fieldChanged  String
+  oldValue      String
+  newValue      String
+  changedBy     String          @default("System")
+  createdAt     DateTime        @default(now())
+
+  @@index([categoryId])
+  @@index([dateTime])
+}
+
+// Products/SKU Master
+model Product {
+  id            String          @id @default(cuid())
+  sku           String          @unique
+  name          String
+  categoryId    String          // Changed from enum to categoryId
+  category      ProductCategory @relation(fields: [categoryId], references: [id]) // Added relation
+  originalCost  Float
+  sellingPrice  Float
+  active        Boolean         @default(true)
+  lowStockAlert Int             @default(10) // Alert when stock goes below this
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  // Relations
+  inventoryLogs      InventoryLog[]
+  currentStock       StockCurrent?
+  billItems          BillItem[]
+  damageLogs         DamageLog[]
+  skuChangeHistory   SKUChangeHistory[]
+  mixDishIngredients MixDishIngredient[]
+
+  @@index([sku])
+  @@index([categoryId]) // Updated index
+  @@index([active])
+}
+
+// Current Stock
+model StockCurrent {
+  id            String   @id @default(cuid())
+  productId     String   @unique
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  currentStock  Float    @default(0)
+  updatedAt     DateTime @updatedAt
+
+  @@index([productId])
+  @@index([currentStock])
+}
+
+// Inventory Log
+model InventoryLog {
+  id                String        @id @default(cuid())
+  date              DateTime      @default(now())
+  productId         String
+  product           Product       @relation(fields: [productId], references: [id])
+  unitsReceived     Float
+  unitsOnline       Float         @default(0)
+  unitsCash         Float         @default(0)
+  unitsPending      Float         @default(0)
+  paymentStatus     PaymentStatus @default(PENDING)
+  costPrice         Float
+  sellingPrice      Float
+  profitMargin      Float
+  remarks           String?
+  originalCost      Float
+  discountPercent   Float         @default(0)
+  avgCost           Float?
+  supplierId        String?
+  supplier          Supplier?     @relation(fields: [supplierId], references: [id])
+  createdAt         DateTime      @default(now())
+
+  @@index([productId])
+  @@index([date])
+  @@index([paymentStatus])
+}
+
+// Bills
+model Bill {
+  id              String        @id @default(cuid())
+  billNo          Int           @unique @default(autoincrement())
+  dateTime        DateTime      @default(now())
+  customerName    String        @default("Walk-in-Cust")
+  mobile          String?
+  customerId      String?
+  customer        Customer?     @relation(fields: [customerId], references: [id])
+  paymentMethod   PaymentMethod @default(CASH)
+  remarks         String?
+  grandTotal      Float
+  totalCost       Float
+  totalProfit     Float
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  lineItems       BillItem[]
+  editLogs        BillEditLog[]
+
+  @@index([billNo])
+  @@index([dateTime])
+  @@index([customerId])
+  @@index([paymentMethod])
+}
+
+// Bill Line Items
+model BillItem {
+  id                String   @id @default(cuid())
+  billId            String
+  bill              Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product  @relation(fields: [productId], references: [id])
+  productName       String
+  quantity          Float
+  price             Float
+  consumptionRate   Float    @default(1) // For Fruit Bombs fractional consumption
+  isMixDish         Boolean  @default(false)
+  
+  @@index([billId])
+  @@index([productId])
+}
+
+// Customers
+model Customer {
+  id            String   @id @default(cuid())
+  mobile        String   @unique
+  name          String
+  totalBills    Int      @default(0)
+  totalSpent    Float    @default(0)
+  lastPurchase  DateTime @default(now())
+  firstPurchase DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  bills         Bill[]
+
+  @@index([mobile])
+  @@index([totalSpent])
+}
+
+// Damage Log
+model DamageLog {
+  id          String   @id @default(cuid())
+  date        DateTime @default(now())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  quantity    Float
+  remarks     String?
+  createdAt   DateTime @default(now())
+
+  @@index([productId])
+  @@index([date])
+}
+
+// Mix Dish Preparation
+model MixDishPrep {
+  id                  String   @id @default(cuid())
+  date                DateTime @default(now())
+  mixDishesPrepared   Float
+  createdAt           DateTime @default(now())
+
+  // Relations
+  ingredients         MixDishIngredient[]
+
+  @@index([date])
+}
+
+// Mix Dish Ingredients (for tracking what went into preparation)
+model MixDishIngredient {
+  id            String       @id @default(cuid())
+  prepId        String
+  prep          MixDishPrep  @relation(fields: [prepId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product      @relation(fields: [productId], references: [id])
+  quantity      Float
+  cubeFinished  Boolean      @default(false)
+
+  @@index([prepId])
+  @@index([productId])
+}
+
+// SKU Change History
+model SKUChangeHistory {
+  id            String   @id @default(cuid())
+  dateTime      DateTime @default(now())
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id])
+  fieldChanged  String
+  oldValue      String
+  newValue      String
+  changedBy     String   @default("System")
+  createdAt     DateTime @default(now())
+
+  @@index([productId])
+  @@index([dateTime])
+}
+
+// Payment Pending Log
+model PaymentPendingLog {
+  id                  String        @id @default(cuid())
+  date                DateTime      @default(now())
+  sku                 String
+  productName         String
+  unitsPending        Float
+  costPrice           Float
+  totalAmountPending  Float
+  paymentStatus       PaymentStatus @default(PENDING)
+  datePaid            DateTime?
+  paymentMethod       PaymentMethod?
+  unitsPaid           Float         @default(0)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@index([sku])
+  @@index([paymentStatus])
+}
+
+// Bill Edit Log
+model BillEditLog {
+  id            String   @id @default(cuid())
+  dateTime      DateTime @default(now())
+  billId        String
+  bill          Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
+  fieldChanged  String
+  oldValue      String
+  newValue      String
+  action        String   // 'EDITED', 'DELETED'
+  createdAt     DateTime @default(now())
+
+  @@index([billId])
+  @@index([dateTime])
+}
+
+
+// Daily Sales Summary (for analytics)
+model DailySalesSummary {
+  id              String   @id @default(cuid())
+  date            DateTime @unique
+  totalSales      Float    @default(0)
+  totalCost       Float    @default(0)
+  totalProfit     Float    @default(0)
+  totalBills      Int      @default(0)
+  cashSales       Float    @default(0)
+  onlineSales     Float    @default(0)
+  avgBillValue    Float    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([date])
+}
+
+// Expenses
+model Expense {
+  id            String   @id @default(cuid())
+  date          DateTime @default(now())
+  category      String   // 'Rent', 'Electricity', 'Salary', 'Other'
+  description   String
+  amount        Float
+  paymentMethod PaymentMethod @default(CASH)
+  remarks       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([date])
+  @@index([category])
+}
+
+// Suppliers
+model Supplier {
+  id            String   @id @default(cuid())
+  name          String
+  contactPerson String?
+  mobile        String?
+  email         String?
+  address       String?
+  gstNumber     String?
+  active        Boolean  @default(true)
+  totalPurchase Float    @default(0)
+  totalPending  Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  inventoryLogs InventoryLog[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([name])
+  @@index([active])
+}
+
+// Purchase Orders
+model PurchaseOrder {
+  id              String        @id @default(cuid())
+  poNumber        String        @unique
+  date            DateTime      @default(now())
+  supplierId      String
+  supplier        Supplier      @relation(fields: [supplierId], references: [id])
+  totalAmount     Float
+  paidAmount      Float         @default(0)
+  pendingAmount   Float
+  paymentStatus   PaymentStatus @default(PENDING)
+  deliveryDate    DateTime?
+  status          String        @default("PENDING") // 'PENDING', 'RECEIVED', 'CANCELLED'
+  remarks         String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([poNumber])
+  @@index([supplierId])
+  @@index([date])
+  @@index([status])
+}
