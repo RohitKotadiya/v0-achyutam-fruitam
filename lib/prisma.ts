@@ -1,4 +1,4 @@
-import "server-only"
+// import "server-only"
 import { PrismaClient } from "@prisma/client"
 import { setupPrismaMiddleware } from "./prisma-middleware"
 
