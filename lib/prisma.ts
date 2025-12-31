@@ -1,15 +1,17 @@
 import { PrismaClient } from "@prisma/client"
+import { PrismaNeon } from "@prisma/adapter-neon"
+import { Pool } from "@neondatabase/serverless"
 import { setupPrismaMiddleware } from "./prisma-middleware"
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
-// Prisma 7 requires explicit datasource configuration
 const createPrismaClient = () => {
-  const client = new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-  })
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+  const adapter = new PrismaNeon(pool)
+  
+  const client = new PrismaClient({ adapter })
   setupPrismaMiddleware(client)
   return client
 }
