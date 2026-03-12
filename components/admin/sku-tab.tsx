@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { Pencil } from "lucide-react"
+import { Pencil, Upload, ImageIcon } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
@@ -20,6 +20,7 @@ interface Product {
   sku: string
   name: string
   categoryId: string
+  imageUrl: string | null
   originalCost: number
   sellingPrice: number
   active: boolean
@@ -155,6 +156,27 @@ export function SKUTab() {
     }
   }
 
+  const uploadImage = async (productId: string, file: File) => {
+    const formData = new FormData()
+    formData.append("image", file)
+
+    try {
+      const res = await fetch(`/api/products/${productId}/image`, {
+        method: "POST",
+        body: formData,
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast({ title: "Success", description: "Image uploaded" })
+        fetchProducts()
+      } else {
+        toast({ title: "Error", description: data.error || "Upload failed", variant: "destructive" })
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to upload image", variant: "destructive" })
+    }
+  }
+
   const toggleProductActive = async (productId: string, currentActive: boolean) => {
     try {
       const res = await fetch(`/api/products/${productId}`, {
@@ -276,6 +298,7 @@ export function SKUTab() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-12">Image</TableHead>
                   <TableHead>SKU</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Cost</TableHead>
@@ -288,13 +311,22 @@ export function SKUTab() {
               <TableBody>
                 {products.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center text-muted-foreground">
                       No products found
                     </TableCell>
                   </TableRow>
                 ) : (
                   products.map((product) => (
                     <TableRow key={product.id}>
+                      <TableCell>
+                        {product.imageUrl ? (
+                          <img src={product.imageUrl} alt={product.name} className="w-8 h-8 rounded object-cover" />
+                        ) : (
+                          <div className="w-8 h-8 rounded bg-muted flex items-center justify-center">
+                            <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell className="font-medium">{product.sku}</TableCell>
                       <TableCell>{product.name}</TableCell>
                       <TableCell>₹{product.originalCost.toFixed(2)}</TableCell>
@@ -384,6 +416,36 @@ export function SKUTab() {
                     setEditingProduct({ ...editingProduct, lowStockAlert: Number.parseInt(e.target.value) })
                   }
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Product Image</Label>
+                <div className="flex items-center gap-3">
+                  {editingProduct.imageUrl ? (
+                    <img src={editingProduct.imageUrl} alt={editingProduct.name} className="w-16 h-16 rounded object-cover" />
+                  ) : (
+                    <div className="w-16 h-16 rounded bg-muted flex items-center justify-center">
+                      <ImageIcon className="w-6 h-6 text-muted-foreground" />
+                    </div>
+                  )}
+                  <label className="cursor-pointer">
+                    <Button variant="outline" size="sm" asChild>
+                      <span>
+                        <Upload className="w-4 h-4 mr-2" />
+                        Upload Image
+                      </span>
+                    </Button>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) uploadImage(editingProduct.id, file)
+                      }}
+                    />
+                  </label>
+                </div>
               </div>
 
               <div className="flex justify-end gap-2">

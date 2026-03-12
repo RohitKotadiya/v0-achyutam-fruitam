@@ -38,7 +38,12 @@ export async function GET(request: Request) {
       take: limit,
     })
 
-    return NextResponse.json({ success: true, bills })
+    const mapped = bills.map((b) => ({
+      ...b,
+      customerNo: b.customer?.customerNo ?? null,
+    }))
+
+    return NextResponse.json({ success: true, bills: mapped })
   } catch (error) {
     console.error("[v0] Error fetching bills:", error)
     return NextResponse.json({ success: false, error: "Failed to fetch bills" }, { status: 500 })

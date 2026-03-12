@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
-export async function GET(request: Request, { params }: { params: { billNo: string } }) {
+export async function GET(request: Request, { params }: { params: Promise<{ billNo: string }> }) {
   try {
-    const billNo = Number.parseInt(params.billNo)
+    const resolvedParams = await params
+    const billNo = Number.parseInt(resolvedParams.billNo)
+
+    if (isNaN(billNo)) {
+      return NextResponse.json({ success: false, error: "Invalid bill number" }, { status: 400 })
+    }
 
     const bill = await prisma.bill.findUnique({
       where: { billNo },
@@ -14,6 +19,7 @@ export async function GET(request: Request, { params }: { params: { billNo: stri
             product: true,
           },
         },
+        returns: true,
       },
     })
 
@@ -28,12 +34,16 @@ export async function GET(request: Request, { params }: { params: { billNo: stri
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { billNo: string } }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ billNo: string }> }) {
   try {
-    const billNo = Number.parseInt(params.billNo)
-
+    const resolvedParams = await params
+    const billNo = Number.parseInt(resolvedParams.billNo)
+    
+    if (isNaN(billNo)) {
+      return NextResponse.json({ success: false, error: `Invalid billNo` }, { status: 400 })
+    }
     // Get bill details first
-    const bill = await prisma.bill.findUnique({
+    const bill = await prisma.bill.findFirst({
       where: { billNo },
       include: {
         lineItems: {

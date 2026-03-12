@@ -4,138 +4,133 @@ import { prisma } from "@/lib/prisma"
 export async function POST(request: Request) {
   try {
     const data = await request.json()
-    const { customerName, customerMobile, paymentMethod, remarks, lineItems } = data
+    const {
+      customerName,
+      customerMobile,
+      paymentMethod,
+      cashAmount,
+      onlineAmount,
+      remarks,
+      lineItems,
+      grandTotal
+    } = data
 
-    // Validate required fields
     if (!lineItems || lineItems.length === 0) {
-      return NextResponse.json({ success: false, error: "No items in bill" }, { status: 400 })
+      return NextResponse.json({ 
+        success: false, 
+        error: "No items in bill" 
+      }, { status: 400 })
     }
 
-    if (!customerMobile || customerMobile.length !== 10) {
-      return NextResponse.json({ success: false, error: "Invalid mobile number" }, { status: 400 })
-    }
+    // Customer optional
+    const customerNameFinal = customerName || "Walk-in-Cust"
+    let customerId = null
 
-    // Check stock availability first
-    for (const item of lineItems) {
-      const product = await prisma.product.findUnique({
-        where: { id: item.product.id },
-        include: { currentStock: true },
-      })
-
-      if (!product) {
-        return NextResponse.json({ success: false, error: `Product ${item.product.name} not found` }, { status: 404 })
-      }
-
-      const requiredStock = item.quantity * (item.consumptionRate || 1)
-      const availableStock = product.currentStock?.currentStock || 0
-
-      if (availableStock < requiredStock) {
-        return NextResponse.json({ success: false, error: `Insufficient stock for ${product.name}` }, { status: 400 })
-      }
-    }
-
-    // Find or create customer
-    let customer = await prisma.customer.findUnique({
-      where: { mobile: customerMobile },
-    })
-
-    if (!customer) {
-      customer = await prisma.customer.create({
-        data: {
-          mobile: customerMobile,
-          name: customerName || "Walk-in-Cust",
-          totalBills: 0,
-          totalSpent: 0,
+    if (customerMobile && customerMobile.length === 10) {
+      customerId = await prisma.customer.upsert({
+        where: { mobile: customerMobile },
+        update: {
+          name: customerNameFinal,
+          totalBills: { increment: 1 },
+          totalSpent: { increment: grandTotal },
+          lastPurchase: new Date(),
         },
-      })
+        create: {
+          mobile: customerMobile,
+          name: customerNameFinal,
+          totalBills: 1,
+          totalSpent: grandTotal,
+          lastPurchase: new Date(),
+          firstPurchase: new Date(),
+        },
+      }).then(c => c.id)
     }
 
-    // Calculate totals
+    // Calculate totalCost
     let totalCost = 0
-    let grandTotal = 0
-
+    const validItems = []
+    
     for (const item of lineItems) {
       const product = await prisma.product.findUnique({
-        where: { id: item.product.id },
+        where: { id: item.product.id }
       })
-
+      
       if (product) {
-        const itemCost = product.originalCost * item.quantity * (item.consumptionRate || 1)
-        totalCost += itemCost
-        grandTotal += item.total
+        const rate = item.consumptionRate || 1
+        totalCost += product.originalCost * item.quantity * rate
+        
+        validItems.push({
+          productId: product.id,
+          productName: item.product.name,
+          quantity: item.quantity,
+          price: item.price,
+          consumptionRate: rate,
+          isMixDish: item.isMixDish || false,
+        })
       }
     }
 
     const totalProfit = grandTotal - totalCost
 
-    // Create bill in transaction
-    const result = await prisma.$transaction(async (tx) => {
+    // Save bill + items + stock (NO aggregate calls)
+    const bill = await prisma.$transaction(async (tx) => {
       // Create bill
-      const bill = await tx.bill.create({
+      const newBill = await tx.bill.create({
         data: {
-          customerName: customerName || "Walk-in-Cust",
-          mobile: customerMobile,
-          customerId: customer!.id,
-          paymentMethod,
-          remarks,
+          customerName: customerNameFinal,
+          mobile: customerMobile || null,
+          customerId,
+          paymentMethod: paymentMethod || "CASH",
+          cashAmount: cashAmount || null,
+          onlineAmount: onlineAmount || null,
+          remarks: remarks || null,
           grandTotal,
           totalCost,
           totalProfit,
-          lineItems: {
-            create: lineItems.map((item: any) => ({
-              productId: item.product.id,
-              productName: item.product.name,
-              quantity: item.quantity,
-              price: item.price,
-              consumptionRate: item.consumptionRate || 1,
-              isMixDish: item.isMixDish || false,
-            })),
-          },
-        },
-        include: {
-          lineItems: {
-            include: {
-              product: true,
-            },
-          },
         },
       })
 
-      // Update stock for each item
-      for (const item of lineItems) {
-        const requiredStock = item.quantity * (item.consumptionRate || 1)
+      // Create line items
+      for (const item of validItems) {
+        await tx.billItem.create({
+          data: {
+            billId: newBill.id,
+            ...item,
+          },
+        })
+      }
 
-        await tx.stockCurrent.update({
-          where: { productId: item.product.id },
+      // Deduct stock
+      for (const item of validItems) {
+        const required = item.quantity * item.consumptionRate
+        await tx.stockCurrent.updateMany({
+          where: { productId: item.productId },
           data: {
             currentStock: {
-              decrement: requiredStock,
+              decrement: required,
             },
           },
         })
       }
 
-      // Update customer stats
-      await tx.customer.update({
-        where: { id: customer!.id },
-        data: {
-          totalBills: { increment: 1 },
-          totalSpent: { increment: grandTotal },
-          lastPurchase: new Date(),
-        },
-      })
-
-      return bill
-    })
+      return newBill
+    },
+    {
+      maxWait: 5000, // time to wait for slot
+      timeout: 30000, // increase to 30 seconds
+    }
+  )
 
     return NextResponse.json({
       success: true,
-      billNo: result.billNo,
+      billNo: `BILL-${bill.id.slice(-6).toUpperCase()}`,
       totalProfit,
-      bill: result,
     })
   } catch (error) {
-    console.error("[v0] Error saving bill:", error)
-    return NextResponse.json({ success: false, error: "Failed to save bill" }, { status: 500 })
+    console.error("[bills/save] error:", error)
+    return NextResponse.json(
+      { success: false, error: "Failed to save bill" }, 
+      { status: 500 }
+    )
   }
 }

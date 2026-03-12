@@ -6,41 +6,121 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { useState } from "react"
+import { Switch } from "@/components/ui/switch"
+import { useState, useEffect } from "react"
 import { useToast } from "@/hooks/use-toast"
+
+const DEFAULT_SETTINGS: Record<string, string> = {
+  shopName: "Achyutam Fruitam",
+  shopAddress: "",
+  shopMobile: "",
+  shopGST: "",
+  taxRate: "0",
+  lowStockThreshold: "10",
+  showProductImages: "false",
+  showProductSKU: "false",
+}
 
 export function SettingsTab() {
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
-  const [settings, setSettings] = useState({
-    shopName: "Achyutam Fruitam",
-    address: "123 Main Street, City",
-    mobile: "9876543210",
-    gst: "",
-    lowStockThreshold: "5",
-    taxRate: "0",
-  })
+  const [fetching, setFetching] = useState(true)
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS)
+
+  useEffect(() => {
+    fetchSettings()
+  }, [])
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch("/api/settings")
+      const data = await res.json()
+      if (data.success) {
+        setSettings({ ...DEFAULT_SETTINGS, ...data.settings })
+      }
+    } catch {
+      // Fall back to defaults
+    } finally {
+      setFetching(false)
+    }
+  }
+
+  const updateSetting = (key: string, value: string) => {
+    setSettings((prev) => ({ ...prev, [key]: value }))
+  }
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
 
-    // Simulate saving
-    setTimeout(() => {
-      toast({
-        title: "Success",
-        description: "Settings saved successfully",
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings }),
       })
+
+      const data = await res.json()
+      if (data.success) {
+        toast({
+          title: "Settings saved",
+          description: "All settings saved to database",
+        })
+      } else {
+        throw new Error(data.error)
+      }
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to save settings",
+        variant: "destructive",
+      })
+    } finally {
       setLoading(false)
-    }, 1000)
+    }
+  }
+
+  if (fetching) {
+    return <div className="text-center py-8">Loading settings...</div>
   }
 
   return (
     <div className="space-y-6">
+      {/* Feature Toggles */}
       <Card>
         <CardHeader>
-          <CardTitle>General Settings</CardTitle>
-          <CardDescription>Configure your shop settings and preferences</CardDescription>
+          <CardTitle>Display Settings</CardTitle>
+          <CardDescription>Control what is visible on the POS screen</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Show Product Images on POS</Label>
+              <p className="text-sm text-muted-foreground">Display thumbnail images on product cards</p>
+            </div>
+            <Switch
+              checked={settings.showProductImages === "true"}
+              onCheckedChange={(checked) => updateSetting("showProductImages", checked ? "true" : "false")}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Show SKU on Product Cards</Label>
+              <p className="text-sm text-muted-foreground">Display SKU code below product name</p>
+            </div>
+            <Switch
+              checked={settings.showProductSKU === "true"}
+              onCheckedChange={(checked) => updateSetting("showProductSKU", checked ? "true" : "false")}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Shop Info */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Shop Information</CardTitle>
+          <CardDescription>Used on bills, receipts, and WhatsApp messages</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSave} className="space-y-4">
@@ -50,38 +130,36 @@ export function SettingsTab() {
                 <Input
                   id="shopName"
                   value={settings.shopName}
-                  onChange={(e) => setSettings({ ...settings, shopName: e.target.value })}
+                  onChange={(e) => updateSetting("shopName", e.target.value)}
                   required
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="mobile">Mobile Number</Label>
+                <Label htmlFor="shopMobile">Mobile Number</Label>
                 <Input
-                  id="mobile"
+                  id="shopMobile"
                   type="tel"
-                  value={settings.mobile}
-                  onChange={(e) => setSettings({ ...settings, mobile: e.target.value })}
-                  required
+                  value={settings.shopMobile}
+                  onChange={(e) => updateSetting("shopMobile", e.target.value)}
                 />
               </div>
 
               <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="address">Address</Label>
+                <Label htmlFor="shopAddress">Address</Label>
                 <Input
-                  id="address"
-                  value={settings.address}
-                  onChange={(e) => setSettings({ ...settings, address: e.target.value })}
-                  required
+                  id="shopAddress"
+                  value={settings.shopAddress}
+                  onChange={(e) => updateSetting("shopAddress", e.target.value)}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="gst">GST Number (Optional)</Label>
+                <Label htmlFor="shopGST">GST Number (Optional)</Label>
                 <Input
-                  id="gst"
-                  value={settings.gst}
-                  onChange={(e) => setSettings({ ...settings, gst: e.target.value })}
+                  id="shopGST"
+                  value={settings.shopGST}
+                  onChange={(e) => updateSetting("shopGST", e.target.value)}
                 />
               </div>
 
@@ -94,8 +172,7 @@ export function SettingsTab() {
                   max="100"
                   step="0.01"
                   value={settings.taxRate}
-                  onChange={(e) => setSettings({ ...settings, taxRate: e.target.value })}
-                  required
+                  onChange={(e) => updateSetting("taxRate", e.target.value)}
                 />
               </div>
 
@@ -106,8 +183,7 @@ export function SettingsTab() {
                   type="number"
                   min="1"
                   value={settings.lowStockThreshold}
-                  onChange={(e) => setSettings({ ...settings, lowStockThreshold: e.target.value })}
-                  required
+                  onChange={(e) => updateSetting("lowStockThreshold", e.target.value)}
                 />
               </div>
             </div>

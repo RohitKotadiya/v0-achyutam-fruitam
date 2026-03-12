@@ -8,10 +8,12 @@ import prisma from "./prisma"
  * @returns Updated current stock quantity
  */
 export async function calculateStock(productId: string): Promise<number> {
-  // Sum all inventory purchases
+  // Sum all inventory purchases (use unitsReceived as total)
   const totalPurchased = await prisma.inventoryLog.aggregate({
     where: { productId },
-    _sum: { quantity: true },
+    _sum: { 
+      unitsReceived: true,  // Fixed: was 'quantity'
+    },
   })
 
   // Sum all sales (from bill items)
@@ -26,7 +28,7 @@ export async function calculateStock(productId: string): Promise<number> {
     _sum: { quantity: true },
   })
 
-  const purchased = totalPurchased._sum.quantity || 0
+  const purchased = totalPurchased._sum.unitsReceived || 0
   const sold = totalSold._sum.quantity || 0
   const damaged = totalDamaged._sum.quantity || 0
 
@@ -35,7 +37,10 @@ export async function calculateStock(productId: string): Promise<number> {
   // Update StockCurrent table
   await prisma.stockCurrent.upsert({
     where: { productId },
-    update: { currentStock, updatedAt: new Date() },
+    update: { 
+      currentStock, 
+      updatedAt: new Date() 
+    },
     create: {
       productId,
       currentStock,

@@ -10,6 +10,7 @@ datasource db {
 enum PaymentMethod {
   CASH
   ONLINE
+  SPLIT
   PENDING
 }
 
@@ -23,6 +24,11 @@ enum UserRole {
   ADMIN
   USER
   STAFF
+}
+
+enum ReturnStatus {
+  RESTOCKED   // Item returned to inventory
+  DAMAGED     // Item was spoiled/damaged
 }
 
 // Users (for authentication)
@@ -84,6 +90,7 @@ model Product {
   name          String
   categoryId    String          // Changed from enum to categoryId
   category      ProductCategory @relation(fields: [categoryId], references: [id]) // Added relation
+  imageUrl      String?
   originalCost  Float
   sellingPrice  Float
   active        Boolean         @default(true)
@@ -98,6 +105,7 @@ model Product {
   damageLogs         DamageLog[]
   skuChangeHistory   SKUChangeHistory[]
   mixDishIngredients MixDishIngredient[]
+  returns            ReturnLog[]
 
   @@index([sku])
   @@index([categoryId]) // Updated index
@@ -153,16 +161,21 @@ model Bill {
   customerId      String?
   customer        Customer?     @relation(fields: [customerId], references: [id])
   paymentMethod   PaymentMethod @default(CASH)
+  cashAmount      Float?
+  onlineAmount    Float?
   remarks         String?
   grandTotal      Float
   totalCost       Float
   totalProfit     Float
+  refundTotal     Float         @default(0)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
   // Relations
-  lineItems       BillItem[]
-  editLogs        BillEditLog[]
+  lineItems          BillItem[]
+  editLogs           BillEditLog[]
+  paymentCollections PaymentCollection[]
+  returns            ReturnLog[]
 
   @@index([billNo])
   @@index([dateTime])
@@ -190,6 +203,7 @@ model BillItem {
 // Customers
 model Customer {
   id            String   @id @default(cuid())
+  customerNo    Int      @unique @default(autoincrement())
   mobile        String   @unique
   name          String
   totalBills    Int      @default(0)
@@ -200,7 +214,8 @@ model Customer {
   updatedAt     DateTime @updatedAt
 
   // Relations
-  bills         Bill[]
+  bills              Bill[]
+  paymentCollections PaymentCollection[]
 
   @@index([mobile])
   @@index([totalSpent])
@@ -377,4 +392,92 @@ model PurchaseOrder {
   @@index([supplierId])
   @@index([date])
   @@index([status])
+}
+
+// Owner Transaction Type
+enum OwnerTransactionType {
+  DRAWING  // Money taken out by owner
+  CAPITAL  // Money put in by owner
+}
+
+// Cash Register (daily cash drawer tracking)
+model CashRegister {
+  id              String    @id @default(cuid())
+  date            DateTime  @unique
+  openingBalance  Float     @default(0)
+  actualClosing   Float?
+  notes           String?
+  closedAt        DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([date])
+}
+
+// Payment Collection (customer dues collection)
+model PaymentCollection {
+  id            String        @id @default(cuid())
+  customerId    String
+  customer      Customer      @relation(fields: [customerId], references: [id])
+  billId        String?
+  bill          Bill?         @relation(fields: [billId], references: [id])
+  amount        Float
+  date          DateTime      @default(now())
+  paymentMethod PaymentMethod @default(CASH)
+  remarks       String?
+  createdAt     DateTime      @default(now())
+
+  @@index([customerId])
+  @@index([billId])
+  @@index([date])
+}
+
+// Owner Transactions (drawings & capital)
+model OwnerTransaction {
+  id            String               @id @default(cuid())
+  type          OwnerTransactionType
+  amount        Float
+  date          DateTime             @default(now())
+  description   String
+  paymentMethod PaymentMethod        @default(CASH)
+  remarks       String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@index([type])
+  @@index([date])
+}
+
+// Return Log (tracks returned items from bills)
+model ReturnLog {
+  id            String        @id @default(cuid())
+  billId        String
+  bill          Bill          @relation(fields: [billId], references: [id])
+  billItemId    String
+  productId     String
+  product       Product       @relation(fields: [productId], references: [id])
+  productName   String
+  quantity      Float
+  price         Float         // per-unit selling price
+  refundAmount  Float         // quantity * price
+  costAmount    Float         // quantity * originalCost (for profit adjustment)
+  reason        String
+  status        ReturnStatus  // RESTOCKED or DAMAGED
+  paymentMethod PaymentMethod @default(CASH)
+  date          DateTime      @default(now())
+  createdAt     DateTime      @default(now())
+
+  @@index([billId])
+  @@index([productId])
+  @@index([date])
+}
+
+// System Configuration (key-value store)
+model SystemConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
 }

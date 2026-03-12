@@ -1,17 +1,15 @@
 export function generatePrintHTML(billNo: number, billData: any) {
-  const { customerName, customerMobile, grandTotal, lineItems, paymentMethod, remarks } = billData
+  const { customerName, customerMobile, grandTotal, lineItems, remarks } = billData
 
   const now = new Date()
-  const dateStr = now.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  })
-  const timeStr = now.toLocaleTimeString("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  })
+  const dd = String(now.getDate()).padStart(2, "0")
+  const mm = String(now.getMonth() + 1).padStart(2, "0")
+  const yy = String(now.getFullYear()).slice(-2)
+  const hours = now.getHours()
+  const mins = String(now.getMinutes()).padStart(2, "0")
+  const ampm = hours >= 12 ? "PM" : "AM"
+  const h12 = hours % 12 || 12
+  const dateTimeStr = `${dd}/${mm}/${yy} ${h12}:${mins} ${ampm}`
 
   let itemsHtml = ""
   lineItems.forEach((item: any) => {
@@ -20,17 +18,16 @@ export function generatePrintHTML(billNo: number, billData: any) {
     const itemTotal = price * quantity
 
     itemsHtml += `<tr>
-      <td style="text-align:left; padding:5px 0;">${item.product?.name || item.productName}`
+      <td class="item-name">${item.product?.name || item.productName}`
 
     if (item.isMixDish && item.ingredients && item.ingredients.length > 0) {
       const ingredientNames = item.ingredients.map((ing: any) => ing.name).join(", ")
-      itemsHtml += `<br><small style="color:#666;">(Mix: ${ingredientNames})</small>`
+      itemsHtml += `<br><span class="mix">(${ingredientNames})</span>`
     }
 
     itemsHtml += `</td>
-      <td style="text-align:center; padding:5px 10px;">${quantity}</td>
-      <td style="text-align:right; padding:5px 10px;">₹${price.toFixed(2)}</td>
-      <td style="text-align:right; padding:5px 0;">₹${itemTotal.toFixed(2)}</td>
+      <td class="qty-rate">${quantity}x${price.toFixed(0)}</td>
+      <td class="amt">₹${itemTotal.toFixed(0)}</td>
     </tr>`
   })
 
@@ -38,76 +35,62 @@ export function generatePrintHTML(billNo: number, billData: any) {
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Bill #${billNo} - AFM</title>
+  <title>Bill #${billNo}</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
-    @media print {
-      body { margin: 0; padding: 10px; }
-      .no-print { display: none; }
-      @page { size: 80mm auto; margin: 0; }
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'Arial Narrow',Arial,sans-serif;font-size:11px;width:48mm;margin:0 auto;padding:2mm;}
+    @media print{
+      @page{size:48mm auto;margin:0;}
+      body{padding:1mm;}
+      .no-print{display:none;}
     }
-    .receipt { max-width: 300px; margin: 0 auto; }
-    .header { text-align: center; margin-bottom: 20px; border-bottom: 2px dashed #000; padding-bottom: 10px; }
-    .header h1 { margin: 0; font-size: 24px; font-weight: bold; }
-    .header h2 { margin: 5px 0; font-size: 14px; color: #666; font-weight: normal; }
-    .info { margin-bottom: 15px; font-size: 12px; }
-    .info-row { display: flex; justify-content: space-between; margin: 5px 0; }
-    .info-label { font-weight: bold; }
-    table { width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 12px; }
-    th { text-align: left; padding: 5px 0; border-top: 1px solid #000; border-bottom: 1px solid #000; }
-    td { padding: 5px 0; }
-    .totals { border-top: 2px solid #000; padding-top: 10px; margin-top: 10px; }
-    .total-row { display: flex; justify-content: space-between; margin: 5px 0; font-size: 14px; }
-    .grand-total { font-size: 18px; font-weight: bold; margin-top: 10px; }
-    .footer { text-align: center; margin-top: 20px; border-top: 2px dashed #000; padding-top: 10px; font-size: 12px; }
-    .thank-you { font-weight: bold; margin: 10px 0; }
+    .center{text-align:center;}
+    .brand{font-size:14px;font-weight:bold;letter-spacing:0.5px;}
+    .tagline{font-size:8px;color:#555;margin-top:1px;}
+    .dash{border-top:1px dashed #000;margin:3px 0;}
+    .row{display:flex;justify-content:space-between;line-height:1.4;}
+    table{width:100%;border-collapse:collapse;margin:2px 0;}
+    th{font-size:10px;border-bottom:1px solid #000;padding:2px 0;text-align:left;}
+    th:nth-child(2){text-align:center;white-space:nowrap;}
+    th:last-child{text-align:right;}
+    td{padding:1px 0;vertical-align:top;font-size:11px;}
+    .item-name{max-width:22mm;overflow:hidden;text-overflow:ellipsis;}
+    .qty-rate{text-align:center;white-space:nowrap;padding:1px 2px;}
+    .amt{text-align:right;white-space:nowrap;}
+    .mix{font-size:8px;color:#666;}
+    .total-line{border-top:1px solid #000;margin-top:3px;padding-top:3px;}
+    .grand{font-size:15px;font-weight:bold;}
+    .footer{font-size:9px;margin-top:4px;}
+    .ty{font-weight:bold;font-size:10px;margin-top:2px;}
   </style>
 </head>
 <body>
-  <div class="receipt">
-    <div class="header">
-      <h1>ACHYUTAM FRUITAM</h1>
-      <h2>Ice Cream & Desserts</h2>
-    </div>
-    
-    <div class="info">
-      <div class="info-row"><span class="info-label">Bill No:</span><span>#${billNo}</span></div>
-      <div class="info-row"><span class="info-label">Date:</span><span>${dateStr}</span></div>
-      <div class="info-row"><span class="info-label">Time:</span><span>${timeStr}</span></div>
-      <div class="info-row"><span class="info-label">Customer:</span><span>${customerName}</span></div>
-      ${customerMobile ? `<div class="info-row"><span class="info-label">Mobile:</span><span>${customerMobile}</span></div>` : ""}
-    </div>
-    
-    <table>
-      <thead>
-        <tr>
-          <th style="width:45%;">Item</th>
-          <th style="width:15%; text-align:center;">Qty</th>
-          <th style="width:20%; text-align:right;">Price</th>
-          <th style="width:20%; text-align:right;">Total</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${itemsHtml}
-      </tbody>
-    </table>
-    
-    <div class="totals">
-      <div class="total-row"><span>Payment Method:</span><span>${paymentMethod}</span></div>
-      ${remarks ? `<div class="total-row"><span>Note:</span><span>${remarks}</span></div>` : ""}
-      <div class="total-row grand-total"><span>TOTAL:</span><span>₹${grandTotal.toFixed(2)}</span></div>
-    </div>
-    
-    <div class="footer">
-      <div class="thank-you">Thank You! Visit Again! 🍦</div>
-      <div>Fresh • Delicious • Premium Quality</div>
-    </div>
+  <div class="center">
+    <div class="brand">ACHYUTAM FRUITAM</div>
+    <div class="tagline">Pure &bull; Fresh &bull; Premium</div>
   </div>
-  <script>
-    window.onload = function() {
-      window.print();
-    };
-  </script>
+  <div class="dash"></div>
+
+  <div class="row"><span>Bill #${billNo}</span><span>${dateTimeStr}</span></div>
+  <div class="row"><span>${customerName}</span>${customerMobile ? `<span>${customerMobile}</span>` : ""}</div>
+  <div class="dash"></div>
+
+  <table>
+    <thead><tr><th>Item</th><th>Qty×Rate</th><th>Amt</th></tr></thead>
+    <tbody>${itemsHtml}</tbody>
+  </table>
+
+  <div class="total-line">
+    <div class="row grand"><span>TOTAL</span><span>₹${grandTotal.toFixed(0)}</span></div>
+  </div>
+  ${remarks ? `<div class="row" style="font-size:9px;margin-top:2px;"><span>${remarks}</span></div>` : ""}
+
+  <div class="dash"></div>
+  <div class="footer center">
+    <div class="ty">Thank You! Visit Again!</div>
+  </div>
+
+  <script>window.onload=function(){window.print();};</script>
 </body>
 </html>`
 }

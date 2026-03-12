@@ -7,9 +7,6 @@ const nextConfig = {
     unoptimized: true,
   },
   serverExternalPackages: ['@prisma/client', '@prisma/engines'],
-  experimental: {
-    serverComponentsExternalPackages: ['@prisma/client', '@prisma/engines'],
-  },
 }
 
 export default nextConfig

@@ -1,8 +1,8 @@
-import { type NextRequest, NextResponse } from "next/server"
-import prisma from "@/lib/prisma"
+import { NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
 import { startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns"
 
-export async function GET(request: NextRequest) {
+export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const period = searchParams.get("period") || "month" // 'month', 'year', 'custom'

@@ -1,44 +1,62 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-
-interface IceCreamProduct {
-  id: string
-  sku: string
-  name: string
-  stock: number
-}
+import { Product } from "@/types/product"
 
 interface MixDishIngredient {
-  sku?: string // SKU of finished cube item (optional)
-  cubeFinished: boolean // Whether this is a finished cube
-  skuUsed: string[] // Array of ingredient SKUs used
+  sku: string
+  name: string
+  cubeFinished: boolean
 }
 
 interface MixDishModalProps {
-  isOpen: boolean
-  onClose: () => void
-  iceCreams: IceCreamProduct[]
-  onAddMixDish: (ingredients: MixDishIngredient[]) => void
-  preparedMixDishStock: number
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  iceCreams: Product[]
+  onAdd: (ingredients: MixDishIngredient[]) => void
 }
 
-export function MixDishModal({ isOpen, onClose, iceCreams, onAddMixDish, preparedMixDishStock }: MixDishModalProps) {
+export function MixDishModal({
+  open,
+  onOpenChange,
+  iceCreams,
+  onAdd
+}: MixDishModalProps) {
   const { toast } = useToast()
-  const [selectedIngredients, setSelectedIngredients] = useState<string[]>([])
-  const [finishedItems, setFinishedItems] = useState<string[]>([])
+  const [selectedIngredients, setSelectedIngredients] = useState<MixDishIngredient[]>([])
 
-  const handleIngredientToggle = (sku: string) => {
-    setSelectedIngredients((prev) => (prev.includes(sku) ? prev.filter((s) => s !== sku) : [...prev, sku]))
+  // Reset selections when modal opens
+  useEffect(() => {
+    if (open) {
+      setSelectedIngredients([])
+    }
+  }, [open])
+
+  const toggleIngredient = (product: Product) => {
+    const existing = selectedIngredients.find((ing) => ing.sku === product.sku)
+    if (existing) {
+      setSelectedIngredients(selectedIngredients.filter((ing) => ing.sku !== product.sku))
+    } else {
+      setSelectedIngredients([
+        ...selectedIngredients,
+        { sku: product.sku, name: product.name, cubeFinished: false }
+      ])
+    }
   }
 
-  const handleFinishedToggle = (sku: string) => {
-    setFinishedItems((prev) => (prev.includes(sku) ? prev.filter((s) => s !== sku) : [...prev, sku]))
+  const toggleCubeFinished = (sku: string) => {
+    setSelectedIngredients(
+      selectedIngredients.map((ing) =>
+        ing.sku === sku
+          ? { ...ing, cubeFinished: !ing.cubeFinished }
+          : ing
+      )
+    )
   }
 
   const handleAddToBill = () => {
@@ -51,59 +69,23 @@ export function MixDishModal({ isOpen, onClose, iceCreams, onAddMixDish, prepare
       return
     }
 
-    const ingredients: MixDishIngredient[] = []
-
-    // Add finished cube items (these will deduct from ice cream stock)
-    finishedItems.forEach((sku) => {
-      ingredients.push({
-        sku,
-        cubeFinished: true,
-        skuUsed: [...selectedIngredients],
-      })
-    })
-
-    // If no finished items but ingredients selected, use prepared mix dish
-    if (ingredients.length === 0) {
-      if (preparedMixDishStock === 0) {
-        toast({
-          title: "No Stock",
-          description: "No prepared mix dishes available. Please finish cubes or prepare mix dishes in admin.",
-          variant: "destructive",
-        })
-        return
-      }
-
-      // This will use prepared mix dish stock
-      ingredients.push({
-        cubeFinished: false,
-        skuUsed: [...selectedIngredients],
-      })
-    }
-
-    onAddMixDish(ingredients)
-
-    // Reset state
-    setSelectedIngredients([])
-    setFinishedItems([])
-    onClose()
+    onAdd(selectedIngredients)
+    onOpenChange(false)
   }
 
-  const availableIceCreams = iceCreams.filter((ic) => preparedMixDishStock > 0 || ic.stock > 0)
+  const availableIceCreams = iceCreams.filter((ic) => (ic.currentStock?.currentStock || 0) > 0)
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-2xl">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl max-h-[80vh]">
         <DialogHeader>
           <DialogTitle>Create Mix Dish</DialogTitle>
-          {preparedMixDishStock > 0 && (
-            <p className="text-sm text-muted-foreground">Prepared Mix Dishes Available: {preparedMixDishStock}</p>
-          )}
         </DialogHeader>
 
         <div className="max-h-[400px] overflow-y-auto space-y-4 py-4">
           {availableIceCreams.length === 0 ? (
             <p className="text-center text-muted-foreground py-8">
-              No ice cream available. Please add inventory or prepare mix dishes.
+              No ice cream available. Please add inventory first.
             </p>
           ) : (
             availableIceCreams.map((iceCream) => (
@@ -111,38 +93,55 @@ export function MixDishModal({ isOpen, onClose, iceCreams, onAddMixDish, prepare
                 <div className="flex items-center gap-3 flex-1">
                   <Checkbox
                     id={`ingredient-${iceCream.sku}`}
-                    checked={selectedIngredients.includes(iceCream.sku)}
-                    onCheckedChange={() => handleIngredientToggle(iceCream.sku)}
+                    checked={selectedIngredients.some((ing) => ing.sku === iceCream.sku)}
+                    onCheckedChange={() => toggleIngredient(iceCream)}
                   />
-                  <Label htmlFor={`ingredient-${iceCream.sku}`} className="cursor-pointer flex-1">
-                    {iceCream.name} <span className="text-muted-foreground">({iceCream.stock} available)</span>
+                  <Label
+                    htmlFor={`ingredient-${iceCream.sku}`}
+                    className="cursor-pointer flex-1 font-medium"
+                  >
+                    {iceCream.name}
+                    <span className="text-sm text-muted-foreground ml-2">
+                      ({iceCream.currentStock?.currentStock || 0} available)
+                    </span>
                   </Label>
                 </div>
 
-                <div className="flex items-center gap-2 ml-4">
-                  <Checkbox
-                    id={`finished-${iceCream.sku}`}
-                    checked={finishedItems.includes(iceCream.sku)}
-                    onCheckedChange={() => handleFinishedToggle(iceCream.sku)}
-                    disabled={iceCream.stock === 0}
-                  />
-                  <Label
-                    htmlFor={`finished-${iceCream.sku}`}
-                    className={`cursor-pointer text-sm ${iceCream.stock === 0 ? "text-muted-foreground" : ""}`}
-                  >
-                    Finished
-                  </Label>
-                </div>
+                {selectedIngredients.some((ing) => ing.sku === iceCream.sku) && (
+                  <div className="flex items-center gap-2 ml-4">
+                    <Checkbox
+                      id={`cube-${iceCream.sku}`}
+                      checked={selectedIngredients.find((ing) => ing.sku === iceCream.sku)?.cubeFinished}
+                      onCheckedChange={() => toggleCubeFinished(iceCream.sku)}
+                    />
+                    <Label
+                      htmlFor={`cube-${iceCream.sku}`}
+                      className="text-sm cursor-pointer"
+                    >
+                      Finished
+                    </Label>
+                  </div>
+                )}
               </div>
             ))
           )}
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            className="flex-1"
+          >
             Cancel
           </Button>
-          <Button onClick={handleAddToBill}>Add to Bill</Button>
+          <Button
+            onClick={handleAddToBill}
+            className="flex-1"
+            disabled={selectedIngredients.length === 0}
+          >
+            Add Mix Dish ({selectedIngredients.length} ingredients)
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -28,3 +28,57 @@ Continue building your app on:
 2. Deploy your chats from the v0 interface
 3. Changes are automatically pushed to this repository
 4. Vercel deploys the latest version from this repository
+
+
+## to install on local
+1. move to project folder
+2. create .env.local  - duplicate same file with only .env / or just create .env
+
+DATABASE_URL="postgresql://neondb_owner:npg_Lj2qKZyTmOJ6@ep-odd-frog-a4u692tl-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
+NEXTAUTH_SECRET="aJ8kL9mN2pQ5rS7tU0vW3xY6zA1bC4dE"
+NEXTAUTH_URL="http://localhost:3000"
+
+3. run this command on project folder 
+    npm install
+
+4. Run on dev server 
+    npm run dev
+
+    npx prisma generate
+    npx prisma migrate dev --name init-pos
+
+6. open url http://localhost:3000
+
+To test DB connection - http://localhost:3000/api/test-db
+
+To verify data available or not in DB - npx prisma studio
+
+To Feed Initial Data 
+----------------------
+Option A: psql
+Install psql if not installed.
+From project root, run:
+bash
+# For Windows PowerShell:
+psql "postgresql://neondb_owner:npg_Lj2qKZyTmOJ6@ep-odd-frog-a4u692tl-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require" -f scripts/001_initial_seed.sql
+
+Adjust the scripts/ path if your files are in a different folder.
+
+Option B: Web SQL console - Go to: https://console.neon.tech
+Open Neon’s web console for your neondb database.
+Open the SQL editor.
+
+Paste the contents of 001_initial_seed.sql → Run.
+Then paste 002_dynamic_categories.sql → Run.
+
+After running both:
+User will have an admin record.
+Product will have all 42 SKUs.
+ProductCategory will have the 4 categories.
+Product.categoryId will be set correctly.
+
+
+3) Verify data is visible to the app
+Use Prisma Studio:
+bash
+npx prisma studio
