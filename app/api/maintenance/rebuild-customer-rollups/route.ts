@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server"
 import { prismaFast as prisma } from "@/lib/prisma-fast"
+import { isMaintenanceKeyValid } from "@/lib/api-security"
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
+    if (!isMaintenanceKeyValid(request)) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
+
     const customers = await prisma.customer.findMany({
       select: { id: true },
     })

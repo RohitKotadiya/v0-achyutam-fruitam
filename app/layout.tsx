@@ -13,6 +13,19 @@ export const metadata: Metadata = {
   title: "Achyutam Fruitam - POS",
   description: "Point of Sale system for Achyutam Fruitam fruit shop",
   generator: "v0.app",
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+    googleBot: {
+      index: false,
+      follow: false,
+      noimageindex: true,
+      "max-snippet": -1,
+      "max-video-preview": -1,
+      "max-image-preview": "none",
+    },
+  },
   manifest: "/manifest.json",
   icons: {
     icon: [
