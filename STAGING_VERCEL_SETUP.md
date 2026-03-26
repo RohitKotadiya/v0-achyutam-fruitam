@@ -60,7 +60,7 @@ In Vercel:
 - `NEXTAUTH_URL`
 - `PRISMA_ENABLE_LEGACY_MIDDLEWARE` = `false`
 
-Use `.env.staging.example` as the template.
+Use [env.staging.example](env.staging.example) as the template.
 
 Set:
 
