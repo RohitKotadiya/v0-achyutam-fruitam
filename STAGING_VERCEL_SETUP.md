@@ -58,6 +58,9 @@ In Vercel:
 - `DATABASE_URL`
 - `NEXTAUTH_SECRET`
 - `NEXTAUTH_URL`
+- `POS_BASIC_AUTH_USER`
+- `POS_BASIC_AUTH_PASSWORD`
+- `MAINTENANCE_API_KEY`
 - `PRISMA_ENABLE_LEGACY_MIDDLEWARE` = `false`
 
 Use [env.staging.example](env.staging.example) as the template.
@@ -67,6 +70,20 @@ Set:
 - `DATABASE_URL` to the staging database connection string
 - `NEXTAUTH_SECRET` to a new random secret for staging
 - `NEXTAUTH_URL` to the exact staging URL, for example `https://staging.your-domain.com`
+- `POS_BASIC_AUTH_USER` and `POS_BASIC_AUTH_PASSWORD` to protect the full app behind HTTP Basic Auth
+- `MAINTENANCE_API_KEY` to protect reset/test/maintenance endpoints
+
+### 4. Confirm code-level protection is active
+
+After setting the variables above and redeploying:
+
+1. Opening staging URL should prompt for basic username/password.
+2. Without valid basic auth, app/pages/APIs should be blocked.
+3. Protected maintenance endpoints should still return `401` unless request includes:
+
+```text
+x-maintenance-key: <MAINTENANCE_API_KEY>
+```
 
 ## Neon / Postgres Setup Steps
 
@@ -111,6 +128,8 @@ After seeding, verify that at least one admin user exists.
 If needed, use the existing admin reset endpoint on staging only:
 
 - `POST /api/auth/reset-admin-password`
+
+This endpoint now requires the maintenance key header.
 
 This resets admin passwords to `admin123` in the current code. Change that password immediately after first login.
 
