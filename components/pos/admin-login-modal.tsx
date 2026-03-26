@@ -52,7 +52,6 @@ export function AdminLoginModal({ isOpen, onClose, onLoginSuccess }: AdminLoginM
         })
         setPassword("")
         onLoginSuccess()
-        onClose()
       } else {
         toast({
           title: "Invalid Password",
@@ -72,7 +71,11 @@ export function AdminLoginModal({ isOpen, onClose, onLoginSuccess }: AdminLoginM
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={(open) => {
+      if (!open) {
+        onClose()
+      }
+    }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
