@@ -25,6 +25,10 @@ interface Product {
   sellingPrice: number
   active: boolean
   lowStockAlert: number
+  currentStock?: {
+    currentStock: number
+    weightedAvgCost?: number | null
+  } | null
 }
 
 interface Category {
@@ -59,9 +63,10 @@ export function SKUTab() {
     try {
       const res = await fetch("/api/products")
       const data = await res.json()
-      setProducts(data)
+      setProducts(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error("Error fetching products:", error)
+      setProducts([])
     }
   }
 
@@ -69,9 +74,10 @@ export function SKUTab() {
     try {
       const res = await fetch("/api/categories")
       const data = await res.json()
-      setCategories(data)
+      setCategories(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error("Error fetching categories:", error)
+      setCategories([])
     }
   }
 
@@ -207,29 +213,31 @@ export function SKUTab() {
       <Card>
         <CardHeader>
           <CardTitle>Add New Product/SKU</CardTitle>
-          <CardDescription>Create a new product in your inventory</CardDescription>
+          <CardDescription>Quick add with a compact layout</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleAddSKU} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
+          <form onSubmit={handleAddSKU} className="space-y-3">
+            <div className="rounded-lg border bg-muted/20 p-3 md:p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
+                <div className="space-y-1.5 md:col-span-4">
                 <Label htmlFor="newSKUName">Product Name</Label>
                 <Input
                   id="newSKUName"
                   value={newSKU.name}
                   onChange={(e) => setNewSKU({ ...newSKU, name: e.target.value })}
+                  placeholder="e.g. Apple Premium"
                   required
                 />
               </div>
 
-              <div className="space-y-2">
+                <div className="space-y-1.5 md:col-span-3">
                 <Label htmlFor="newSKUCategory">Category</Label>
                 <Select
                   value={newSKU.categoryId}
                   onValueChange={(value) => setNewSKU({ ...newSKU, categoryId: value })}
                   required
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
                   <SelectContent>
@@ -242,7 +250,7 @@ export function SKUTab() {
                 </Select>
               </div>
 
-              <div className="space-y-2">
+                <div className="space-y-1.5 md:col-span-2">
                 <Label htmlFor="newSKUCost">Original Cost (₹)</Label>
                 <Input
                   id="newSKUCost"
@@ -251,11 +259,12 @@ export function SKUTab() {
                   step="0.01"
                   value={newSKU.originalCost}
                   onChange={(e) => setNewSKU({ ...newSKU, originalCost: e.target.value })}
+                  placeholder="0.00"
                   required
                 />
               </div>
 
-              <div className="space-y-2">
+                <div className="space-y-1.5 md:col-span-2">
                 <Label htmlFor="newSKUPrice">Selling Price (₹)</Label>
                 <Input
                   id="newSKUPrice"
@@ -264,11 +273,12 @@ export function SKUTab() {
                   step="0.01"
                   value={newSKU.sellingPrice}
                   onChange={(e) => setNewSKU({ ...newSKU, sellingPrice: e.target.value })}
+                  placeholder="0.00"
                   required
                 />
               </div>
 
-              <div className="space-y-2">
+                <div className="space-y-1.5 md:col-span-1">
                 <Label htmlFor="lowStockAlert">Low Stock Alert Level</Label>
                 <Input
                   id="lowStockAlert"
@@ -279,10 +289,28 @@ export function SKUTab() {
                 />
               </div>
             </div>
+            </div>
 
-            <Button type="submit" disabled={loading}>
-              {loading ? "Adding..." : "Add Product"}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="submit" disabled={loading}>
+                {loading ? "Adding..." : "Add Product"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  setNewSKU({
+                    name: "",
+                    categoryId: "",
+                    originalCost: "",
+                    sellingPrice: "",
+                    lowStockAlert: "10",
+                  })
+                }
+              >
+                Clear
+              </Button>
+            </div>
           </form>
         </CardContent>
       </Card>
@@ -301,7 +329,8 @@ export function SKUTab() {
                   <TableHead className="w-12">Image</TableHead>
                   <TableHead>SKU</TableHead>
                   <TableHead>Name</TableHead>
-                  <TableHead>Cost</TableHead>
+                  <TableHead>Master Cost</TableHead>
+                  <TableHead>Weighted Cost</TableHead>
                   <TableHead>Price</TableHead>
                   <TableHead>Alert Level</TableHead>
                   <TableHead>Status</TableHead>
@@ -311,7 +340,7 @@ export function SKUTab() {
               <TableBody>
                 {products.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center text-muted-foreground">
                       No products found
                     </TableCell>
                   </TableRow>
@@ -330,6 +359,7 @@ export function SKUTab() {
                       <TableCell className="font-medium">{product.sku}</TableCell>
                       <TableCell>{product.name}</TableCell>
                       <TableCell>₹{product.originalCost.toFixed(2)}</TableCell>
+                      <TableCell>₹{(product.currentStock?.weightedAvgCost ?? product.originalCost).toFixed(2)}</TableCell>
                       <TableCell>₹{product.sellingPrice.toFixed(2)}</TableCell>
                       <TableCell>{product.lowStockAlert}</TableCell>
                       <TableCell>

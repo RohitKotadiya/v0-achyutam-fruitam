@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { InventoryTab } from "@/components/admin/inventory-tab"
 import { SKUTab } from "@/components/admin/sku-tab"
@@ -10,6 +10,7 @@ import { CustomersTab } from "@/components/admin/customers-tab"
 import { SuppliersTab } from "@/components/admin/suppliers-tab"
 import { SettingsTab } from "@/components/admin/settings-tab"
 import { FinanceTab } from "@/components/admin/finance-tab"
+import { StockTransferTab } from "@/components/admin/stock-transfer-tab"
 import { Package, ShoppingCart, FolderKanban, BarChart3, Users, Truck, Settings, Wallet } from "lucide-react"
 import { BackButton } from "@/components/ui/back-button"
 import { useRouter } from "next/navigation"
@@ -18,7 +19,20 @@ import { Button } from "@/components/ui/button"
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState("inventory")
+  const [settings, setSettings] = useState<Record<string,string>>({ enableStockTransfer: "true" })
   const router = useRouter()
+  const tabTriggerClass = "flex items-center gap-2 !flex-none px-3"
+
+  useEffect(() => {
+    async function loadSettings() {
+      try {
+        const res = await fetch("/api/settings")
+        const data = await res.json()
+        if (data.success) setSettings(data.settings)
+      } catch {}
+    }
+    loadSettings()
+  }, [])
 
   return (
     <div className="min-h-screen bg-background">
@@ -64,40 +78,48 @@ export default function AdminPage() {
       {/* Main Content */}
       <div className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-8 lg:w-auto">
-            <TabsTrigger value="inventory" className="flex items-center gap-2">
+          <div className="w-full overflow-x-auto pb-1">
+            <TabsList className="inline-flex w-max min-w-full flex-nowrap gap-1">
+            <TabsTrigger value="inventory" className={tabTriggerClass}>
               <Package className="h-4 w-4" />
               <span className="hidden sm:inline">Inventory</span>
             </TabsTrigger>
-            <TabsTrigger value="sku" className="flex items-center gap-2">
+            <TabsTrigger value="sku" className={tabTriggerClass}>
               <ShoppingCart className="h-4 w-4" />
               <span className="hidden sm:inline">SKU</span>
             </TabsTrigger>
-            <TabsTrigger value="categories" className="flex items-center gap-2">
+            <TabsTrigger value="categories" className={tabTriggerClass}>
               <FolderKanban className="h-4 w-4" />
               <span className="hidden sm:inline">Categories</span>
             </TabsTrigger>
-            <TabsTrigger value="finance" className="flex items-center gap-2">
+            {settings.enableStockTransfer === "true" && (
+            <TabsTrigger value="stock-transfer" className={tabTriggerClass}>
+              <Truck className="h-4 w-4" />
+              <span className="hidden sm:inline">Stock Transfer</span>
+            </TabsTrigger>
+            )}
+            <TabsTrigger value="finance" className={tabTriggerClass}>
               <Wallet className="h-4 w-4" />
               <span className="hidden sm:inline">Finance</span>
             </TabsTrigger>
-            <TabsTrigger value="reports" className="flex items-center gap-2">
+            <TabsTrigger value="reports" className={tabTriggerClass}>
               <BarChart3 className="h-4 w-4" />
               <span className="hidden sm:inline">Reports</span>
             </TabsTrigger>
-            <TabsTrigger value="customers" className="flex items-center gap-2">
+            <TabsTrigger value="customers" className={tabTriggerClass}>
               <Users className="h-4 w-4" />
               <span className="hidden sm:inline">Customers</span>
             </TabsTrigger>
-            <TabsTrigger value="suppliers" className="flex items-center gap-2">
+            <TabsTrigger value="suppliers" className={tabTriggerClass}>
               <Truck className="h-4 w-4" />
               <span className="hidden sm:inline">Suppliers</span>
             </TabsTrigger>
-            <TabsTrigger value="settings" className="flex items-center gap-2">
+            <TabsTrigger value="settings" className={tabTriggerClass}>
               <Settings className="h-4 w-4" />
               <span className="hidden sm:inline">Settings</span>
             </TabsTrigger>
-          </TabsList>
+            </TabsList>
+          </div>
 
           <TabsContent value="inventory" className="space-y-4">
             <InventoryTab />
@@ -110,6 +132,12 @@ export default function AdminPage() {
           <TabsContent value="categories" className="space-y-4">
             <CategoryTab />
           </TabsContent>
+
+          {settings.enableStockTransfer === "true" && (
+          <TabsContent value="stock-transfer" className="space-y-4">
+            <StockTransferTab />
+          </TabsContent>
+          )}
 
           <TabsContent value="finance" className="space-y-4">
             <FinanceTab />

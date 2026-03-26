@@ -24,7 +24,6 @@ export function CategoryBadge({ category, showIcon = true, showCount = false, co
         borderColor: category.color,
       }}
     >
-      {showIcon && category.icon && <span className="mr-1">{category.icon}</span>}
       {category.displayName}
       {showCount && count !== undefined && <span className="ml-1">({count})</span>}
     </Badge>

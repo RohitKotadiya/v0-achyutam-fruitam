@@ -1,6 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import prisma from "@/lib/prisma"
 
+const parseLocalStart = (date: string) => new Date(`${date}T00:00:00`)
+const parseLocalEnd = (date: string) => new Date(`${date}T23:59:59.999`)
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -12,8 +15,8 @@ export async function GET(request: NextRequest) {
 
     if (startDate && endDate) {
       where.date = {
-        gte: new Date(startDate),
-        lte: new Date(endDate),
+        gte: parseLocalStart(startDate),
+        lte: parseLocalEnd(endDate),
       }
     }
 

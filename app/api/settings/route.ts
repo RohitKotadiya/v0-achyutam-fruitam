@@ -10,6 +10,14 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   shopGST: "",
   taxRate: "0",
   lowStockThreshold: "10",
+  mixPreparationTargetCategoryId: "",
+  enableMixDishPrep: "true",
+  enableMixDishPopup: "true",
+  enableStockTransfer: "true",
+  receiptPrintCopies: "1",
+  enableSilentPrinting: "false",
+  thermalPrinterAddress: "",
+  businessDayCutoffHour: "0",
 }
 
 export async function GET() {

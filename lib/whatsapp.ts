@@ -1,17 +1,5 @@
 export function generateWhatsAppMessage(billNo: number, billData: any) {
-  const { customerName, customerMobile, grandTotal, lineItems, paymentMethod, remarks } = billData
-
-  const now = new Date()
-  const dateStr = now.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  })
-  const timeStr = now.toLocaleTimeString("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  })
+  const { customerName, grandTotal, lineItems, remarks } = billData
 
   let itemsList = ""
   lineItems.forEach((item: any, index: number) => {
@@ -19,40 +7,19 @@ export function generateWhatsAppMessage(billNo: number, billData: any) {
     const quantity = Number.parseFloat(item.quantity) || 0
     const itemTotal = price * quantity
 
-    itemsList += `${index + 1}. ${item.product?.name || item.productName}\n`
-    itemsList += `   Qty: ${quantity} x ₹${price.toFixed(2)} = ₹${itemTotal.toFixed(2)}\n`
-
-    if (item.isMixDish && item.ingredients && item.ingredients.length > 0) {
-      const ingredientNames = item.ingredients.map((ing: any) => ing.name).join(", ")
-      itemsList += `   Mix: ${ingredientNames}\n`
-    }
-    itemsList += "\n"
+    const itemName = item.product?.name || item.productName || "Item"
+    itemsList += `${index + 1}. *${itemName}*    ${quantity}x${price.toFixed(0)} = ${itemTotal.toFixed(0)}\n`
   })
 
   const message = `*ACHYUTAM FRUITAM*
-Ice Cream & Desserts
-━━━━━━━━━━━━━━━━━━━━
+Hello, ${customerName}
 
-*BILL #${billNo}*
-Date: ${dateStr}, ${timeStr}
+*Bill #${billNo}*
 
-*Customer:* ${customerName}
-*Mobile:* ${customerMobile}
-
-━━━━━━━━━━━━━━━━━━━━
-*ORDER DETAILS*
-
-${itemsList}━━━━━━━━━━━━━━━━━━━━
-*Payment:* ${paymentMethod}
-${remarks ? `*Note:* ${remarks}\n` : ""}
-*TOTAL AMOUNT: ₹${grandTotal.toFixed(2)}*
-━━━━━━━━━━━━━━━━━━━━
-
-✨ Thank you for choosing Achyutam Fruitam! ✨
-We hope you enjoyed our ice creams!
-
-📞 Call us for orders & inquiries
-🍦 Fresh • Delicious • Premium Quality`
+${itemsList}
+*Grand Total: ₹${grandTotal.toFixed(0)}*
+${remarks ? `Note: ${remarks}\n` : ""}
+Thank you! Visit Again!`
 
   return message
 }
@@ -60,4 +27,69 @@ We hope you enjoyed our ice creams!
 export function getWhatsAppUrl(mobile: string, message: string) {
   const cleanMobile = mobile.replace(/^(\+91|91)/, "").replace(/\s+/g, "")
   return `https://wa.me/91${cleanMobile}?text=${encodeURIComponent(message)}`
+}
+
+export function openWhatsAppWithFallback(
+  mobile: string,
+  message: string,
+  options?: {
+    fallbackDelayMs?: number
+    enableWebFallback?: boolean
+    keepPageOpen?: boolean
+    onFallback?: () => void
+  },
+) {
+  const cleanMobile = mobile.replace(/^(\+91|91)/, "").replace(/\s+/g, "")
+  const encodedMessage = encodeURIComponent(message)
+  const appUrl = `whatsapp://send?phone=91${cleanMobile}&text=${encodedMessage}`
+  const webUrl = `https://wa.me/91${cleanMobile}?text=${encodedMessage}`
+  const fallbackDelayMs = options?.fallbackDelayMs ?? 1200
+  const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+  const shouldUseWebFallback = options?.enableWebFallback ?? isMobileDevice
+  const keepPageOpen = options?.keepPageOpen === true
+
+  const openAppLink = () => {
+    if (!keepPageOpen) {
+      window.location.assign(appUrl)
+      return
+    }
+
+    const iframe = document.createElement("iframe")
+    iframe.style.display = "none"
+    iframe.setAttribute("aria-hidden", "true")
+    iframe.src = appUrl
+    document.body.appendChild(iframe)
+    window.setTimeout(() => {
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe)
+      }
+    }, 1000)
+  }
+
+  if (!shouldUseWebFallback) {
+    openAppLink()
+    return
+  }
+
+  let switchedToApp = false
+  const onVisibilityChange = () => {
+    if (document.visibilityState === "hidden") {
+      switchedToApp = true
+    }
+  }
+
+  document.addEventListener("visibilitychange", onVisibilityChange)
+  openAppLink()
+
+  window.setTimeout(() => {
+    document.removeEventListener("visibilitychange", onVisibilityChange)
+    if (!switchedToApp) {
+      options?.onFallback?.()
+      if (keepPageOpen) {
+        window.open(webUrl, "_blank", "noopener,noreferrer")
+      } else {
+        window.location.assign(webUrl)
+      }
+    }
+  }, fallbackDelayMs)
 }

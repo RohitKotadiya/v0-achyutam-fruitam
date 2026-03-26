@@ -1,17 +1,46 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
+const clampCutoffHour = (value: unknown) => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return 0
+  return Math.min(23, Math.max(0, Math.floor(parsed)))
+}
+
+const parseBusinessStart = (date: string, cutoffHour: number) => {
+  const parsed = new Date(`${date}T00:00:00`)
+  parsed.setHours(cutoffHour, 0, 0, 0)
+  return parsed
+}
+
+const parseBusinessEnd = (date: string, cutoffHour: number) => {
+  const nextDay = new Date(`${date}T00:00:00`)
+  nextDay.setDate(nextDay.getDate() + 1)
+  nextDay.setHours(cutoffHour, 0, 0, 0)
+  return new Date(nextDay.getTime() - 1)
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const startDate = searchParams.get("startDate")
     const endDate = searchParams.get("endDate")
+    const cutoffConfig = await prisma.systemConfig.findUnique({ where: { key: "businessDayCutoffHour" } })
+    const cutoffHour = clampCutoffHour(cutoffConfig?.value)
 
     const where: any = {}
     if (startDate && endDate) {
       where.dateTime = {
-        gte: new Date(startDate),
-        lte: new Date(endDate),
+        gte: parseBusinessStart(startDate, cutoffHour),
+        lte: parseBusinessEnd(endDate, cutoffHour),
+      }
+    } else if (startDate) {
+      where.dateTime = {
+        gte: parseBusinessStart(startDate, cutoffHour),
+      }
+    } else if (endDate) {
+      where.dateTime = {
+        lte: parseBusinessEnd(endDate, cutoffHour),
       }
     }
 
@@ -19,20 +48,36 @@ export async function GET(request: Request) {
       where,
       include: {
         lineItems: {
-          include: { product: true },
+          include: {
+            product: {
+              include: {
+                category: {
+                  select: {
+                    displayName: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
         },
       },
       orderBy: { dateTime: "desc" },
     })
 
     const salesData = bills.map((bill) => ({
+      subtotalBeforeDiscount: bill.lineItems.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.price) || 0), 0),
       billNo: bill.billNo,
       date: bill.dateTime,
       customerName: bill.customerName,
       mobile: bill.mobile,
       paymentMethod: bill.paymentMethod,
+      cashAmount: bill.cashAmount,
+      onlineAmount: bill.onlineAmount,
+      refundTotal: bill.refundTotal,
       items: bill.lineItems.map((item) => ({
         product: item.productName,
+        category: item.product.category?.displayName || item.product.category?.name || "Uncategorized",
         quantity: item.quantity,
         price: item.price,
       })),
@@ -41,9 +86,109 @@ export async function GET(request: Request) {
       totalProfit: bill.totalProfit,
     }))
 
+    const summary = salesData.reduce(
+      (acc, bill) => {
+        const subtotalBeforeDiscount = Number(bill.subtotalBeforeDiscount) || 0
+        const grandTotal = Number(bill.grandTotal) || 0
+        const refundTotal = Number(bill.refundTotal) || 0
+        const cashAmount = Number(bill.cashAmount) || (bill.paymentMethod === "CASH" ? grandTotal : 0)
+        const onlineAmount = Number(bill.onlineAmount) || (bill.paymentMethod === "ONLINE" ? grandTotal : 0)
+
+        acc.totalSales += grandTotal
+        acc.totalBillsGenerated += 1
+        acc.paymentBreakdown.cash += cashAmount
+        acc.paymentBreakdown.upi += onlineAmount
+        acc.paymentBreakdown.credit += bill.paymentMethod === "PENDING" ? grandTotal : 0
+        acc.discountsGiven += Math.max(subtotalBeforeDiscount - grandTotal, 0)
+        acc.returnsRefunds += refundTotal
+        return acc
+      },
+      {
+        totalSales: 0,
+        totalBillsGenerated: 0,
+        paymentBreakdown: {
+          cash: 0,
+          upi: 0,
+          card: 0,
+          credit: 0,
+        },
+        discountsGiven: 0,
+        returnsRefunds: 0,
+      }
+    )
+
+    const netSales = summary.totalSales - summary.returnsRefunds
+
+    const productMap = new Map<string, { name: string; qty: number; sales: number }>()
+    const categoryMap = new Map<string, { category: string; revenue: number; qty: number }>()
+    const customerMap = new Map<string, { name: string; mobile: string | null; bills: number; sales: number; refunds: number; pendingAmount: number }>()
+
+    for (const bill of salesData) {
+      const customerKey = `${bill.customerName}::${bill.mobile || ""}`
+      const customerRow = customerMap.get(customerKey) || {
+        name: bill.customerName,
+        mobile: bill.mobile,
+        bills: 0,
+        sales: 0,
+        refunds: 0,
+        pendingAmount: 0,
+      }
+      customerRow.bills += 1
+      customerRow.sales += Number(bill.grandTotal) || 0
+      customerRow.refunds += Number(bill.refundTotal) || 0
+      if (bill.paymentMethod === "PENDING") {
+        customerRow.pendingAmount += Number(bill.grandTotal) || 0
+      }
+      customerMap.set(customerKey, customerRow)
+
+      for (const item of bill.items) {
+        const qty = Number(item.quantity) || 0
+        const sales = (Number(item.price) || 0) * qty
+        const productRow = productMap.get(item.product) || { name: item.product, qty: 0, sales: 0 }
+        productRow.qty += qty
+        productRow.sales += sales
+        productMap.set(item.product, productRow)
+
+        const categoryName = item.category || "Uncategorized"
+        const categoryRow = categoryMap.get(categoryName) || { category: categoryName, revenue: 0, qty: 0 }
+        categoryRow.revenue += sales
+        categoryRow.qty += qty
+        categoryMap.set(categoryName, categoryRow)
+      }
+    }
+
+    const productRows = Array.from(productMap.values()).sort((a, b) => {
+      if (b.qty !== a.qty) return b.qty - a.qty
+      return b.sales - a.sales
+    })
+    const customerRows = Array.from(customerMap.values()).map((row) => ({
+      ...row,
+      netSales: row.sales - row.refunds,
+    }))
+    const categoryRows = Array.from(categoryMap.values()).sort((a, b) => b.revenue - a.revenue)
+
     return NextResponse.json({
       success: true,
       count: salesData.length,
+      summary: {
+        ...summary,
+        netSales,
+        notes: {
+          upiCardTracking: "Online collections are currently stored together; card is shown as 0 until card-specific tracking is added.",
+        },
+      },
+      analytics: {
+        topSellingProducts: productRows.slice(0, 10),
+        leastSellingProducts: [...productRows].reverse().slice(0, 10),
+        categoryRevenue: categoryRows,
+        topCustomers: customerRows
+          .filter((row) => row.sales > 0)
+          .sort((a, b) => b.sales - a.sales)
+          .slice(0, 10),
+        creditCustomers: customerRows
+          .filter((row) => row.pendingAmount > 0)
+          .sort((a, b) => b.pendingAmount - a.pendingAmount),
+      },
       data: salesData,
     })
   } catch (error) {

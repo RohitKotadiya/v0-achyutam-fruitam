@@ -62,6 +62,7 @@ model ProductCategory {
   // Relations
   products      Product[]
   changeHistory CategoryChangeHistory[]
+  mixPreparations MixPreparation[]
 
   @@index([name])
   @@index([isActive])
@@ -105,11 +106,53 @@ model Product {
   damageLogs         DamageLog[]
   skuChangeHistory   SKUChangeHistory[]
   mixDishIngredients MixDishIngredient[]
+  fruitbombIngredients FruitbombIngredient[]
+  mixPreparationTargets MixPreparation[] @relation("MixPreparationTarget")
+  mixPreparationIngredients MixPreparationIngredient[] @relation("MixPreparationIngredientProduct")
   returns            ReturnLog[]
+  stockTransferItems StockTransferItem[]
 
   @@index([sku])
   @@index([categoryId]) // Updated index
   @@index([active])
+}
+
+// Generic mix preparation (dynamic target SKU + source category)
+model MixPreparation {
+  id               String          @id @default(cuid())
+  date             DateTime        @default(now())
+  targetProductId  String
+  targetProduct    Product         @relation("MixPreparationTarget", fields: [targetProductId], references: [id])
+  sourceCategoryId String
+  sourceCategory   ProductCategory @relation(fields: [sourceCategoryId], references: [id])
+  preparedQuantity Float
+  producedUnits    Float           @default(0)
+  costUnits        Float           @default(0)
+  producedUnitsRemaining Float     @default(0)
+  costUnitsRemaining Float         @default(0)
+  totalIngredientCost Float        @default(0)
+  unitCostPerCostUnit Float        @default(0)
+  remarks          String?
+  createdAt        DateTime        @default(now())
+
+  ingredients      MixPreparationIngredient[]
+
+  @@index([date])
+  @@index([targetProductId])
+  @@index([sourceCategoryId])
+  @@index([producedUnitsRemaining])
+}
+
+model MixPreparationIngredient {
+  id            String         @id @default(cuid())
+  preparationId String
+  preparation   MixPreparation @relation(fields: [preparationId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product        @relation("MixPreparationIngredientProduct", fields: [productId], references: [id])
+  quantity      Float
+
+  @@index([preparationId])
+  @@index([productId])
 }
 
 // Current Stock
@@ -118,6 +161,7 @@ model StockCurrent {
   productId     String   @unique
   product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   currentStock  Float    @default(0)
+  weightedAvgCost Float?
   updatedAt     DateTime @updatedAt
 
   @@index([productId])
@@ -181,6 +225,7 @@ model Bill {
   @@index([dateTime])
   @@index([customerId])
   @@index([paymentMethod])
+  @@index([paymentMethod, dateTime])
 }
 
 // Bill Line Items
@@ -195,6 +240,8 @@ model BillItem {
   price             Float
   consumptionRate   Float    @default(1) // For Fruit Bombs fractional consumption
   isMixDish         Boolean  @default(false)
+  unitCost          Float?
+  lineCost          Float?
   
   @@index([billId])
   @@index([productId])
@@ -235,6 +282,67 @@ model DamageLog {
   @@index([date])
 }
 
+// Stock Transfer Outlet (other store or contact)
+model StockTransferOutlet {
+  id        String         @id @default(cuid())
+  name      String
+  type      String         // "OUTLET_STORE" | "FRIEND_STORE" | "DISTRIBUTOR"
+  mobile    String
+  email     String?
+  address   String?
+  notes     String?
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  transfers StockTransfer[]
+
+  @@index([name])
+  @@index([isActive])
+}
+
+// Stock Transfer main record
+model StockTransfer {
+  id               String                @id @default(cuid())
+  transferNo       Int                   @unique @default(autoincrement())
+  outletId         String
+  outlet           StockTransferOutlet   @relation(fields: [outletId], references: [id])
+  transferType     String                // "OUTGOING" | "INCOMING"
+  transferDate     DateTime              @default(now())
+  settlementType   String                // "LOAN" | "SALE" | "RETURN"
+  settlementStatus String                @default("PENDING")
+  settledDate      DateTime?
+  totalValue       Float?
+  paidAmount       Float?                @default(0)
+  paymentMethod    String?               // "CASH" | "ONLINE" | "PENDING"
+  remarks          String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  items            StockTransferItem[]
+
+  @@index([outletId])
+  @@index([transferDate])
+  @@index([transferType])
+  @@index([settlementStatus])
+}
+
+// Individual items within a stock transfer
+model StockTransferItem {
+  id          String        @id @default(cuid())
+  transferId  String
+  transfer    StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product       @relation(fields: [productId], references: [id])
+  quantity    Float
+  price       Float?
+  costPrice   Float
+  remarks     String?
+
+  @@index([transferId])
+  @@index([productId])
+}
+
 // Mix Dish Preparation
 model MixDishPrep {
   id                  String   @id @default(cuid())
@@ -257,6 +365,33 @@ model MixDishIngredient {
   product       Product      @relation(fields: [productId], references: [id])
   quantity      Float
   cubeFinished  Boolean      @default(false)
+
+  @@index([prepId])
+  @@index([productId])
+}
+
+// Fruitbomb Preparation
+model FruitbombPrep {
+  id                  String   @id @default(cuid())
+  date                DateTime @default(now())
+  fruitbombsPrepared  Float
+  createdAt           DateTime @default(now())
+
+  // Relations
+  ingredients         FruitbombIngredient[]
+
+  @@index([date])
+}
+
+// Fruitbomb Ingredients (for tracking what went into preparation)
+model FruitbombIngredient {
+  id            String           @id @default(cuid())
+  prepId        String
+  prep          FruitbombPrep    @relation(fields: [prepId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product          @relation(fields: [productId], references: [id])
+  quantity      Float
+  cubeFinished  Boolean          @default(false)
 
   @@index([prepId])
   @@index([productId])

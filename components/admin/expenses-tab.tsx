@@ -20,6 +20,13 @@ import { Pencil, Trash2, Plus, TrendingDown } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrency, formatIndianDate } from "@/lib/client-helpers"
 
+const toLocalDateInputValue = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
 interface Expense {
   id: string
   date: string
@@ -55,7 +62,7 @@ export function ExpensesTab() {
   })
 
   const [formData, setFormData] = useState({
-    date: new Date().toISOString().split("T")[0],
+    date: toLocalDateInputValue(new Date()),
     category: "Other",
     description: "",
     amount: "",
@@ -76,9 +83,10 @@ export function ExpensesTab() {
 
       const res = await fetch(`/api/expenses?${params}`)
       const data = await res.json()
-      setExpenses(data)
+      setExpenses(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error("Error fetching expenses:", error)
+      setExpenses([])
     }
   }
 
@@ -126,7 +134,7 @@ export function ExpensesTab() {
   const handleEdit = (expense: Expense) => {
     setEditingExpense(expense)
     setFormData({
-      date: new Date(expense.date).toISOString().split("T")[0],
+      date: toLocalDateInputValue(new Date(expense.date)),
       category: expense.category,
       description: expense.description,
       amount: expense.amount.toString(),
@@ -159,7 +167,7 @@ export function ExpensesTab() {
 
   const resetForm = () => {
     setFormData({
-      date: new Date().toISOString().split("T")[0],
+      date: toLocalDateInputValue(new Date()),
       category: "Other",
       description: "",
       amount: "",

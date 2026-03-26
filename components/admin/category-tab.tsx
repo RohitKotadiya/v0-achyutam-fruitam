@@ -40,7 +40,7 @@ export function CategoryTab() {
     name: "",
     displayName: "",
     color: "#8b5cf6",
-    icon: "Package",
+    icon: "",
     sortOrder: 0,
   })
 
@@ -52,9 +52,10 @@ export function CategoryTab() {
     try {
       const res = await fetch("/api/categories")
       const data = await res.json()
-      setCategories(data)
+      setCategories(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error("Error fetching categories:", error)
+      setCategories([])
     }
   }
 
@@ -144,7 +145,7 @@ export function CategoryTab() {
       name: "",
       displayName: "",
       color: "#8b5cf6",
-      icon: "Package",
+      icon: "",
       sortOrder: 0,
     })
     setEditingCategory(null)
@@ -208,17 +209,6 @@ export function CategoryTab() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="icon">Icon Name</Label>
-                    <Input
-                      id="icon"
-                      value={formData.icon}
-                      onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
-                      placeholder="Package"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
                     <Label htmlFor="sortOrder">Sort Order</Label>
                     <Input
                       id="sortOrder"
@@ -249,7 +239,6 @@ export function CategoryTab() {
                 <TableHead>Name</TableHead>
                 <TableHead>Display Name</TableHead>
                 <TableHead>Color</TableHead>
-                <TableHead>Icon</TableHead>
                 <TableHead>Sort Order</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -262,7 +251,6 @@ export function CategoryTab() {
                   <TableCell>
                     <Badge style={{ backgroundColor: category.color }}>{category.color}</Badge>
                   </TableCell>
-                  <TableCell>{category.icon}</TableCell>
                   <TableCell>{category.sortOrder}</TableCell>
                   <TableCell className="text-right space-x-2">
                     <Button variant="outline" size="icon" onClick={() => handleEdit(category)}>

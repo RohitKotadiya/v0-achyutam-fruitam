@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
+const parseLocalStart = (date: string) => new Date(`${date}T00:00:00`)
+const parseLocalEnd = (date: string) => new Date(`${date}T23:59:59.999`)
+
 interface ReturnItem {
   billItemId: string
   productId: string
@@ -21,8 +24,8 @@ export async function GET(request: Request) {
     if (billId) where.billId = billId
     if (startDate || endDate) {
       where.date = {}
-      if (startDate) where.date.gte = new Date(startDate)
-      if (endDate) where.date.lte = new Date(endDate)
+      if (startDate) where.date.gte = parseLocalStart(startDate)
+      if (endDate) where.date.lte = parseLocalEnd(endDate)
     }
 
     const returns = await prisma.returnLog.findMany({
@@ -107,7 +110,8 @@ export async function POST(request: Request) {
       for (const item of items) {
         const billItem = bill.lineItems.find((li) => li.id === item.billItemId)!
         const refundAmount = item.quantity * billItem.price
-        const costAmount = item.quantity * billItem.product.originalCost * billItem.consumptionRate
+        const unitCost = billItem.unitCost ?? billItem.product.originalCost
+        const costAmount = item.quantity * unitCost * billItem.consumptionRate
 
         totalRefund += refundAmount
         totalCostReduction += costAmount

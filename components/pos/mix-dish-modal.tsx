@@ -1,147 +1,175 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useMemo, useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useToast } from "@/hooks/use-toast"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Product } from "@/types/product"
+import { useToast } from "@/hooks/use-toast"
 
-interface MixDishIngredient {
+interface CategoryOption {
+  id: string
+  displayName: string
+}
+
+interface MixIngredientSelection {
   sku: string
   name: string
-  cubeFinished: boolean
+  qty: number
 }
 
 interface MixDishModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  iceCreams: Product[]
-  onAdd: (ingredients: MixDishIngredient[]) => void
+  targetProduct: Product | null
+  sourceCategories: CategoryOption[]
+  products: Product[]
+  onAdd: (ingredients: MixIngredientSelection[]) => void
 }
 
 export function MixDishModal({
   open,
   onOpenChange,
-  iceCreams,
-  onAdd
+  targetProduct,
+  sourceCategories,
+  products,
+  onAdd,
 }: MixDishModalProps) {
   const { toast } = useToast()
-  const [selectedIngredients, setSelectedIngredients] = useState<MixDishIngredient[]>([])
+  const [sourceCategoryId, setSourceCategoryId] = useState("")
+  const [search, setSearch] = useState("")
+  const [qtyBySku, setQtyBySku] = useState<Record<string, string>>({})
 
-  // Reset selections when modal opens
   useEffect(() => {
-    if (open) {
-      setSelectedIngredients([])
-    }
-  }, [open])
+    if (!open) return
+    setSearch("")
+    setQtyBySku({})
+    setSourceCategoryId(sourceCategories[0]?.id || "")
+  }, [open, sourceCategories])
 
-  const toggleIngredient = (product: Product) => {
-    const existing = selectedIngredients.find((ing) => ing.sku === product.sku)
-    if (existing) {
-      setSelectedIngredients(selectedIngredients.filter((ing) => ing.sku !== product.sku))
-    } else {
-      setSelectedIngredients([
-        ...selectedIngredients,
-        { sku: product.sku, name: product.name, cubeFinished: false }
-      ])
-    }
-  }
+  const ingredientCandidates = useMemo(() => {
+    const q = search.trim().toLowerCase()
 
-  const toggleCubeFinished = (sku: string) => {
-    setSelectedIngredients(
-      selectedIngredients.map((ing) =>
-        ing.sku === sku
-          ? { ...ing, cubeFinished: !ing.cubeFinished }
-          : ing
-      )
-    )
-  }
+    return products
+      .filter((p) => !sourceCategoryId || p.categoryId === sourceCategoryId)
+      .filter((p) => p.id !== targetProduct?.id)
+      .filter((p) => (p.currentStock?.currentStock || 0) > 0)
+      .filter((p) => {
+        if (!q) return true
+        return p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)
+      })
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [products, sourceCategoryId, targetProduct?.id, search])
+
+  const selectedIngredients = useMemo(() => {
+    return ingredientCandidates
+      .map((p) => ({ product: p, qty: Number(qtyBySku[p.sku]) || 0 }))
+      .filter((item) => item.qty > 0)
+  }, [ingredientCandidates, qtyBySku])
 
   const handleAddToBill = () => {
-    if (selectedIngredients.length === 0) {
-      toast({
-        title: "No Ingredients",
-        description: "Please select at least one product.",
-        variant: "destructive",
-      })
+    if (!targetProduct) {
+      toast({ title: "Target missing", description: "Select target product again", variant: "destructive" })
       return
     }
 
-    onAdd(selectedIngredients)
+    if (!sourceCategoryId) {
+      toast({ title: "Source category required", description: "Select source category", variant: "destructive" })
+      return
+    }
+
+    if (selectedIngredients.length === 0) {
+      toast({ title: "No Ingredients", description: "Enter qty for at least one ingredient", variant: "destructive" })
+      return
+    }
+
+    onAdd(
+      selectedIngredients.map((item) => ({
+        sku: item.product.sku,
+        name: item.product.name,
+        qty: item.qty,
+      })),
+    )
     onOpenChange(false)
   }
 
-  const availableIceCreams = iceCreams.filter((ic) => (ic.currentStock?.currentStock || 0) > 0)
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[80vh]">
+      <DialogContent className="sm:max-w-3xl max-h-[85vh]">
         <DialogHeader>
-          <DialogTitle>Create Mix Dish</DialogTitle>
+          <DialogTitle>Prepare Mix for {targetProduct?.name || "-"}</DialogTitle>
         </DialogHeader>
 
-        <div className="max-h-[400px] overflow-y-auto space-y-4 py-4">
-          {availableIceCreams.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">
-              No ice cream available. Please add inventory first.
-            </p>
-          ) : (
-            availableIceCreams.map((iceCream) => (
-              <div key={iceCream.sku} className="flex items-center justify-between border rounded-lg p-4">
-                <div className="flex items-center gap-3 flex-1">
-                  <Checkbox
-                    id={`ingredient-${iceCream.sku}`}
-                    checked={selectedIngredients.some((ing) => ing.sku === iceCream.sku)}
-                    onCheckedChange={() => toggleIngredient(iceCream)}
-                  />
-                  <Label
-                    htmlFor={`ingredient-${iceCream.sku}`}
-                    className="cursor-pointer flex-1 font-medium"
-                  >
-                    {iceCream.name}
-                    <span className="text-sm text-muted-foreground ml-2">
-                      ({iceCream.currentStock?.currentStock || 0} available)
-                    </span>
-                  </Label>
-                </div>
+        <div className="space-y-3 py-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Source Category</Label>
+              <Select value={sourceCategoryId} onValueChange={(value) => {
+                setSourceCategoryId(value)
+                setQtyBySku({})
+              }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select source category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sourceCategories.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.id}>{cat.displayName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-                {selectedIngredients.some((ing) => ing.sku === iceCream.sku) && (
-                  <div className="flex items-center gap-2 ml-4">
-                    <Checkbox
-                      id={`cube-${iceCream.sku}`}
-                      checked={selectedIngredients.find((ing) => ing.sku === iceCream.sku)?.cubeFinished}
-                      onCheckedChange={() => toggleCubeFinished(iceCream.sku)}
+            <div className="space-y-1.5">
+              <Label>Search Ingredients</Label>
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name or SKU"
+              />
+            </div>
+          </div>
+
+          <div className="rounded border">
+            <div className="grid grid-cols-[1.3fr_90px_110px] gap-2 border-b bg-muted/50 px-3 py-2 text-xs font-medium">
+              <span>Ingredient</span>
+              <span className="text-right">Available</span>
+              <span className="text-right">Use Qty</span>
+            </div>
+            <div className="max-h-[360px] overflow-y-auto">
+              {ingredientCandidates.length === 0 ? (
+                <div className="px-3 py-8 text-center text-sm text-muted-foreground">No available ingredients in selected category</div>
+              ) : (
+                ingredientCandidates.map((p) => (
+                  <div key={p.sku} className="grid grid-cols-[1.3fr_90px_110px] gap-2 border-b px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{p.name}</div>
+                      <div className="text-xs text-muted-foreground">{p.sku}</div>
+                    </div>
+                    <div className="text-right text-muted-foreground">{(p.currentStock?.currentStock || 0).toFixed(2)}</div>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={qtyBySku[p.sku] || ""}
+                      onChange={(e) => setQtyBySku((prev) => ({ ...prev, [p.sku]: e.target.value }))}
+                      className="h-8 text-right"
                     />
-                    <Label
-                      htmlFor={`cube-${iceCream.sku}`}
-                      className="text-sm cursor-pointer"
-                    >
-                      Finished
-                    </Label>
                   </div>
-                )}
-              </div>
-            ))
-          )}
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="rounded bg-muted/40 px-3 py-2 text-sm">
+            Selected ingredients: <span className="font-semibold">{selectedIngredients.length}</span>
+          </div>
         </div>
 
         <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            className="flex-1"
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleAddToBill}
-            className="flex-1"
-            disabled={selectedIngredients.length === 0}
-          >
-            Add Mix Dish ({selectedIngredients.length} ingredients)
-          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={handleAddToBill}>Add Mix Item</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

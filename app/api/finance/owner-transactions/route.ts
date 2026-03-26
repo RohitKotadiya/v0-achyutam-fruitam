@@ -1,6 +1,25 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
+const clampCutoffHour = (value: unknown) => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return 0
+  return Math.min(23, Math.max(0, Math.floor(parsed)))
+}
+
+const parseBusinessStart = (date: string, cutoffHour: number) => {
+  const parsed = new Date(`${date}T00:00:00`)
+  parsed.setHours(cutoffHour, 0, 0, 0)
+  return parsed
+}
+
+const parseBusinessEnd = (date: string, cutoffHour: number) => {
+  const nextDay = new Date(`${date}T00:00:00`)
+  nextDay.setDate(nextDay.getDate() + 1)
+  nextDay.setHours(cutoffHour, 0, 0, 0)
+  return new Date(nextDay.getTime() - 1)
+}
+
 // GET - List owner transactions with filters
 export async function GET(request: Request) {
   try {
@@ -8,13 +27,15 @@ export async function GET(request: Request) {
     const type = searchParams.get("type") // DRAWING or CAPITAL
     const startDate = searchParams.get("startDate")
     const endDate = searchParams.get("endDate")
+    const cutoffConfig = await prisma.systemConfig.findUnique({ where: { key: "businessDayCutoffHour" } })
+    const cutoffHour = clampCutoffHour(cutoffConfig?.value)
 
     const where: any = {}
     if (type) where.type = type
     if (startDate || endDate) {
       where.date = {}
-      if (startDate) where.date.gte = new Date(startDate)
-      if (endDate) where.date.lte = new Date(endDate)
+      if (startDate) where.date.gte = parseBusinessStart(startDate, cutoffHour)
+      if (endDate) where.date.lte = parseBusinessEnd(endDate, cutoffHour)
     }
 
     const transactions = await prisma.ownerTransaction.findMany({

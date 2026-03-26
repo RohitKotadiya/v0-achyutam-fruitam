@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
-import { Search, RefreshCw, FileText, Settings, Trash2, Save, Printer, Plus, Minus, MessageCircle } from "lucide-react"
+import { useState, useEffect, useRef, useMemo } from "react"
+import { Search, RefreshCw, FileText, Settings, Trash2, Save, Printer, Plus, Minus, MessageCircle, X, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,9 +12,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { QuantityModal } from "@/components/pos/quantity-modal"
 import { MixDishModal } from "@/components/pos/mix-dish-modal"
 import { useToast } from "@/hooks/use-toast"
-import { generateWhatsAppMessage, getWhatsAppUrl } from "@/lib/whatsapp"
+import { generateWhatsAppMessage, openWhatsAppWithFallback } from "@/lib/whatsapp"
 import { generatePrintHTML } from "@/lib/print"
-import { useRouter } from "next/navigation"
+import { canUseSilentThermalPrint, printBillSilently } from "@/lib/thermal-print"
 import { AdminLoginModal } from "@/components/pos/admin-login-modal"
 
 interface Category {
@@ -53,11 +53,27 @@ interface BillItem {
   ingredients?: any[]
 }
 
+interface CustomerSuggestion {
+  id: string
+  customerNo?: number
+  name: string
+  mobile: string
+}
+
+interface LastSavedBill {
+  billNo: number
+  customerName: string
+  customerMobile: string | null
+  grandTotal: number
+  lineItems: BillItem[]
+  paymentMethod: "CASH" | "ONLINE" | "SPLIT"
+  remarks: string
+}
+
 export default function POSPage() {
   const [mounted, setMounted] = useState(false)
 
   const { toast } = useToast()
-  const router = useRouter()
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false)
 
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -77,16 +93,28 @@ export default function POSPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshingProducts, setRefreshingProducts] = useState(false)
+  const [billActionLoading, setBillActionLoading] = useState<"save" | "print" | "whatsapp" | null>(null)
+  const [showLastSavedActions, setShowLastSavedActions] = useState(false)
+  const [lastSavedBill, setLastSavedBill] = useState<LastSavedBill | null>(null)
   const [posSettings, setPosSettings] = useState<Record<string, string>>({})
+
+  const receiptPrintCopies = Math.max(1, Math.min(Number(posSettings.receiptPrintCopies) || 1, 5))
 
   const [editingBillNo, setEditingBillNo] = useState<number | null>(null)
 
   const [customerIdInput, setCustomerIdInput] = useState("")
   const [customerNo, setCustomerNo] = useState<number | null>(null)
-  const [customerSuggestions, setCustomerSuggestions] = useState<{ id: string; customerNo?: number; name: string; mobile: string }[]>([])
+  const [customerLookup, setCustomerLookup] = useState<CustomerSuggestion[]>([])
+  const [customerSuggestions, setCustomerSuggestions] = useState<CustomerSuggestion[]>([])
+  const [customerIdSuggestions, setCustomerIdSuggestions] = useState<CustomerSuggestion[]>([])
+  const [customerMobileSuggestions, setCustomerMobileSuggestions] = useState<CustomerSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [showIdSuggestions, setShowIdSuggestions] = useState(false)
+  const [showMobileSuggestions, setShowMobileSuggestions] = useState(false)
+  const customerIdRef = useRef<HTMLDivElement>(null)
+  const customerMobileRef = useRef<HTMLDivElement>(null)
   const customerNameRef = useRef<HTMLDivElement>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false)
@@ -95,16 +123,30 @@ export default function POSPage() {
   useEffect(() => {
     setMounted(true)
     // Check for edit bill from sessionStorage
-    const editBillData = sessionStorage.getItem('editBill')
+    const editBillData = sessionStorage.getItem('editBill') || localStorage.getItem('editBill')
     if (editBillData) {
       const bill = JSON.parse(editBillData)
+      const normalizedLineItems: BillItem[] = Array.isArray(bill.lineItems)
+        ? bill.lineItems.map((item: any) => {
+            const quantity = Number(item?.quantity) || 0
+            const price = Number(item?.price) || 0
+            return {
+              ...item,
+              quantity,
+              price,
+              total: quantity * price,
+            }
+          })
+        : []
+
       setEditingBillNo(bill.billNo)
-      setBillItems(bill.lineItems || [])
+      setBillItems(normalizedLineItems)
       setCustomerName(bill.customerName || '')
       setCustomerMobile(bill.mobile || '')
       setPaymentMethod(bill.paymentMethod || 'CASH')
       setRemarks(bill.remarks || '')
       sessionStorage.removeItem('editBill')
+      localStorage.removeItem('editBill')
       toast({
         title: "Editing Bill",
         description: `Bill #${bill.billNo} loaded for editing`,
@@ -112,6 +154,39 @@ export default function POSPage() {
       })
     }
   }, [])
+
+  const readLastSavedBillFromStorage = (): LastSavedBill | null => {
+    try {
+      const raw = localStorage.getItem("lastSavedBill")
+      if (!raw) return null
+      const parsed = JSON.parse(raw)
+      const billNo = Number(parsed?.billNo)
+      if (!Number.isFinite(billNo) || billNo <= 0) return null
+
+      return {
+        billNo,
+        customerName: String(parsed?.customerName || "Walk-in-Cust"),
+        customerMobile: parsed?.customerMobile ? String(parsed.customerMobile) : null,
+        grandTotal: Number(parsed?.grandTotal) || 0,
+        lineItems: Array.isArray(parsed?.lineItems) ? parsed.lineItems : [],
+        paymentMethod: parsed?.paymentMethod === "ONLINE" || parsed?.paymentMethod === "SPLIT" ? parsed.paymentMethod : "CASH",
+        remarks: String(parsed?.remarks || ""),
+      }
+    } catch {
+      return null
+    }
+  }
+
+  const syncLastSavedBill = () => {
+    const bill = readLastSavedBillFromStorage()
+    setLastSavedBill(bill)
+    return bill
+  }
+
+  useEffect(() => {
+    if (!mounted) return
+    syncLastSavedBill()
+  }, [mounted])
 
   useEffect(() => {
     fetch("/api/settings").then(r => r.json()).then(d => {
@@ -125,7 +200,11 @@ export default function POSPage() {
 
   useEffect(() => {
     fetchProducts()
-  }, [activeCategoryId, searchQuery])
+  }, [])
+
+  useEffect(() => {
+    fetchCustomerLookup()
+  }, [])
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
@@ -163,32 +242,99 @@ export default function POSPage() {
     }
   }
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true
     try {
-      setLoading(true)
-      const params = new URLSearchParams()
-      if (activeCategoryId !== "all") {
-        params.append("categoryId", activeCategoryId)
+      if (!silent) {
+        setLoading(true)
       }
-      if (searchQuery) {
-        params.append("search", searchQuery)
-      }
-
-      const response = await fetch(`/api/products?${params}`)
-      const data = await response.json()
-      setProducts(data)
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to load products",
-        variant: "destructive",
+      const response = await fetch(`/api/products`, {
+        cache: "no-store",
       })
+      const data = await response.json()
+      setProducts(Array.isArray(data) ? data : [])
+    } catch (error) {
+      if (!silent) {
+        toast({
+          title: "Error",
+          description: "Failed to load products",
+          variant: "destructive",
+        })
+      }
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
   }
 
+  const handleRefreshProducts = async () => {
+    try {
+      setRefreshingProducts(true)
+      await fetchProducts({ silent: true })
+      toast({
+        title: "Products refreshed",
+        duration: 800,
+      })
+    } finally {
+      setRefreshingProducts(false)
+    }
+  }
+
+  const fetchCustomerLookup = async () => {
+    try {
+      const res = await fetch("/api/customers", { cache: "no-store" })
+      if (!res.ok) return
+      const data = await res.json()
+      if (!Array.isArray(data)) return
+
+      setCustomerLookup(
+        data.map((c: any) => ({
+          id: String(c.id),
+          customerNo: Number(c.customerNo) || undefined,
+          name: String(c.name || ""),
+          mobile: String(c.mobile || ""),
+        })),
+      )
+    } catch {
+      // Lookup remains API-backed if preload fails
+    }
+  }
+
+  const filterCustomers = (query: string, limit = 8) => {
+    const q = query.trim().toLowerCase()
+    if (!q) return []
+    const qNoPrefix = q.startsWith("c") ? q.slice(1) : q
+
+    const scored = customerLookup
+      .map((c) => {
+        const no = String(c.customerNo || "")
+        const noPadded = c.customerNo ? `c${String(c.customerNo).padStart(3, "0")}` : ""
+        const name = c.name.toLowerCase()
+        const mobile = c.mobile.toLowerCase()
+
+        let score = 0
+        if (noPadded.startsWith(q) || no.startsWith(qNoPrefix)) score += 4
+        if (noPadded.includes(q) || no.includes(qNoPrefix)) score += 3
+        if (name.startsWith(q)) score += 2
+        if (name.includes(q) || mobile.includes(q)) score += 1
+
+        return { c, score }
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+
+    return scored.map((x) => x.c)
+  }
+
   const searchCustomerByMobile = async (mobile: string) => {
+    const localCustomer = customerLookup.find((c) => c.mobile === mobile)
+    if (localCustomer) {
+      selectCustomerSuggestion(localCustomer)
+      return
+    }
+
     try {
       const res = await fetch(`/api/customers?mobile=${mobile}`)
       if (res.ok) {
@@ -213,6 +359,13 @@ export default function POSPage() {
     const cleaned = input.trim().replace(/^c/i, "")
     const num = parseInt(cleaned, 10)
     if (isNaN(num) || num <= 0) return
+
+    const localCustomer = customerLookup.find((c) => c.customerNo === num)
+    if (localCustomer) {
+      selectCustomerSuggestion(localCustomer)
+      return
+    }
+
     try {
       const res = await fetch(`/api/customers?cno=${num}`)
       if (res.ok) {
@@ -225,47 +378,78 @@ export default function POSPage() {
           toast({
             title: "Customer found",
             description: `${data.name} — ${data.mobile}`,
-            duration: 2000,
+            duration: 1200,
           })
         }
-      } else {
-        toast({
-          title: "Not found",
-          description: `No customer with ID C${String(num).padStart(3, "0")}`,
-          variant: "destructive",
-          duration: 2000,
-        })
       }
     } catch {
       // Silently fail
     }
   }
 
-  const searchCustomerByName = useCallback(async (query: string) => {
+  const searchCustomerByName = (query: string) => {
     if (query.length < 2) {
       setCustomerSuggestions([])
       return
     }
-    try {
-      const res = await fetch(`/api/customers?search=${encodeURIComponent(query)}`)
-      if (res.ok) {
-        const data = await res.json()
-        setCustomerSuggestions(Array.isArray(data) ? data : [])
-        setShowSuggestions(Array.isArray(data) && data.length > 0)
-      }
-    } catch {
-      setCustomerSuggestions([])
-    }
-  }, [])
+
+    const matches = filterCustomers(query)
+    setCustomerSuggestions(matches)
+    setShowSuggestions(matches.length > 0)
+  }
 
   const handleCustomerNameChange = (value: string) => {
     setCustomerName(value)
     setCustomerNo(null)
     setCustomerIdInput("")
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      searchCustomerByName(value)
-    }, 300)
+    setShowIdSuggestions(false)
+    setCustomerIdSuggestions([])
+    searchCustomerByName(value)
+  }
+
+  const handleCustomerIdChange = (value: string) => {
+    const next = value.toUpperCase()
+    setCustomerIdInput(next)
+
+    if (customerNo) {
+      setCustomerNo(null)
+      setCustomerName("")
+      setCustomerMobile("")
+    }
+
+    if (!next.trim()) {
+      setCustomerIdSuggestions([])
+      setShowIdSuggestions(false)
+      return
+    }
+
+    const matches = filterCustomers(next)
+    setCustomerIdSuggestions(matches)
+    setShowIdSuggestions(matches.length > 0)
+  }
+
+  const handleCustomerMobileChange = (value: string) => {
+    const digits = value.replace(/\D/g, "").slice(0, 10)
+    setCustomerMobile(digits)
+
+    if (!digits) {
+      setCustomerMobileSuggestions([])
+      setShowMobileSuggestions(false)
+      return
+    }
+
+    if (digits.length < 3) {
+      setCustomerMobileSuggestions([])
+      setShowMobileSuggestions(false)
+      return
+    }
+
+    const matches = customerLookup
+      .filter((c) => c.mobile.includes(digits))
+      .slice(0, 8)
+
+    setCustomerMobileSuggestions(matches)
+    setShowMobileSuggestions(matches.length > 0)
   }
 
   const selectCustomerSuggestion = (customer: { customerNo?: number; name: string; mobile: string }) => {
@@ -274,14 +458,25 @@ export default function POSPage() {
     setCustomerNo(customer.customerNo || null)
     setCustomerIdInput(customer.customerNo ? `C${String(customer.customerNo).padStart(3, "0")}` : "")
     setShowSuggestions(false)
+    setShowIdSuggestions(false)
+    setShowMobileSuggestions(false)
     setCustomerSuggestions([])
+    setCustomerIdSuggestions([])
+    setCustomerMobileSuggestions([])
   }
 
   // Close suggestions on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (customerNameRef.current && !customerNameRef.current.contains(e.target as Node)) {
+      const target = e.target as Node
+      if (customerNameRef.current && !customerNameRef.current.contains(target)) {
         setShowSuggestions(false)
+      }
+      if (customerIdRef.current && !customerIdRef.current.contains(target)) {
+        setShowIdSuggestions(false)
+      }
+      if (customerMobileRef.current && !customerMobileRef.current.contains(target)) {
+        setShowMobileSuggestions(false)
       }
     }
     document.addEventListener("mousedown", handleClickOutside)
@@ -290,20 +485,35 @@ export default function POSPage() {
 
   const lowStockProducts = products.filter((p) => (p.currentStock?.currentStock || 0) < 10)
 
+  const filteredProducts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+
+    return products.filter((p) => {
+      const categoryMatch = activeCategoryId === "all" || p.categoryId === activeCategoryId
+      if (!categoryMatch) return false
+      if (!q) return true
+
+      return (
+        p.name.toLowerCase().includes(q) ||
+        p.sku.toLowerCase().includes(q) ||
+        p.category.displayName.toLowerCase().includes(q)
+      )
+    })
+  }, [products, activeCategoryId, searchQuery])
+  const mixTargetCategoryId = posSettings.mixPreparationTargetCategoryId || ""
+  const shouldUseDynamicMixPopup =
+    posSettings.enableMixDishPopup !== "false" &&
+    !!mixTargetCategoryId
+
   const selectProduct = (product: Product) => {
     setSelectedProduct(product)
 
-    switch (product.category.name) {
-      case "fruit_bomb":
-        addToBill(product, 1)
-        break
-      case "mix_dish":
-        setIsMixDishModalOpen(true)
-        break
-      default:
-        addToBill(product, 1)
-        break
+    if (shouldUseDynamicMixPopup && product.categoryId === mixTargetCategoryId) {
+      setIsMixDishModalOpen(true)
+      return
     }
+
+    addToBill(product, 1)
   }
 
   const addToBill = (
@@ -313,11 +523,10 @@ export default function POSPage() {
     isMixDish = false,
     ingredients: any[] = [],
   ) => {
-    if (product.category.name !== "mix_dish") {
+    if (!isMixDish) {
       const stock = product.currentStock?.currentStock || 0
       if (stock < quantity) {
         toast({
-          id: `stock-${Date.now()}`,
           title: "Insufficient stock",
           description: `Not enough ${product.name}`,
           variant: "destructive",
@@ -358,10 +567,8 @@ export default function POSPage() {
     }
 
     toast({
-      id: `product-${Date.now()}`,
-      title: "Added to bill",
-      description: `${product.name} added successfully`,
-      duration: 2000,
+      title: "Added",
+      duration: 800,
     })
   }
 
@@ -400,10 +607,8 @@ export default function POSPage() {
   const removeItem = (itemId: string) => {
     setBillItems(billItems.filter((item) => item.id !== itemId))
     toast({
-      id: `remove-${Date.now()}`,
-      title: "Item removed",
-      description: "Item removed from bill",
-      duration: 2000,
+      title: "Removed",
+      duration: 800,
     })
   }
 
@@ -433,10 +638,27 @@ export default function POSPage() {
 
   const checkStockAvailability = () => {
     for (const item of billItems) {
+      if (item.isMixDish && item.ingredients && item.ingredients.length > 0) {
+        for (const ingredient of item.ingredients) {
+          const ingredientProduct = products.find((p) => p.sku === ingredient.sku)
+          const available = ingredientProduct?.currentStock?.currentStock || 0
+          const required = (Number(ingredient.qty) || 0) * item.quantity
+          if (required > available) {
+            toast({
+              title: "Stock unavailable",
+              description: `Insufficient ingredient stock for ${ingredientProduct?.name || ingredient.sku}`,
+              variant: "destructive",
+              duration: 2000,
+            })
+            return false
+          }
+        }
+        continue
+      }
+
       const stock = item.product.currentStock?.currentStock || 0
       if (stock < item.quantity) {
         toast({
-          id: `stock-un-${Date.now()}`,
           title: "Stock unavailable",
           description: `Insufficient stock for ${item.product.name}`,
           variant: "destructive",
@@ -448,8 +670,90 @@ export default function POSPage() {
     return true
   }
 
+  const handlePrintLastSavedBill = async () => {
+    const bill = syncLastSavedBill()
+    if (!bill) {
+      toast({
+        title: "No last bill",
+        description: "No saved bill found yet",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setBillActionLoading("print")
+    try {
+      if (canUseSilentThermalPrint(posSettings)) {
+        await printBillSilently(bill.billNo, bill, posSettings)
+      } else {
+        const printHTML = generatePrintHTML(bill.billNo, bill, { copies: receiptPrintCopies })
+        const printWindow = window.open("", "_blank")
+        if (printWindow) {
+          printWindow.document.write(printHTML)
+          printWindow.document.close()
+        }
+      }
+    } catch (error) {
+      toast({
+        title: "Print failed",
+        description: error instanceof Error ? error.message : "Could not print bill",
+        variant: "destructive",
+      })
+    } finally {
+      setBillActionLoading(null)
+    }
+  }
+
+  const handleSendLastSavedBill = () => {
+    const bill = syncLastSavedBill()
+    if (!bill) {
+      toast({
+        title: "No last bill",
+        description: "No saved bill found yet",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const mobile = bill.customerMobile || ""
+    if (mobile.length !== 10) {
+      toast({
+        title: "Mobile unavailable",
+        description: "Last saved bill has no valid 10-digit mobile number",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setBillActionLoading("whatsapp")
+    try {
+      const whatsappMessage = generateWhatsAppMessage(bill.billNo, {
+        customerName: bill.customerName,
+        customerMobile: mobile,
+        grandTotal: bill.grandTotal,
+        lineItems: bill.lineItems,
+        paymentMethod: bill.paymentMethod,
+        remarks: bill.remarks,
+      })
+
+      openWhatsAppWithFallback(mobile, whatsappMessage, {
+        onFallback: () => {
+          toast({
+            title: "Opening WhatsApp Web",
+            description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
+            duration: 1600,
+          })
+        },
+      })
+    } finally {
+      setBillActionLoading(null)
+    }
+  }
+
   // Core save — returns saved bill data or null on failure
   const saveBill = async (afterSave?: "print" | "whatsapp") => {
+    const actionType: "save" | "print" | "whatsapp" = afterSave === "print" ? "print" : afterSave === "whatsapp" ? "whatsapp" : "save"
+
     if (billItems.length === 0) {
       toast({
         title: "Empty bill",
@@ -468,7 +772,7 @@ export default function POSPage() {
       return
     }
 
-    setLoading(true)
+    setBillActionLoading(actionType)
 
     const customerNameFinal = customerName || "Walk-in-Cust"
     const customerMobileFinal = customerMobile && customerMobile.length === 10
@@ -476,13 +780,14 @@ export default function POSPage() {
       : null
 
     if (!checkStockAvailability()) {
-      setLoading(false)
+      setBillActionLoading(null)
       return
     }
 
     try {
       const response = await fetch("/api/bills/save", {
         method: "POST",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           customerName: customerNameFinal,
@@ -499,15 +804,19 @@ export default function POSPage() {
       const data = await response.json()
 
       if (data.success) {
+        const savedBillNo = Number(data.billNo)
+        if (!Number.isFinite(savedBillNo) || savedBillNo <= 0) {
+          throw new Error("Bill save response did not include a valid bill number")
+        }
+
         toast({
-          id: `bill-${Date.now()}-${data.billNo}`,
           title: "Bill saved",
-          description: `Bill #${data.billNo} saved!`,
-          duration: 2000,
+          description: `Bill #${savedBillNo} saved!`,
+          duration: 1000,
         })
 
         const savedBill = {
-          billNo: data.billNo,
+          billNo: savedBillNo,
           customerName: customerNameFinal,
           customerMobile: customerMobileFinal,
           grandTotal,
@@ -517,14 +826,19 @@ export default function POSPage() {
         }
 
         localStorage.setItem("lastSavedBill", JSON.stringify(savedBill))
+        setLastSavedBill(savedBill)
 
         // Post-save action
         if (afterSave === "print") {
-          const printHTML = generatePrintHTML(savedBill.billNo, savedBill)
-          const printWindow = window.open("", "_blank")
-          if (printWindow) {
-            printWindow.document.write(printHTML)
-            printWindow.document.close()
+          if (canUseSilentThermalPrint(posSettings)) {
+            await printBillSilently(savedBill.billNo, savedBill, posSettings)
+          } else {
+            const printHTML = generatePrintHTML(savedBill.billNo, savedBill, { copies: receiptPrintCopies })
+            const printWindow = window.open("", "_blank")
+            if (printWindow) {
+              printWindow.document.write(printHTML)
+              printWindow.document.close()
+            }
           }
         } else if (afterSave === "whatsapp") {
           const whatsappMessage = generateWhatsAppMessage(savedBill.billNo, {
@@ -535,8 +849,15 @@ export default function POSPage() {
             paymentMethod: savedBill.paymentMethod,
             remarks: savedBill.remarks,
           })
-          const whatsappUrl = getWhatsAppUrl(savedBill.customerMobile || "", whatsappMessage)
-          window.open(whatsappUrl, '_blank', 'noopener,noreferrer')
+          openWhatsAppWithFallback(savedBill.customerMobile || "", whatsappMessage, {
+            onFallback: () => {
+              toast({
+                title: "Opening WhatsApp Web",
+                description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
+                duration: 1600,
+              })
+            },
+          })
         }
 
         // Clear bill
@@ -554,8 +875,29 @@ export default function POSPage() {
         setCashReceived("")
         setEditingBillNo(null)
 
-        // Refresh products/stock
-        fetchProducts()
+        // Instant stock feedback: update local stock first, then silently re-sync.
+        const soldByProductId = new Map<string, number>()
+        for (const item of billItems) {
+          const required = item.quantity * (item.consumptionRate || 1)
+          soldByProductId.set(item.product.id, (soldByProductId.get(item.product.id) || 0) + required)
+        }
+
+        setProducts((prev) =>
+          prev.map((p) => {
+            const sold = soldByProductId.get(p.id) || 0
+            if (sold <= 0) return p
+            const current = p.currentStock?.currentStock || 0
+            return {
+              ...p,
+              currentStock: {
+                currentStock: Math.max(0, current - sold),
+              },
+            }
+          }),
+        )
+
+        // Background sync without blocking POS interactions.
+        void fetchProducts({ silent: true })
       } else {
         toast({
           title: "Error",
@@ -570,14 +912,18 @@ export default function POSPage() {
         variant: "destructive",
       })
     } finally {
-      setLoading(false)
+      setBillActionLoading(null)
     }
   }
 
-  const showImages = posSettings.showProductImages === "true"
   const showSKU = posSettings.showProductSKU === "true"
 
-  const subtotal = billItems.reduce((sum, item) => sum + item.total, 0)
+  const subtotal = billItems.reduce((sum, item) => {
+    const quantity = Number(item.quantity) || 0
+    const price = Number(item.price) || 0
+    const itemTotal = Number(item.total)
+    return sum + (Number.isFinite(itemTotal) ? itemTotal : quantity * price)
+  }, 0)
   const tax = 0
   const discountNum = Number(discountValue) || 0
   const discountAmount = discountType === "percent"
@@ -585,83 +931,108 @@ export default function POSPage() {
     : Math.min(discountNum, subtotal)
   const grandTotal = Math.max(subtotal + tax - discountAmount, 0)
 
-  const iceCreams = products.filter((p) => p.category.name === "ice_cream")
+  const sourceCategoriesForMix = categories
+    .filter((category) => category.id !== mixTargetCategoryId)
+    .map((category) => ({ id: category.id, displayName: category.displayName }))
+  const lowStockMessage = lowStockProducts.length > 0
+    ? `Low Stock: ${lowStockProducts.map((p) => p.name).join(", ")}`
+    : ""
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* ─── Header ─── */}
       <header className="border-b bg-card sticky top-0 z-10">
-        <div className="max-w-[1600px] mx-auto px-3 md:px-4 py-2 md:py-3">
+        <div className="max-w-[1600px] mx-auto px-3 md:px-4 py-1.5 md:py-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 md:gap-3">
-              <div className="flex items-center justify-center w-8 h-8 md:w-10 md:h-10 bg-primary rounded-lg">
-                <span className="text-primary-foreground font-bold text-sm md:text-lg">AFM</span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center w-7 h-7 md:w-8 md:h-8 bg-primary rounded-lg">
+                <span className="text-primary-foreground font-bold text-xs md:text-sm">AFM</span>
               </div>
               <div>
-                <h1 className="text-sm md:text-lg font-bold leading-tight">Achyutam Fruitam</h1>
-                <p className="text-[10px] md:text-xs text-muted-foreground leading-tight">Point of Sale</p>
+                <h1 className="text-xs md:text-base font-bold leading-tight">Achyutam Fruitam</h1>
               </div>
             </div>
 
             <div className="flex items-center gap-1.5 md:gap-2">
-              <div className="hidden md:block text-right mr-2">
-                <p className="text-sm font-medium">{currentTime.toLocaleDateString("en-IN")}</p>
-                <p className="text-xs text-muted-foreground">
-                  {mounted ? currentTime.toLocaleTimeString("en-IN") : "--:--"}
-                </p>
+              <div className="hidden md:flex items-center gap-2 text-right mr-1">
+                <div>
+                  <p className="text-xs font-medium leading-tight">{currentTime.toLocaleDateString("en-IN")}</p>
+                  <p className="text-[11px] text-muted-foreground leading-tight">
+                    {mounted ? currentTime.toLocaleTimeString("en-IN") : "--:--"}
+                  </p>
+                </div>
+                {lowStockProducts.length > 0 && (
+                  <div
+                    className="inline-flex items-center justify-center text-amber-600"
+                    title={lowStockMessage}
+                    aria-label={lowStockMessage}
+                  >
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                )}
               </div>
-              <Button variant="outline" size="sm" onClick={() => router.push("/bills")} className="h-8 px-2 md:px-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open("/bills", "_blank", "noopener,noreferrer")}
+                className="h-7 px-2 md:px-2.5"
+              >
                 <FileText className="w-4 h-4 md:mr-1.5" />
                 <span className="hidden md:inline text-xs">Bills</span>
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setIsAdminModalOpen(true)} className="h-8 px-2 md:px-3">
+              <Button variant="outline" size="sm" onClick={() => setIsAdminModalOpen(true)} className="h-7 px-2 md:px-2.5">
                 <Settings className="w-4 h-4 md:mr-1.5" />
                 <span className="hidden md:inline text-xs">Admin</span>
               </Button>
-              <Button variant="outline" size="sm" onClick={fetchProducts} aria-label="Refresh" className="h-8 px-2">
-                <RefreshCw className="w-4 h-4" />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefreshProducts}
+                disabled={refreshingProducts}
+                aria-label="Refresh"
+                className="h-7 px-2"
+              >
+                <RefreshCw className={`w-4 h-4 ${refreshingProducts ? "animate-spin" : ""}`} />
               </Button>
             </div>
           </div>
         </div>
       </header>
 
-      {/* ─── Low Stock Alert ─── */}
-      {lowStockProducts.length > 0 && (
-        <div className="bg-destructive/10 border-b border-destructive/20">
-          <div className="max-w-[1600px] mx-auto px-3 md:px-4 py-1.5">
-            <p className="text-xs md:text-sm text-destructive truncate">
-              Low Stock: {lowStockProducts.map((p) => p.name).join(", ")}
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* ─── Main Content ─── */}
-      <div className="flex-1 max-w-[1600px] mx-auto w-full px-2 md:px-4 py-3 md:py-4">
-        <div className="grid lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px] gap-3 md:gap-4 h-full">
+      <div className="flex-1 max-w-[1600px] mx-auto w-full px-2 md:px-4 py-1 md:py-2">
+        <div className="grid lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px] gap-2.5 md:gap-3 h-full">
 
           {/* ═══ LEFT: Products ═══ */}
           <div className="flex flex-col min-h-0">
             {/* Search */}
-            <div className="relative mb-2 md:mb-3">
+            <div className="relative mb-2">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 placeholder="Search products..."
-                className="pl-9 h-9 md:h-10"
+                className="pl-9 pr-9 h-9 md:h-10"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Clear search"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </div>
 
             {/* Category Tabs — horizontal scroll on mobile */}
-            <div className="mb-2 md:mb-3">
+            <div className="mb-2">
               <Tabs value={activeCategoryId} onValueChange={setActiveCategoryId}>
                 <TabsList className="h-8 md:h-9 w-full justify-start overflow-x-auto flex-nowrap">
                   <TabsTrigger value="all" className="text-xs md:text-sm px-3 shrink-0">All</TabsTrigger>
                   {categories.map((cat) => (
                     <TabsTrigger key={cat.id} value={cat.id} className="text-xs md:text-sm px-3 shrink-0">
-                      {cat.icon} {cat.displayName.split(" ")[0]}
+                        {cat.displayName.split(" ")[0]}
                     </TabsTrigger>
                   ))}
                 </TabsList>
@@ -669,79 +1040,52 @@ export default function POSPage() {
             </div>
 
             {/* Product Grid */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0 max-h-[calc(100vh-220px)] md:max-h-[calc(100vh-200px)]">
+            <div className="flex-1 overflow-y-auto custom-scrollbar min-h-[340px] md:min-h-[420px] max-h-[calc(100vh-190px)] md:max-h-[calc(100vh-170px)]">
               {loading ? (
                 <p className="text-center text-muted-foreground py-8">Loading products...</p>
-              ) : products.length === 0 ? (
+              ) : filteredProducts.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">No products found</p>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-3 pb-2">
-                  {products.map((product) => {
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1.5 pb-2">
+                  {filteredProducts.map((product) => {
                     const stock = product.currentStock?.currentStock || 0
                     const isLow = stock < 10
+                    const isOutOfStock = stock <= 0
                     return (
                       <button
                         key={product.id}
                         type="button"
-                        onClick={() => selectProduct(product)}
-                        className="group relative bg-card border rounded-lg overflow-hidden text-left hover:shadow-md hover:border-primary/30 transition-all active:scale-[0.98]"
+                        onClick={() => !isOutOfStock && selectProduct(product)}
+                        disabled={isOutOfStock}
+                        className={`group relative bg-card border rounded-lg overflow-hidden text-left transition-all active:scale-[0.98] ${
+                          isOutOfStock
+                            ? "opacity-55 cursor-not-allowed"
+                            : "hover:shadow-md hover:border-primary/30"
+                        }`}
                       >
-                        {/* Desktop-only image */}
-                        {showImages && (
-                          <div className="hidden md:block w-full h-28 bg-muted">
-                            {product.imageUrl ? (
-                              <img
-                                src={product.imageUrl}
-                                alt={product.name}
-                                className="w-full h-28 object-cover"
-                              />
-                            ) : (
-                              <div
-                                className="w-full h-28 flex items-center justify-center text-3xl"
-                                style={{ backgroundColor: product.category.color + "20" }}
-                              >
-                                {product.category.icon || product.name.charAt(0)}
-                              </div>
-                            )}
-                          </div>
-                        )}
+                        <div className="w-full h-[72px] md:h-[88px] bg-muted overflow-hidden">
+                          {product.imageUrl ? (
+                            <img
+                              src={product.imageUrl}
+                              alt={product.name}
+                              className="w-full h-full object-cover object-center"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-muted" />
+                          )}
+                        </div>
 
                         {/* Card Body */}
-                        <div className="p-2 md:p-2.5">
-                          {/* Mobile: color strip on left */}
-                          <div className="flex items-start gap-2">
-                            {/* Mobile-only: category icon/initial */}
-                            {!showImages && (
-                              <div
-                                className="w-8 h-8 md:w-9 md:h-9 rounded-md flex items-center justify-center text-sm md:text-base shrink-0"
-                                style={{ backgroundColor: product.category.color + "20" }}
-                              >
-                                {product.category.icon || product.name.charAt(0)}
-                              </div>
-                            )}
-                            {showImages && (
-                              <div
-                                className="md:hidden w-8 h-8 rounded-md flex items-center justify-center text-sm shrink-0"
-                                style={{ backgroundColor: product.category.color + "20" }}
-                              >
-                                {product.category.icon || product.name.charAt(0)}
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-medium text-xs md:text-sm leading-tight truncate">{product.name}</h3>
-                              {showSKU && <p className="text-[10px] text-muted-foreground truncate">{product.sku}</p>}
-                            </div>
+                        <div className="p-1.5 md:p-2">
+                          <div className="min-w-0">
+                            <h3 className="font-medium text-[11px] md:text-xs leading-tight break-words line-clamp-2">{product.name}</h3>
+                            {showSKU && <p className="text-[10px] text-muted-foreground truncate">{product.sku}</p>}
                           </div>
 
                           {/* Price + Stock row */}
-                          <div className="flex items-center justify-between mt-1.5 md:mt-2">
-                            <span className="text-sm md:text-base font-bold text-primary">₹{product.sellingPrice}</span>
-                            <Badge
-                              variant={isLow ? "destructive" : "secondary"}
-                              className="text-[10px] md:text-xs h-5 px-1.5"
-                            >
-                              {stock}
-                            </Badge>
+                          <div className="flex items-center justify-between mt-0">
+                            <span className="text-[11px] md:text-xs font-semibold text-primary">₹{product.sellingPrice.toFixed(0)}</span>
+                            <span className={`text-[11px] ${isLow ? "text-red-600" : "text-muted-foreground"}`}>Qty {stock.toFixed(0)}</span>
                           </div>
                         </div>
                       </button>
@@ -754,18 +1098,15 @@ export default function POSPage() {
 
           {/* ═══ RIGHT: Bill Panel ═══ */}
           <div className="flex flex-col min-h-0">
-            <Card className="flex flex-col flex-1 min-h-0">
+            <Card className="flex flex-col flex-1 min-h-0 py-2 md:py-2.5 gap-2">
               {/* Bill Header */}
-              <CardHeader className="pb-2 px-3 md:px-4 pt-3 shrink-0">
+              {editingBillNo && (
+              <CardHeader className="pb-1.5 px-3 md:px-4 pt-2 shrink-0">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base md:text-lg">
-                    {editingBillNo ? (
-                      <span className="flex items-center gap-2">
-                        Editing Bill <Badge variant="outline" className="text-sm font-bold">#{editingBillNo}</Badge>
-                      </span>
-                    ) : (
-                      "New Bill"
-                    )}
+                    <span className="flex items-center gap-2">
+                      Editing Bill <Badge variant="outline" className="text-sm font-bold">#{editingBillNo}</Badge>
+                    </span>
                   </CardTitle>
                   {editingBillNo && (
                     <Button
@@ -779,46 +1120,86 @@ export default function POSPage() {
                   )}
                 </div>
               </CardHeader>
+              )}
 
-              <CardContent className="flex flex-col flex-1 min-h-0 px-3 md:px-4 pb-3 space-y-2 md:space-y-3">
+              <CardContent className="flex flex-col flex-1 min-h-0 px-3 md:px-4 pb-1 space-y-1">
                 {/* Customer Info */}
-                <div className="shrink-0 space-y-1.5">
+                <div className="shrink-0 space-y-1">
                   {/* Row 1: Customer ID + Mobile */}
                   <div className="grid grid-cols-[80px_1fr] md:grid-cols-[100px_1fr] gap-2">
-                    <Input
-                      placeholder="C001"
-                      value={customerIdInput}
-                      onChange={(e) => {
-                        const val = e.target.value
-                        setCustomerIdInput(val)
-                        // Clear current customer when manually editing ID
-                        if (customerNo) {
-                          setCustomerNo(null)
-                          setCustomerName("")
-                          setCustomerMobile("")
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && customerIdInput.trim()) {
-                          searchCustomerById(customerIdInput)
-                        }
-                      }}
-                      onBlur={() => {
-                        if (customerIdInput.trim() && !customerNo) {
-                          searchCustomerById(customerIdInput)
-                        }
-                      }}
-                      className="h-8 md:h-9 text-sm font-mono"
-                      autoComplete="off"
-                    />
-                    <Input
-                      placeholder="Mobile (10 digits)"
-                      type="tel"
-                      maxLength={10}
-                      value={customerMobile}
-                      onChange={(e) => setCustomerMobile(e.target.value.replace(/\D/g, ""))}
-                      className="h-8 md:h-9 text-sm"
-                    />
+                    <div className="relative" ref={customerIdRef}>
+                      <Input
+                        placeholder="C001"
+                        value={customerIdInput}
+                        onChange={(e) => handleCustomerIdChange(e.target.value)}
+                        onFocus={() => { if (customerIdSuggestions.length > 0) setShowIdSuggestions(true) }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && customerIdInput.trim()) {
+                            if (customerIdSuggestions.length > 0) {
+                              selectCustomerSuggestion(customerIdSuggestions[0])
+                            } else {
+                              searchCustomerById(customerIdInput)
+                            }
+                          }
+                        }}
+                        className="h-8 md:h-9 text-sm font-mono"
+                        autoComplete="off"
+                      />
+                      {showIdSuggestions && customerIdSuggestions.length > 0 && (
+                        <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-card border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          {customerIdSuggestions.map((c) => (
+                            <button
+                              key={`id-${c.id}`}
+                              type="button"
+                              className="w-full text-left px-3 py-2 hover:bg-muted flex items-center gap-2 text-sm"
+                              onClick={() => selectCustomerSuggestion(c)}
+                            >
+                              <span className="text-[10px] text-muted-foreground font-mono shrink-0 w-8">C{String(c.customerNo || 0).padStart(3, "0")}</span>
+                              <span className="font-medium truncate flex-1">{c.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="relative" ref={customerMobileRef}>
+                      <Input
+                        placeholder="Mobile (10 digits)"
+                        type="tel"
+                        maxLength={10}
+                        value={customerMobile}
+                        onChange={(e) => handleCustomerMobileChange(e.target.value)}
+                        onFocus={() => { if (customerMobileSuggestions.length > 0) setShowMobileSuggestions(true) }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && customerMobile.trim()) {
+                            if (customerMobileSuggestions.length > 0) {
+                              selectCustomerSuggestion(customerMobileSuggestions[0])
+                            } else if (customerMobile.length === 10) {
+                              searchCustomerByMobile(customerMobile)
+                            }
+                          }
+                        }}
+                        className="h-8 md:h-9 text-sm"
+                        autoComplete="off"
+                      />
+                      {showMobileSuggestions && customerMobileSuggestions.length > 0 && (
+                        <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-card border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          {customerMobileSuggestions.map((c) => (
+                            <button
+                              key={`mobile-${c.id}`}
+                              type="button"
+                              className="w-full text-left px-3 py-2 hover:bg-muted flex items-center gap-2 text-sm"
+                              onClick={() => selectCustomerSuggestion(c)}
+                            >
+                              {c.customerNo && (
+                                <span className="text-[10px] text-muted-foreground font-mono shrink-0 w-8">C{String(c.customerNo).padStart(3, "0")}</span>
+                              )}
+                              <span className="font-medium truncate flex-1">{c.name}</span>
+                              <span className="text-xs text-muted-foreground shrink-0">{c.mobile}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   {/* Row 2: Customer Name with autocomplete */}
                   <div className="relative" ref={customerNameRef}>
@@ -902,17 +1283,8 @@ export default function POSPage() {
                               </Button>
                             </div>
 
-                            {/* Price (editable) */}
-                            <Input
-                              type="number"
-                              min="0"
-                              value={item.price}
-                              onChange={(e) => updatePrice(item.id, Number.parseFloat(e.target.value) || 0)}
-                              className="w-16 md:w-18 h-7 text-center text-sm shrink-0"
-                            />
-
                             {/* Total */}
-                            <span className="text-sm font-semibold w-14 text-right shrink-0">₹{item.total}</span>
+                            <span className="text-sm font-semibold w-14 text-right shrink-0">₹{(Number(item.total) || 0).toFixed(0)}</span>
 
                             {/* Delete */}
                             <Button
@@ -1071,7 +1443,7 @@ export default function POSPage() {
                   />
 
                   {/* Action Buttons */}
-                  <div className="grid grid-cols-4 gap-1.5">
+                  <div className="grid grid-cols-[repeat(4,minmax(0,1fr))_28px] gap-1.5 items-center">
                     <Button
                       variant="outline"
                       onClick={clearBill}
@@ -1083,36 +1455,88 @@ export default function POSPage() {
                     </Button>
                     <Button
                       onClick={() => saveBill()}
-                      disabled={billItems.length === 0 || loading}
-                      className={`h-9 text-xs px-1 ${loading ? 'animate-pulse' : ''}`}
+                      disabled={billItems.length === 0 || billActionLoading !== null}
+                      className="h-9 text-xs px-1"
                     >
-                      {loading ? (
+                      {billActionLoading === "save" ? (
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                       ) : (
                         <>
                           <Save className="w-3.5 h-3.5 md:mr-1" />
-                          <span className="hidden md:inline">Save</span>
+                          <span className="hidden md:inline">{editingBillNo ? "Update" : "Save"}</span>
                         </>
                       )}
                     </Button>
                     <Button
                       variant="outline"
                       onClick={() => saveBill("print")}
-                      disabled={billItems.length === 0 || loading}
+                      disabled={billItems.length === 0 || billActionLoading !== null}
                       className="h-9 text-xs px-1"
                     >
-                      <Printer className="w-3.5 h-3.5 md:mr-1" />
-                      <span className="hidden md:inline">Print</span>
+                      {billActionLoading === "print" ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <>
+                          <Printer className="w-3.5 h-3.5 md:mr-1" />
+                          <span className="hidden md:inline">Print</span>
+                        </>
+                      )}
                     </Button>
                     <Button
                       variant="outline"
                       onClick={() => saveBill("whatsapp")}
                       className="h-9 text-xs px-1 bg-green-500 text-white hover:bg-green-600 border-green-500"
-                      disabled={billItems.length === 0 || !customerMobile || loading}
+                      disabled={billItems.length === 0 || !customerMobile || billActionLoading !== null}
                     >
-                      <MessageCircle className="w-3.5 h-3.5 md:mr-1" />
-                      <span className="hidden md:inline">Send</span>
+                      {billActionLoading === "whatsapp" ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <>
+                          <MessageCircle className="w-3.5 h-3.5 md:mr-1" />
+                          <span className="hidden md:inline">Send</span>
+                        </>
+                      )}
                     </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label={showLastSavedActions ? "Hide last bill actions" : "Show last bill actions"}
+                      onClick={() => {
+                        setShowLastSavedActions((prev) => !prev)
+                        if (!showLastSavedActions) syncLastSavedBill()
+                      }}
+                      className="h-9 w-7"
+                    >
+                      {showLastSavedActions ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </Button>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    {showLastSavedActions ? (
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={handlePrintLastSavedBill}
+                          disabled={!lastSavedBill || billActionLoading !== null}
+                        >
+                          <Printer className="w-3.5 h-3.5 mr-1" />
+                          Print Last
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8 text-xs bg-green-500 text-white hover:bg-green-600 border-green-500"
+                          onClick={handleSendLastSavedBill}
+                          disabled={!lastSavedBill || billActionLoading !== null}
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 mr-1" />
+                          Send Last
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </CardContent>
@@ -1133,7 +1557,9 @@ export default function POSPage() {
           <MixDishModal
             open={isMixDishModalOpen}
             onOpenChange={setIsMixDishModalOpen}
-            iceCreams={iceCreams}
+            targetProduct={selectedProduct}
+            sourceCategories={sourceCategoriesForMix}
+            products={products}
             onAdd={handleMixDishAdd}
           />
         </>
@@ -1142,7 +1568,7 @@ export default function POSPage() {
         isOpen={isAdminModalOpen}
         onClose={() => setIsAdminModalOpen(false)}
         onLoginSuccess={() => {
-          router.push("/admin?from=/pos")
+          window.open("/admin?from=/pos", "_blank", "noopener,noreferrer")
         }}
       />
     </div>

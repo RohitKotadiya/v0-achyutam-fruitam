@@ -55,6 +55,44 @@ export async function POST(request: Request) {
           currentStock: current - qtyNum,
         },
       })
+
+      // If this SKU is a prepared-mix target, burn batch balances as real spoilage.
+      const openBatches = await tx.$queryRaw<Array<{
+        id: string
+        producedUnitsRemaining: number
+        costUnitsRemaining: number
+      }>>`
+        SELECT
+          "id",
+          "producedUnitsRemaining",
+          "costUnitsRemaining"
+        FROM "MixPreparation"
+        WHERE "targetProductId" = ${product.id}
+          AND "producedUnitsRemaining" > 0
+        ORDER BY "date" ASC, "createdAt" ASC
+      `
+
+      let pendingUnits = qtyNum
+      for (const batch of openBatches) {
+        if (pendingUnits <= 0) break
+
+        const producedRemaining = Number(batch.producedUnitsRemaining) || 0
+        const costRemaining = Number(batch.costUnitsRemaining) || 0
+        if (producedRemaining <= 0) continue
+
+        const consumedUnits = Math.min(pendingUnits, producedRemaining)
+        const costedUnits = Math.min(consumedUnits, costRemaining)
+
+        await tx.$executeRaw`
+          UPDATE "MixPreparation"
+          SET
+            "producedUnitsRemaining" = GREATEST(0, "producedUnitsRemaining" - ${consumedUnits}),
+            "costUnitsRemaining" = GREATEST(0, "costUnitsRemaining" - ${costedUnits})
+          WHERE "id" = ${batch.id}
+        `
+
+        pendingUnits -= consumedUnits
+      }
     })
 
     return NextResponse.json({ success: true })

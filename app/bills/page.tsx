@@ -6,17 +6,17 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
-import { formatCurrency, formatIndianDate } from "@/lib/client-helpers"
+import { formatCurrency, formatIndianDateTime } from "@/lib/client-helpers"
 import { BackButton } from "@/components/ui/back-button"
 import {
   Search, Eye, Trash2, RefreshCw, Edit3, RotateCcw,
   Printer, MessageCircle, ArrowUp, ArrowDown, ArrowUpDown,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, ShoppingCart, Settings, X,
 } from "lucide-react"
-import { useRouter } from "next/navigation"
 import { ReturnDialog } from "@/components/bills/return-dialog"
-import { generateWhatsAppMessage, getWhatsAppUrl } from "@/lib/whatsapp"
+import { generateWhatsAppMessage, openWhatsAppWithFallback } from "@/lib/whatsapp"
 import { generatePrintHTML } from "@/lib/print"
+import { canUseSilentThermalPrint, printBillSilently } from "@/lib/thermal-print"
 
 interface Bill {
   id: string
@@ -33,6 +33,26 @@ interface Bill {
 
 type SortKey = "billNo" | "dateTime" | "customerName" | "grandTotal"
 type SortDir = "asc" | "desc"
+const BILLS_FILTERS_STORAGE_KEY = "bills-page-filters-v1"
+
+const toLocalDateString = (d: Date) => {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+const getTodayDateString = () => {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return toLocalDateString(d)
+}
+
+const toBusinessDateString = (dateTime: string, cutoffHour: number) => {
+  const dt = new Date(dateTime)
+  const shifted = cutoffHour > 0 ? new Date(dt.getTime() - cutoffHour * 60 * 60 * 1000) : dt
+  return toLocalDateString(shifted)
+}
 
 function SortableHeader({
   label, sortKey, currentSort, currentDir, onSort,
@@ -59,21 +79,48 @@ function SortableHeader({
 
 export default function BillsPage() {
   const [bills, setBills] = useState<Bill[]>([])
+  const [receiptPrintCopies, setReceiptPrintCopies] = useState(1)
+  const [printSettings, setPrintSettings] = useState<Record<string, string>>({})
+  const [businessCutoffHour, setBusinessCutoffHour] = useState(0)
   const [searchTerm, setSearchTerm] = useState("")
-  const [startDate, setStartDate] = useState("")
-  const [endDate, setEndDate] = useState("")
+  const [startDate, setStartDate] = useState(getTodayDateString())
+  const [endDate, setEndDate] = useState(getTodayDateString())
   const [paymentFilter, setPaymentFilter] = useState<string>("ALL")
   const [sortKey, setSortKey] = useState<SortKey>("billNo")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [showPaginationControls, setShowPaginationControls] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [refreshingBills, setRefreshingBills] = useState(false)
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null)
+  const [busyBillAction, setBusyBillAction] = useState<{ billNo: number; action: "edit" | "delete" } | null>(null)
   const [returnBill, setReturnBill] = useState<{ id: string; billNo: number } | null>(null)
   const [expandedBillId, setExpandedBillId] = useState<string | null>(null)
   const { toast } = useToast()
-  const router = useRouter()
 
   useEffect(() => {
     loadBills()
+    void loadPrintSettings()
   }, [])
+
+  const loadPrintSettings = async () => {
+    try {
+      const response = await fetch("/api/settings")
+      const data = await response.json()
+      if (data.success) {
+        const copies = Math.max(1, Math.min(Number(data.settings?.receiptPrintCopies) || 1, 5))
+        setReceiptPrintCopies(copies)
+        setPrintSettings(data.settings || {})
+        const cutoff = Number(data.settings?.businessDayCutoffHour)
+        setBusinessCutoffHour(Number.isFinite(cutoff) ? Math.min(23, Math.max(0, Math.floor(cutoff))) : 0)
+      }
+    } catch {
+      setReceiptPrintCopies(1)
+      setPrintSettings({})
+      setBusinessCutoffHour(0)
+    }
+  }
 
   const loadBills = async () => {
     try {
@@ -82,6 +129,7 @@ export default function BillsPage() {
       const data = await response.json()
       if (data.success) {
         setBills(data.bills)
+        setLastRefreshedAt(new Date())
       }
     } catch {
       toast({ title: "Error", description: "Failed to load bills", variant: "destructive" })
@@ -90,14 +138,61 @@ export default function BillsPage() {
     }
   }
 
-  const [datePreset, setDatePreset] = useState<string>("all")
+  const [datePreset, setDatePreset] = useState<string>("today")
 
-  const toDateStr = (d: Date) => d.toISOString().slice(0, 10)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(BILLS_FILTERS_STORAGE_KEY)
+      if (!saved) return
+      const parsed = JSON.parse(saved)
+      if (!parsed || typeof parsed !== "object") return
+
+      setSearchTerm(typeof parsed.searchTerm === "string" ? parsed.searchTerm : "")
+      setStartDate(typeof parsed.startDate === "string" ? parsed.startDate : getTodayDateString())
+      setEndDate(typeof parsed.endDate === "string" ? parsed.endDate : getTodayDateString())
+      setPaymentFilter(typeof parsed.paymentFilter === "string" ? parsed.paymentFilter : "ALL")
+      setSortKey(parsed.sortKey === "dateTime" || parsed.sortKey === "customerName" || parsed.sortKey === "grandTotal" ? parsed.sortKey : "billNo")
+      setSortDir(parsed.sortDir === "asc" ? "asc" : "desc")
+      setDatePreset(typeof parsed.datePreset === "string" ? parsed.datePreset : "today")
+      setPageSize([10, 20, 50, 100].includes(Number(parsed.pageSize)) ? Number(parsed.pageSize) : 20)
+      setCurrentPage(Number(parsed.currentPage) > 0 ? Number(parsed.currentPage) : 1)
+      setShowPaginationControls(Boolean(parsed.showPaginationControls))
+    } catch {
+      // Ignore invalid saved filters
+    }
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem(
+      BILLS_FILTERS_STORAGE_KEY,
+      JSON.stringify({
+        searchTerm,
+        startDate,
+        endDate,
+        paymentFilter,
+        sortKey,
+        sortDir,
+        datePreset,
+        pageSize,
+        currentPage,
+        showPaginationControls,
+      }),
+    )
+  }, [searchTerm, startDate, endDate, paymentFilter, sortKey, sortDir, datePreset, pageSize, currentPage, showPaginationControls])
+
+  const isBillActionBusy = (billNo: number, action?: "edit" | "delete") => {
+    if (!busyBillAction) return false
+    if (busyBillAction.billNo !== billNo) return false
+    return action ? busyBillAction.action === action : true
+  }
+
+  const toDateStr = (d: Date) => toLocalDateString(d)
 
   const applyDatePreset = (preset: string) => {
     setDatePreset(preset)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
+    const mondayOffset = (today.getDay() + 6) % 7
 
     if (preset === "all") {
       setStartDate("")
@@ -118,7 +213,7 @@ export default function BillsPage() {
       setEndDate(yd)
     } else if (preset === "week") {
       const w = new Date(today)
-      w.setDate(w.getDate() - w.getDay())
+      w.setDate(w.getDate() - mondayOffset)
       setStartDate(toDateStr(w))
       setEndDate(end)
     } else if (preset === "month") {
@@ -154,14 +249,25 @@ export default function BillsPage() {
 
     // Date range
     if (startDate) {
-      const start = new Date(startDate)
+      const start = new Date(`${startDate}T00:00:00`)
       start.setHours(0, 0, 0, 0)
-      result = result.filter((b) => new Date(b.dateTime) >= start)
+      result = result.filter((b) => {
+        const dt = new Date(b.dateTime)
+        const effective = businessCutoffHour > 0
+          ? new Date(dt.getTime() - businessCutoffHour * 60 * 60 * 1000)
+          : dt
+        return effective >= start
+      })
     }
     if (endDate) {
-      const end = new Date(endDate)
-      end.setHours(23, 59, 59, 999)
-      result = result.filter((b) => new Date(b.dateTime) <= end)
+      const end = new Date(`${endDate}T23:59:59.999`)
+      result = result.filter((b) => {
+        const dt = new Date(b.dateTime)
+        const effective = businessCutoffHour > 0
+          ? new Date(dt.getTime() - businessCutoffHour * 60 * 60 * 1000)
+          : dt
+        return effective <= end
+      })
     }
 
     // Payment filter
@@ -182,49 +288,102 @@ export default function BillsPage() {
     })
 
     return result
-  }, [bills, searchTerm, startDate, endDate, paymentFilter, sortKey, sortDir])
+  }, [bills, searchTerm, startDate, endDate, paymentFilter, sortKey, sortDir, businessCutoffHour])
+
+  const totalPages = Math.max(1, Math.ceil(filteredBills.length / pageSize))
+
+  const paginatedBills = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize
+    return filteredBills.slice(startIndex, startIndex + pageSize)
+  }, [filteredBills, currentPage, pageSize])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, startDate, endDate, paymentFilter, datePreset, pageSize])
+
+  useEffect(() => {
+    setCurrentPage((prev) => Math.min(prev, totalPages))
+  }, [totalPages])
 
   const deleteBill = async (billNo: number) => {
     if (!confirm(`Delete Bill #${billNo}? Stock will be restored.`)) return
 
     try {
+      setBusyBillAction({ billNo, action: "delete" })
       const response = await fetch(`/api/bills/${billNo}`, { method: "DELETE" })
       const data = await response.json()
       if (data.success) {
         toast({ title: "Deleted", description: `Bill #${billNo} deleted, stock restored` })
-        loadBills()
+        await loadBills()
       } else {
         toast({ title: "Error", description: data.error || "Failed to delete bill", variant: "destructive" })
       }
     } catch {
       toast({ title: "Error", description: "Failed to delete bill", variant: "destructive" })
+    } finally {
+      setBusyBillAction(null)
     }
   }
 
   const editBill = async (billNo: number) => {
     try {
+      setBusyBillAction({ billNo, action: "edit" })
       const res = await fetch(`/api/bills/${billNo}`)
       const data = await res.json()
       if (data.success) {
         sessionStorage.setItem("editBill", JSON.stringify(data.bill))
-        router.push("/pos")
+        localStorage.setItem("editBill", JSON.stringify(data.bill))
+        window.open("/pos", "_blank", "noopener,noreferrer")
       } else {
         toast({ title: "Error", description: data.error || "Failed to load bill", variant: "destructive" })
       }
     } catch {
       toast({ title: "Error", description: "Failed to fetch bill", variant: "destructive" })
+    } finally {
+      setBusyBillAction(null)
     }
   }
 
+  const handleRefreshBills = async () => {
+    try {
+      setRefreshingBills(true)
+      await loadBills()
+    } finally {
+      setRefreshingBills(false)
+    }
+  }
+
+  const resetFilters = () => {
+    const today = getTodayDateString()
+    setSearchTerm("")
+    setStartDate(today)
+    setEndDate(today)
+    setPaymentFilter("ALL")
+    setSortKey("billNo")
+    setSortDir("desc")
+    setDatePreset("today")
+    setPageSize(20)
+    setCurrentPage(1)
+    setShowPaginationControls(false)
+    localStorage.removeItem(BILLS_FILTERS_STORAGE_KEY)
+  }
+
   const printBill = async (bill: Bill) => {
-    const printHTML = generatePrintHTML(bill.billNo, {
+    const printData = {
       customerName: bill.customerName,
       customerMobile: bill.mobile,
       grandTotal: bill.grandTotal,
       lineItems: bill.lineItems,
       paymentMethod: bill.paymentMethod,
       remarks: bill.remarks || "",
-    })
+    }
+
+    if (canUseSilentThermalPrint(printSettings)) {
+      await printBillSilently(bill.billNo, printData, printSettings)
+      return
+    }
+
+    const printHTML = generatePrintHTML(bill.billNo, printData, { copies: receiptPrintCopies })
     const printWindow = window.open("", "_blank")
     if (printWindow) {
       printWindow.document.write(printHTML)
@@ -245,8 +404,16 @@ export default function BillsPage() {
       paymentMethod: bill.paymentMethod,
       remarks: bill.remarks || "",
     })
-    const url = getWhatsAppUrl(bill.mobile, message)
-    window.open(url, "_blank", "noopener,noreferrer")
+    openWhatsAppWithFallback(bill.mobile, message, {
+      keepPageOpen: true,
+      onFallback: () => {
+        toast({
+          title: "Opening WhatsApp Web",
+          description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
+          duration: 1600,
+        })
+      },
+    })
   }
 
   const getPaymentBadge = (method: string) => {
@@ -259,89 +426,219 @@ export default function BillsPage() {
     return <Badge className={`${colors[method] || "bg-gray-100 text-gray-800"} text-[10px] md:text-xs`}>{method}</Badge>
   }
 
+  const pageStart = filteredBills.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
+  const pageEnd = filteredBills.length === 0 ? 0 : Math.min(currentPage * pageSize, filteredBills.length)
+  const hasActiveFilters = Boolean(
+    searchTerm ||
+    paymentFilter !== "ALL" ||
+    datePreset !== "today" ||
+    startDate !== getTodayDateString() ||
+    endDate !== getTodayDateString(),
+  )
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-50 p-2 md:p-4">
-      <div className="max-w-7xl mx-auto space-y-3">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-50 px-2 pt-1 pb-2 md:px-4 md:pt-2 md:pb-4">
+      <div className="max-w-7xl mx-auto space-y-2">
 
         {/* ─── Header Card ─── */}
         <Card>
-          <CardHeader className="p-3 md:p-6 pb-3">
+          <CardHeader className="px-2.5 pt-0.5 pb-1.5 md:px-4 md:pt-1 md:pb-2">
             {/* Top row */}
-            <div className="flex items-center justify-between mb-3 gap-2">
+            <div className="flex items-center justify-between mb-1 gap-2">
               <div className="flex items-center gap-2 md:gap-4">
                 <BackButton />
-                <CardTitle className="text-base md:text-2xl">Bills History</CardTitle>
+                <CardTitle className="text-base md:text-xl">Bills History</CardTitle>
               </div>
-              <Button variant="outline" size="sm" onClick={loadBills} className="h-8 px-2 md:px-3 text-xs">
-                <RefreshCw className="w-4 h-4 md:mr-1" />
-                <span className="hidden md:inline">Refresh</span>
-              </Button>
-            </div>
-
-            {/* Search */}
-            <div className="relative mb-3">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Search bill #, customer, mobile, C001..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 h-9 md:h-10"
-              />
-            </div>
-
-            {/* Quick date filters */}
-            <div className="flex gap-1 mb-2 overflow-x-auto">
-              {([
-                ["all", "All"],
-                ["today", "Today"],
-                ["yesterday", "Yesterday"],
-                ["week", "This Week"],
-                ["month", "This Month"],
-              ] as const).map(([key, label]) => (
+              <div className="flex items-center gap-1.5">
                 <Button
-                  key={key}
-                  variant={datePreset === key ? "default" : "outline"}
+                  variant="outline"
                   size="sm"
-                  className="h-8 text-xs px-2 md:px-3 shrink-0"
-                  onClick={() => applyDatePreset(key)}
+                  onClick={() => window.open("/pos", "_blank", "noopener,noreferrer")}
+                  className="h-7 px-2 md:px-2.5 text-xs"
                 >
-                  {label}
+                  <ShoppingCart className="w-4 h-4 md:mr-1" />
+                  <span className="hidden md:inline">POS</span>
                 </Button>
-              ))}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open("/admin", "_blank", "noopener,noreferrer")}
+                  className="h-7 px-2 md:px-2.5 text-xs"
+                >
+                  <Settings className="w-4 h-4 md:mr-1" />
+                  <span className="hidden md:inline">Admin</span>
+                </Button>
+              </div>
             </div>
 
-            {/* Filters row */}
-            <div className="flex flex-col sm:flex-row gap-2">
-              {/* Date range */}
-              <div className="flex gap-2 flex-1">
-                <Input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => { setStartDate(e.target.value); setDatePreset("custom") }}
-                  className="flex-1 h-9 text-sm"
-                />
-                <Input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => { setEndDate(e.target.value); setDatePreset("custom") }}
-                  className="flex-1 h-9 text-sm"
-                />
-              </div>
-              {/* Payment filter */}
-              <div className="flex gap-1">
-                {["ALL", "CASH", "ONLINE", "SPLIT", "PENDING"].map((m) => (
-                  <Button
-                    key={m}
-                    variant={paymentFilter === m ? "default" : "outline"}
-                    size="sm"
-                    className="h-9 text-xs px-2 md:px-3"
-                    onClick={() => setPaymentFilter(m)}
-                  >
-                    {m === "ALL" ? "All" : m.charAt(0) + m.slice(1).toLowerCase()}
-                  </Button>
-                ))}
+            <div className="sticky top-2 z-20 -mx-1 rounded-xl border bg-background/95 px-1 py-1.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85 md:mx-0 md:px-2">
+              <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-1.5 md:flex-row md:items-center">
+                  <div className="relative flex-1 min-w-0">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                    <Input
+                      placeholder="Search bill no, customer, mobile, customer id..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="h-9 w-full pl-8 pr-9 text-xs md:text-sm"
+                    />
+                    {searchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchTerm("")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        aria-label="Clear search"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1 overflow-x-auto">
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={handleRefreshBills}
+                      disabled={refreshingBills}
+                      className="h-9 px-3 text-xs shrink-0"
+                    >
+                      <RefreshCw className={`w-4 h-4 mr-1 ${refreshingBills ? "animate-spin" : ""}`} />
+                      Refresh
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={resetFilters}
+                      disabled={!hasActiveFilters}
+                      className="h-9 px-3 text-xs shrink-0"
+                    >
+                      Reset
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowPaginationControls((prev) => !prev)}
+                      className="h-9 px-3 text-xs shrink-0"
+                    >
+                      <span>Pagination</span>
+                      {showPaginationControls ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                  <div className="flex gap-1 overflow-x-auto pb-0.5">
+                    {([
+                      ["all", "All"],
+                      ["today", "Today"],
+                      ["yesterday", "Yesterday"],
+                      ["week", "This Week"],
+                      ["month", "This Month"],
+                    ] as const).map(([key, label]) => (
+                      <Button
+                        key={key}
+                        variant={datePreset === key ? "default" : "outline"}
+                        size="sm"
+                        className="h-8 text-xs px-2.5 shrink-0"
+                        onClick={() => applyDatePreset(key)}
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground md:justify-end">
+                    <span>{filteredBills.length} bills</span>
+                    <span>
+                      Updated {lastRefreshedAt ? lastRefreshedAt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }) : "--:--"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5 lg:flex-row">
+                  <div className="flex gap-1.5 flex-1">
+                    <Input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => {
+                        setStartDate(e.target.value)
+                        setDatePreset("custom")
+                      }}
+                      className="flex-1 h-8 text-xs"
+                    />
+                    <Input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => {
+                        setEndDate(e.target.value)
+                        setDatePreset("custom")
+                      }}
+                      className="flex-1 h-8 text-xs"
+                    />
+                  </div>
+
+                  <div className="flex gap-1 overflow-x-auto pb-0.5 lg:justify-end">
+                    {["ALL", "CASH", "ONLINE", "SPLIT", "PENDING"].map((m) => (
+                      <Button
+                        key={m}
+                        variant={paymentFilter === m ? "default" : "outline"}
+                        size="sm"
+                        className="h-8 text-xs px-2.5 shrink-0"
+                        onClick={() => setPaymentFilter(m)}
+                      >
+                        {m === "ALL" ? "All Payments" : m.charAt(0) + m.slice(1).toLowerCase()}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
+
+            {showPaginationControls && (
+              <div className="mt-1 border rounded-lg bg-muted/20 px-2.5 py-1.5 flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
+                  <span>Rows per page</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                    className="h-7 rounded-md border bg-background px-2 text-xs text-foreground"
+                  >
+                    {[10, 20, 50, 100].map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                  <span>
+                    {pageStart}-{pageEnd} of {filteredBills.length}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 justify-end">
+                  <span className="text-xs text-muted-foreground">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    className="h-7 px-2.5 text-xs"
+                  >
+                    Prev
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages || filteredBills.length === 0}
+                    className="h-7 px-2.5 text-xs"
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardHeader>
         </Card>
 
@@ -359,40 +656,49 @@ export default function BillsPage() {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b bg-muted/50">
-                        <th className="text-left p-3">
+                        <th className="text-left p-2.5">
                           <SortableHeader label="Bill #" sortKey="billNo" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
                         </th>
-                        <th className="text-left p-3">
+                        <th className="text-left p-2.5">
                           <SortableHeader label="Date & Time" sortKey="dateTime" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
                         </th>
-                        <th className="text-left p-3">
+                        <th className="text-left p-2.5 text-xs font-medium">Business Date</th>
+                        <th className="text-left p-2.5">
                           <SortableHeader label="Customer" sortKey="customerName" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
                         </th>
-                        <th className="text-left p-3 text-sm font-medium">C.ID</th>
-                        <th className="text-left p-3 text-sm font-medium">Mobile</th>
-                        <th className="text-center p-3 text-sm font-medium">Items</th>
-                        <th className="text-center p-3 text-sm font-medium">Payment</th>
-                        <th className="text-right p-3">
+                        <th className="text-left p-2.5 text-xs font-medium">C.ID</th>
+                        <th className="text-left p-2.5 text-xs font-medium">Mobile</th>
+                        <th className="text-center p-2.5 text-xs font-medium">Items</th>
+                        <th className="text-center p-2.5 text-xs font-medium">Payment</th>
+                        <th className="text-right p-2.5">
                           <SortableHeader label="Total" sortKey="grandTotal" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
                         </th>
-                        <th className="text-center p-3 text-sm font-medium">Actions</th>
+                        <th className="text-center p-2.5 text-xs font-medium">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredBills.map((bill) => (
+                      {paginatedBills.map((bill) => (
                         <React.Fragment key={bill.id}>
                           <tr className={`border-b hover:bg-muted/30 transition-colors ${expandedBillId === bill.id ? "bg-muted/20" : ""}`}>
-                            <td className="p-3 font-medium text-sm">#{bill.billNo}</td>
-                            <td className="p-3 text-sm">{formatIndianDate(new Date(bill.dateTime))}</td>
-                            <td className="p-3 text-sm">{bill.customerName}</td>
-                            <td className="p-3 text-sm text-muted-foreground">{bill.customerNo ? `C${String(bill.customerNo).padStart(3, "0")}` : "—"}</td>
-                            <td className="p-3 text-sm text-muted-foreground">{bill.mobile || "—"}</td>
-                            <td className="p-3 text-center text-sm">{bill.lineItems.length}</td>
-                            <td className="p-3 text-center">{getPaymentBadge(bill.paymentMethod)}</td>
-                            <td className="p-3 text-right font-medium text-sm">{formatCurrency(bill.grandTotal)}</td>
-                            <td className="p-3">
+                            <td className="p-2.5 font-medium text-sm">#{bill.billNo}</td>
+                            <td className="p-2.5 text-sm">{formatIndianDateTime(new Date(bill.dateTime))}</td>
+                            <td className="p-2.5 text-sm">{toBusinessDateString(bill.dateTime, businessCutoffHour)}</td>
+                            <td className="p-2.5 text-sm">{bill.customerName}</td>
+                            <td className="p-2.5 text-sm text-muted-foreground">{bill.customerNo ? `C${String(bill.customerNo).padStart(3, "0")}` : "—"}</td>
+                            <td className="p-2.5 text-sm text-muted-foreground">{bill.mobile || "—"}</td>
+                            <td className="p-2.5 text-center text-sm">{bill.lineItems.length}</td>
+                            <td className="p-2.5 text-center">{getPaymentBadge(bill.paymentMethod)}</td>
+                            <td className="p-2.5 text-right font-medium text-sm">{formatCurrency(bill.grandTotal)}</td>
+                            <td className="p-2.5">
                               <div className="flex gap-1 justify-center">
-                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => printBill(bill)} title="Print">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => printBill(bill)}
+                                  disabled={isBillActionBusy(bill.billNo)}
+                                  title="Print"
+                                >
                                   <Printer className="w-3.5 h-3.5" />
                                 </Button>
                                 <Button
@@ -400,15 +706,33 @@ export default function BillsPage() {
                                   size="icon"
                                   className="h-8 w-8"
                                   onClick={() => sendWhatsApp(bill)}
-                                  disabled={!bill.mobile}
+                                  disabled={!bill.mobile || isBillActionBusy(bill.billNo)}
                                   title="WhatsApp"
                                 >
                                   <MessageCircle className="w-3.5 h-3.5 text-green-600" />
                                 </Button>
-                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => editBill(bill.billNo)} title="Edit">
-                                  <Edit3 className="w-3.5 h-3.5" />
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => editBill(bill.billNo)}
+                                  disabled={isBillActionBusy(bill.billNo)}
+                                  title="Edit"
+                                >
+                                  {isBillActionBusy(bill.billNo, "edit") ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  )}
                                 </Button>
-                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setReturnBill({ id: bill.id, billNo: bill.billNo })} title="Return">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => setReturnBill({ id: bill.id, billNo: bill.billNo })}
+                                  disabled={isBillActionBusy(bill.billNo)}
+                                  title="Return"
+                                >
                                   <RotateCcw className="w-3.5 h-3.5 text-orange-500" />
                                 </Button>
                                 <Button
@@ -416,19 +740,31 @@ export default function BillsPage() {
                                   size="icon"
                                   className={`h-8 w-8 ${expandedBillId === bill.id ? "bg-primary/10" : ""}`}
                                   onClick={() => setExpandedBillId(expandedBillId === bill.id ? null : bill.id)}
+                                  disabled={isBillActionBusy(bill.billNo)}
                                   title="View Details"
                                 >
                                   {expandedBillId === bill.id ? <ChevronUp className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                                 </Button>
-                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => deleteBill(bill.billNo)} title="Delete">
-                                  <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => deleteBill(bill.billNo)}
+                                  disabled={isBillActionBusy(bill.billNo)}
+                                  title="Delete"
+                                >
+                                  {isBillActionBusy(bill.billNo, "delete") ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                                  )}
                                 </Button>
                               </div>
                             </td>
                           </tr>
                           {expandedBillId === bill.id && (
                             <tr>
-                              <td colSpan={9} className="bg-muted/10 border-b p-0">
+                              <td colSpan={10} className="bg-muted/10 border-b p-0">
                                 <div className="p-4 space-y-2">
                                   <table className="w-full text-sm">
                                     <thead>
@@ -471,15 +807,18 @@ export default function BillsPage() {
 
                 {/* ── Mobile Cards ── */}
                 <div className="md:hidden divide-y max-h-[calc(100vh-400px)] overflow-y-auto">
-                  {filteredBills.map((bill) => (
-                    <div key={bill.id} className="p-3 space-y-2">
+                  {paginatedBills.map((bill) => (
+                    <div key={bill.id} className="p-2.5 space-y-1.5">
                       {/* Row 1: Bill info */}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-sm">#{bill.billNo}</span>
                           {getPaymentBadge(bill.paymentMethod)}
                         </div>
-                        <span className="text-xs text-muted-foreground">{formatIndianDate(new Date(bill.dateTime))}</span>
+                        <span className="text-xs text-muted-foreground">{formatIndianDateTime(new Date(bill.dateTime))}</span>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Business Date: {toBusinessDateString(bill.dateTime, businessCutoffHour)}
                       </div>
 
                       {/* Row 2: Customer + amounts */}
@@ -500,7 +839,7 @@ export default function BillsPage() {
 
                       {/* Row 3: Actions */}
                       <div className="flex gap-1 pt-1">
-                        <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={() => printBill(bill)}>
+                        <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={() => printBill(bill)} disabled={isBillActionBusy(bill.billNo)}>
                           <Printer className="w-3 h-3 mr-1" />Print
                         </Button>
                         <Button
@@ -508,14 +847,14 @@ export default function BillsPage() {
                           size="sm"
                           className="h-7 flex-1 text-xs bg-green-50"
                           onClick={() => sendWhatsApp(bill)}
-                          disabled={!bill.mobile}
+                          disabled={!bill.mobile || isBillActionBusy(bill.billNo)}
                         >
                           <MessageCircle className="w-3 h-3 mr-1 text-green-600" />Send
                         </Button>
-                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => editBill(bill.billNo)}>
-                          <Edit3 className="w-3 h-3" />
+                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => editBill(bill.billNo)} disabled={isBillActionBusy(bill.billNo)}>
+                          {isBillActionBusy(bill.billNo, "edit") ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Edit3 className="w-3 h-3" />}
                         </Button>
-                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => setReturnBill({ id: bill.id, billNo: bill.billNo })}>
+                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => setReturnBill({ id: bill.id, billNo: bill.billNo })} disabled={isBillActionBusy(bill.billNo)}>
                           <RotateCcw className="w-3 h-3 text-orange-500" />
                         </Button>
                         <Button
@@ -523,11 +862,12 @@ export default function BillsPage() {
                           size="sm"
                           className={`h-7 px-2 ${expandedBillId === bill.id ? "bg-primary/10" : ""}`}
                           onClick={() => setExpandedBillId(expandedBillId === bill.id ? null : bill.id)}
+                          disabled={isBillActionBusy(bill.billNo)}
                         >
                           {expandedBillId === bill.id ? <ChevronUp className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                         </Button>
-                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => deleteBill(bill.billNo)}>
-                          <Trash2 className="w-3 h-3 text-red-500" />
+                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => deleteBill(bill.billNo)} disabled={isBillActionBusy(bill.billNo)}>
+                          {isBillActionBusy(bill.billNo, "delete") ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3 text-red-500" />}
                         </Button>
                       </div>
 
@@ -553,6 +893,7 @@ export default function BillsPage() {
                     </div>
                   ))}
                 </div>
+
               </>
             )}
           </CardContent>

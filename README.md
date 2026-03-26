@@ -82,3 +82,21 @@ Product.categoryId will be set correctly.
 Use Prisma Studio:
 bash
 npx prisma studio
+
+
+
+
+
+
+
+
+
+
+# 1) Prisma CLI + client installed correctly
+npx prisma -v
+
+# 2) Can your network resolve DB hostname?
+nslookup ep-odd-frog-a4u692tl-pooler.us-east-1.aws.neon.tech
+
+# 3) Can Prisma connect to DB?
+npx prisma migrate status --schema prisma/schema.prisma

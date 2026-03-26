@@ -7,8 +7,12 @@ const globalForPrisma = globalThis as unknown as {
 
 export const prisma = globalForPrisma.prisma ?? new PrismaClient()
 
+const enableLegacyMiddleware = process.env.PRISMA_ENABLE_LEGACY_MIDDLEWARE === "true"
+
 if (!globalForPrisma.prisma) {
-  setupPrismaMiddleware(prisma)
+  if (enableLegacyMiddleware) {
+    setupPrismaMiddleware(prisma)
+  }
 }
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma

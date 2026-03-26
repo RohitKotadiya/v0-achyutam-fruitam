@@ -18,6 +18,7 @@ export async function GET() {
       category: product.category.displayName,
       currentStock: product.currentStock?.currentStock || 0,
       originalCost: product.originalCost,
+      weightedAvgCost: product.currentStock?.weightedAvgCost ?? null,
       sellingPrice: product.sellingPrice,
       lowStockAlert: product.lowStockAlert,
       isLowStock: (product.currentStock?.currentStock || 0) < product.lowStockAlert,

@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,9 +31,19 @@ import {
   Receipt,
   Landmark,
   AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrency, formatIndianDate } from "@/lib/client-helpers"
+
+const toLocalDateInputValue = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
 
 // ==================== TYPES ====================
 
@@ -92,6 +102,19 @@ interface CashRegisterData {
     actualClosing: number | null
     difference: number | null
   }
+}
+
+interface RegisterHistoryRow {
+  id: string
+  date: string
+  openingBalance: number
+  cashIn: number
+  cashOut: number
+  expectedClosing: number
+  actualClosing: number | null
+  difference: number | null
+  notes: string | null
+  closedAt: string | null
 }
 
 interface OwnerTxn {
@@ -160,17 +183,61 @@ export function FinanceTab() {
 function OverviewSection() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [outstandingLoading, setOutstandingLoading] = useState(true)
+
+  const isDashboardData = (value: unknown): value is DashboardData => {
+    if (!value || typeof value !== "object") return false
+    const v = value as Partial<DashboardData>
+    return Boolean(v.today && v.month && v.outstanding)
+  }
 
   useEffect(() => {
     fetch("/api/finance/dashboard")
       .then((r) => r.json())
-      .then(setData)
-      .catch(console.error)
+      .then((json) => {
+        if (isDashboardData(json)) {
+          setData(json)
+          setError(null)
+          return
+        }
+        setData(null)
+        setError((json as { error?: string })?.error || "Dashboard data is not available")
+      })
+      .catch((e) => {
+        console.error(e)
+        setData(null)
+        setError("Failed to load dashboard")
+      })
       .finally(() => setLoading(false))
   }, [])
 
+  useEffect(() => {
+    fetch("/api/finance/outstanding")
+      .then((r) => r.json())
+      .then((json) => {
+        const outstanding = json?.outstanding
+        if (!outstanding) return
+        setData((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            outstanding: {
+              total: Number(outstanding.total) || 0,
+              count: Number(outstanding.count) || 0,
+              dues: Array.isArray(outstanding.dues) ? outstanding.dues : [],
+            },
+          }
+        })
+      })
+      .catch((e) => {
+        console.error(e)
+      })
+      .finally(() => setOutstandingLoading(false))
+  }, [])
+
   if (loading) return <div className="text-center py-8">Loading dashboard...</div>
-  if (!data) return <div className="text-center py-8 text-muted-foreground">Failed to load data</div>
+  if (!data) return <div className="text-center py-8 text-muted-foreground">{error || "Failed to load data"}</div>
 
   return (
     <div className="space-y-6">
@@ -242,6 +309,9 @@ function OverviewSection() {
             gradient="from-teal-500/10 to-cyan-500/10"
           />
         </div>
+        {outstandingLoading ? (
+          <p className="mt-2 text-xs text-muted-foreground">Outstanding dues syncing...</p>
+        ) : null}
       </div>
 
       {/* Outstanding Dues */}
@@ -309,10 +379,26 @@ function SummaryCard({
 // ==================== CASH REGISTER ====================
 
 function CashRegisterSection() {
+  const [innerTab, setInnerTab] = useState("daily")
+  return (
+    <div className="space-y-3">
+      <Tabs value={innerTab} onValueChange={setInnerTab}>
+        <TabsList className="h-8">
+          <TabsTrigger value="daily" className="text-xs px-4">Daily Entry</TabsTrigger>
+          <TabsTrigger value="history" className="text-xs px-4">History</TabsTrigger>
+        </TabsList>
+        <TabsContent value="daily"><CashRegisterDailySection /></TabsContent>
+        <TabsContent value="history"><CashRegisterHistorySection /></TabsContent>
+      </Tabs>
+    </div>
+  )
+}
+
+function CashRegisterDailySection() {
   const { toast } = useToast()
   const [data, setData] = useState<CashRegisterData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0])
+  const [selectedDate, setSelectedDate] = useState(toLocalDateInputValue(new Date()))
   const [openingBalance, setOpeningBalance] = useState("")
   const [actualClosing, setActualClosing] = useState("")
   const [notes, setNotes] = useState("")
@@ -372,14 +458,38 @@ function CashRegisterSection() {
   const s = data?.summary
   const isClosed = data?.register?.closedAt != null
 
+  const shiftDate = (days: number) => {
+    const d = new Date(selectedDate)
+    d.setDate(d.getDate() + days)
+    setSelectedDate(toLocalDateInputValue(d))
+  }
+
+  const isToday = selectedDate === toLocalDateInputValue(new Date())
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="icon" onClick={() => shiftDate(-1)} title="Previous Day">
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <Button
+          variant={isToday ? "default" : "outline"}
+          size="sm"
+          onClick={() => setSelectedDate(toLocalDateInputValue(new Date()))}
+          className="gap-1.5"
+          title="Go to Today"
+        >
+          <CalendarDays className="h-3.5 w-3.5" />
+          Today
+        </Button>
+        <Button variant="outline" size="icon" onClick={() => shiftDate(1)} title="Next Day">
+          <ChevronRight className="h-4 w-4" />
+        </Button>
         <Input
           type="date"
           value={selectedDate}
           onChange={(e) => setSelectedDate(e.target.value)}
-          className="w-48"
+          className="w-40"
         />
       </div>
 
@@ -493,7 +603,259 @@ function CashRegisterSection() {
           </Card>
         </div>
       )}
+
+      {/* Daily Report */}
+      {s && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Receipt className="h-4 w-4 text-muted-foreground" />
+                Daily Cash Register Report
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${isClosed ? "bg-green-100 text-green-700 border-green-200" : "bg-amber-100 text-amber-700 border-amber-200"}`}>
+                  {isClosed ? "Closed" : "Open"}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {new Date(selectedDate).toLocaleDateString("en-IN", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}
+                </span>
+              </div>
+            </div>
+            {data?.register?.notes && (
+              <p className="text-xs text-muted-foreground mt-1">Notes: {data.register.notes}</p>
+            )}
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableBody>
+                {/* Opening */}
+                <TableRow className="bg-muted/30">
+                  <TableCell className="font-semibold text-sm" colSpan={2}>Opening Balance</TableCell>
+                  <TableCell className="text-right font-bold text-sm">{formatCurrency(s.openingBalance)}</TableCell>
+                </TableRow>
+
+                {/* Cash In */}
+                <TableRow>
+                  <TableCell className="pl-6 text-muted-foreground text-xs" colSpan={2}>+ Cash Sales</TableCell>
+                  <TableCell className="text-right text-xs text-green-700">{formatCurrency(s.cashIn.sales)}</TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="pl-6 text-muted-foreground text-xs" colSpan={2}>+ Due Collections (Cash)</TableCell>
+                  <TableCell className="text-right text-xs text-green-700">{formatCurrency(s.cashIn.collections)}</TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="pl-6 text-muted-foreground text-xs" colSpan={2}>+ Capital Added (Cash)</TableCell>
+                  <TableCell className="text-right text-xs text-green-700">{formatCurrency(s.cashIn.capital)}</TableCell>
+                </TableRow>
+                <TableRow className="bg-green-500/5">
+                  <TableCell className="font-semibold text-sm text-green-700" colSpan={2}>Total Cash In</TableCell>
+                  <TableCell className="text-right font-bold text-sm text-green-700">{formatCurrency(s.cashIn.total)}</TableCell>
+                </TableRow>
+
+                {/* Cash Out */}
+                <TableRow>
+                  <TableCell className="pl-6 text-muted-foreground text-xs" colSpan={2}>− Expenses (Cash)</TableCell>
+                  <TableCell className="text-right text-xs text-red-600">{formatCurrency(s.cashOut.expenses)}</TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="pl-6 text-muted-foreground text-xs" colSpan={2}>− Owner Drawings (Cash)</TableCell>
+                  <TableCell className="text-right text-xs text-red-600">{formatCurrency(s.cashOut.drawings)}</TableCell>
+                </TableRow>
+                <TableRow className="bg-red-500/5">
+                  <TableCell className="font-semibold text-sm text-red-700" colSpan={2}>Total Cash Out</TableCell>
+                  <TableCell className="text-right font-bold text-sm text-red-700">{formatCurrency(s.cashOut.total)}</TableCell>
+                </TableRow>
+
+                {/* Expected Closing */}
+                <TableRow className="bg-muted/40 border-t-2">
+                  <TableCell className="font-semibold text-sm" colSpan={2}>Expected Closing Balance</TableCell>
+                  <TableCell className="text-right font-bold text-sm">{formatCurrency(s.expectedClosing)}</TableCell>
+                </TableRow>
+
+                {/* Actual & Difference */}
+                {s.actualClosing != null && (
+                  <>
+                    <TableRow className="bg-blue-500/5">
+                      <TableCell className="font-semibold text-sm text-blue-700" colSpan={2}>Actual Cash Count</TableCell>
+                      <TableCell className="text-right font-bold text-sm text-blue-700">{formatCurrency(s.actualClosing)}</TableCell>
+                    </TableRow>
+                    {s.difference != null && (
+                      <TableRow className={s.difference === 0 ? "bg-muted/20" : s.difference > 0 ? "bg-green-500/10" : "bg-red-500/10"}>
+                        <TableCell className={`font-semibold text-sm ${s.difference === 0 ? "" : s.difference > 0 ? "text-green-700" : "text-red-700"}`} colSpan={2}>
+                          {s.difference === 0 ? "Difference (Balanced ✓)" : s.difference > 0 ? "Surplus (Extra Cash)" : "Shortage (Cash Missing)"}
+                        </TableCell>
+                        <TableCell className={`text-right font-bold text-sm ${s.difference === 0 ? "" : s.difference > 0 ? "text-green-700" : "text-red-700"}`}>
+                          {s.difference >= 0 ? "+" : ""}{formatCurrency(s.difference)}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </>
+                )}
+              </TableBody>
+            </Table>
+
+            {/* Footer timestamps */}
+            {data?.register?.closedAt && (
+              <div className="px-4 py-2 border-t text-xs text-muted-foreground text-right">
+                Closed at {new Date(data.register.closedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
+  )
+}
+
+// ==================== CASH REGISTER HISTORY ====================
+
+function CashRegisterHistorySection() {
+  const [rows, setRows] = useState<RegisterHistoryRow[]>([])
+  const [totals, setTotals] = useState({ cashIn: 0, cashOut: 0, closedDays: 0, openDays: 0 })
+  const [loading, setLoading] = useState(true)
+
+  const today = toLocalDateInputValue(new Date())
+  const thirtyDaysAgo = toLocalDateInputValue(new Date(Date.now() - 29 * 86400000))
+
+  const [startDate, setStartDate] = useState(thirtyDaysAgo)
+  const [endDate, setEndDate] = useState(today)
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
+
+  const fetchHistory = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams({ startDate, endDate })
+      if (statusFilter !== "all") params.append("status", statusFilter)
+      const res = await fetch(`/api/finance/cash-register/history?${params}`)
+      const json = await res.json()
+      setRows(Array.isArray(json?.records) ? json.records : [])
+      setTotals(
+        typeof json?.totals === "object" && json.totals
+          ? {
+              cashIn: Number(json.totals.cashIn) || 0,
+              cashOut: Number(json.totals.cashOut) || 0,
+              closedDays: Number(json.totals.closedDays) || 0,
+              openDays: Number(json.totals.openDays) || 0,
+            }
+          : { cashIn: 0, cashOut: 0, closedDays: 0, openDays: 0 }
+      )
+    } catch (e) {
+      console.error(e)
+      setRows([])
+      setTotals({ cashIn: 0, cashOut: 0, closedDays: 0, openDays: 0 })
+    } finally {
+      setLoading(false)
+    }
+  }, [startDate, endDate, statusFilter])
+
+  useEffect(() => { fetchHistory() }, [fetchHistory])
+
+  const sorted = useMemo(() => {
+    return [...rows].sort((a, b) => {
+      const diff = new Date(a.date).getTime() - new Date(b.date).getTime()
+      return sortDir === "desc" ? -diff : diff
+    })
+  }, [rows, sortDir])
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Receipt className="h-4 w-4 text-muted-foreground" /> Cash Register History
+            </CardTitle>
+            <CardDescription>
+              {totals.closedDays} closed · {totals.openDays} open · Cash In {formatCurrency(totals.cashIn)} · Cash Out {formatCurrency(totals.cashOut)}
+            </CardDescription>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-wrap gap-2 pt-2">
+          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-40 h-8 text-sm" />
+          <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-40 h-8 text-sm" />
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-32 h-8 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="closed">Closed</SelectItem>
+              <SelectItem value="open">Open</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1"
+            onClick={() => setSortDir(sortDir === "desc" ? "asc" : "desc")}
+          >
+            Date {sortDir === "desc" ? "↓" : "↑"}
+          </Button>
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-0">
+        {loading ? (
+          <div className="text-center py-8 text-muted-foreground text-sm">Loading...</div>
+        ) : sorted.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground text-sm">No records found for selected range</div>
+        ) : (
+          <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
+            <Table>
+              <TableHeader className="sticky top-0 bg-background z-10">
+                <TableRow>
+                  <TableHead className="text-xs">Date</TableHead>
+                  <TableHead className="text-xs text-right">Opening</TableHead>
+                  <TableHead className="text-xs text-right">Cash In</TableHead>
+                  <TableHead className="text-xs text-right">Cash Out</TableHead>
+                  <TableHead className="text-xs text-right">Expected</TableHead>
+                  <TableHead className="text-xs text-right">Actual</TableHead>
+                  <TableHead className="text-xs text-right">Diff</TableHead>
+                  <TableHead className="text-xs">Status</TableHead>
+                  <TableHead className="text-xs">Notes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sorted.map((row) => {
+                  const isBalanced = row.difference === 0
+                  const isSurplus = row.difference != null && row.difference > 0
+                  const diffClass = row.difference == null ? "" : isBalanced ? "text-muted-foreground" : isSurplus ? "text-green-600" : "text-red-600"
+                  return (
+                    <TableRow key={row.id}>
+                      <TableCell className="text-xs font-medium whitespace-nowrap">
+                        {new Date(row.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", weekday: "short" })}
+                      </TableCell>
+                      <TableCell className="text-xs text-right">{formatCurrency(row.openingBalance)}</TableCell>
+                      <TableCell className="text-xs text-right text-green-700 font-medium">{formatCurrency(row.cashIn)}</TableCell>
+                      <TableCell className="text-xs text-right text-red-600 font-medium">{formatCurrency(row.cashOut)}</TableCell>
+                      <TableCell className="text-xs text-right">{formatCurrency(row.expectedClosing)}</TableCell>
+                      <TableCell className="text-xs text-right font-semibold">
+                        {row.actualClosing != null ? formatCurrency(row.actualClosing) : <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell className={`text-xs text-right font-semibold ${diffClass}`}>
+                        {row.difference != null
+                          ? `${row.difference >= 0 ? "+" : ""}${formatCurrency(row.difference)}`
+                          : <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell>
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${row.closedAt ? "bg-green-100 text-green-700 border-green-200" : "bg-amber-100 text-amber-700 border-amber-200"}`}>
+                          {row.closedAt ? "Closed" : "Open"}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate" title={row.notes || ""}>
+                        {row.notes || "—"}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -512,17 +874,20 @@ function CustomerDuesSection() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const [dashRes, colRes] = await Promise.all([
-        fetch("/api/finance/dashboard"),
+      const [outstandingRes, colRes] = await Promise.all([
+        fetch("/api/finance/outstanding"),
         fetch("/api/finance/collections"),
       ])
-      const dashData = await dashRes.json()
+      const outstandingData = await outstandingRes.json()
       const colData = await colRes.json()
-      setDues(dashData.outstanding.dues)
-      setTotalOutstanding(dashData.outstanding.total)
-      setCollections(colData)
+      setDues(Array.isArray(outstandingData?.outstanding?.dues) ? outstandingData.outstanding.dues : [])
+      setTotalOutstanding(typeof outstandingData?.outstanding?.total === "number" ? outstandingData.outstanding.total : 0)
+      setCollections(Array.isArray(colData) ? colData : [])
     } catch (e) {
       console.error(e)
+      setDues([])
+      setTotalOutstanding(0)
+      setCollections([])
     } finally {
       setLoading(false)
     }
@@ -728,7 +1093,7 @@ function OwnerTransactionsSection() {
   const [form, setForm] = useState({
     type: "DRAWING",
     amount: "",
-    date: new Date().toISOString().split("T")[0],
+    date: toLocalDateInputValue(new Date()),
     description: "",
     paymentMethod: "CASH",
     remarks: "",
@@ -740,10 +1105,20 @@ function OwnerTransactionsSection() {
       if (filterType !== "all") params.append("type", filterType)
       const res = await fetch(`/api/finance/owner-transactions?${params}`)
       const data = await res.json()
-      setTransactions(data.transactions)
-      setTotals(data.totals)
+      setTransactions(Array.isArray(data?.transactions) ? data.transactions : [])
+      setTotals(
+        typeof data?.totals === "object" && data.totals
+          ? {
+              drawings: Number(data.totals.drawings) || 0,
+              capital: Number(data.totals.capital) || 0,
+              net: Number(data.totals.net) || 0,
+            }
+          : { drawings: 0, capital: 0, net: 0 }
+      )
     } catch (e) {
       console.error(e)
+      setTransactions([])
+      setTotals({ drawings: 0, capital: 0, net: 0 })
     }
   }, [filterType])
 
@@ -781,7 +1156,7 @@ function OwnerTransactionsSection() {
     setForm({
       type: txn.type,
       amount: txn.amount.toString(),
-      date: new Date(txn.date).toISOString().split("T")[0],
+      date: toLocalDateInputValue(new Date(txn.date)),
       description: txn.description,
       paymentMethod: txn.paymentMethod,
       remarks: txn.remarks || "",
@@ -806,7 +1181,7 @@ function OwnerTransactionsSection() {
     setForm({
       type: "DRAWING",
       amount: "",
-      date: new Date().toISOString().split("T")[0],
+      date: toLocalDateInputValue(new Date()),
       description: "",
       paymentMethod: "CASH",
       remarks: "",
@@ -869,37 +1244,41 @@ function OwnerTransactionsSection() {
                   <DialogDescription>Record owner drawing or capital investment</DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Type</Label>
-                    <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="DRAWING">Drawing (Money Out)</SelectItem>
-                        <SelectItem value="CAPITAL">Capital (Money In)</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Type</Label>
+                      <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="DRAWING">Drawing (Money Out)</SelectItem>
+                          <SelectItem value="CAPITAL">Capital (Money In)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Date</Label>
+                      <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} required />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Amount</Label>
-                    <Input type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Date</Label>
-                    <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} required />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Amount</Label>
+                      <Input type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Payment Method</Label>
+                      <Select value={form.paymentMethod} onValueChange={(v) => setForm({ ...form, paymentMethod: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="CASH">Cash</SelectItem>
+                          <SelectItem value="ONLINE">Online</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label>Description</Label>
                     <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required placeholder="e.g. Personal withdrawal, Business investment" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Payment Method</Label>
-                    <Select value={form.paymentMethod} onValueChange={(v) => setForm({ ...form, paymentMethod: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="CASH">Cash</SelectItem>
-                        <SelectItem value="ONLINE">Online</SelectItem>
-                      </SelectContent>
-                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label>Remarks (Optional)</Label>
@@ -978,7 +1357,7 @@ function ExpensesSection() {
   const [filter, setFilter] = useState({ category: "all", startDate: "", endDate: "" })
 
   const [formData, setFormData] = useState({
-    date: new Date().toISOString().split("T")[0],
+    date: toLocalDateInputValue(new Date()),
     category: "Other",
     description: "",
     amount: "",
@@ -994,9 +1373,10 @@ function ExpensesSection() {
       if (filter.endDate) params.append("endDate", filter.endDate)
       const res = await fetch(`/api/expenses?${params}`)
       const data = await res.json()
-      setExpenses(data)
+      setExpenses(Array.isArray(data) ? data : [])
     } catch (e) {
       console.error(e)
+      setExpenses([])
     }
   }, [filter])
 
@@ -1032,7 +1412,7 @@ function ExpensesSection() {
   const handleEdit = (expense: Expense) => {
     setEditingExpense(expense)
     setFormData({
-      date: new Date(expense.date).toISOString().split("T")[0],
+      date: toLocalDateInputValue(new Date(expense.date)),
       category: expense.category,
       description: expense.description,
       amount: expense.amount.toString(),
@@ -1057,7 +1437,7 @@ function ExpensesSection() {
 
   const resetForm = () => {
     setFormData({
-      date: new Date().toISOString().split("T")[0],
+      date: toLocalDateInputValue(new Date()),
       category: "Other",
       description: "",
       amount: "",
@@ -1101,38 +1481,42 @@ function ExpensesSection() {
                   <DialogDescription>{editingExpense ? "Update expense" : "Record a new expense"}</DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Date</Label>
-                    <Input type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} required />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Category</Label>
-                    <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {EXPENSE_CATEGORIES.map((cat) => (
-                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Date</Label>
+                      <Input type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Category</Label>
+                      <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {EXPENSE_CATEGORIES.map((cat) => (
+                            <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label>Description</Label>
                     <Input value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} required placeholder="Brief description" />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Amount</Label>
-                    <Input type="number" step="0.01" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Payment Method</Label>
-                    <Select value={formData.paymentMethod} onValueChange={(v) => setFormData({ ...formData, paymentMethod: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="CASH">Cash</SelectItem>
-                        <SelectItem value="ONLINE">Online</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Amount</Label>
+                      <Input type="number" step="0.01" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Payment Method</Label>
+                      <Select value={formData.paymentMethod} onValueChange={(v) => setFormData({ ...formData, paymentMethod: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="CASH">Cash</SelectItem>
+                          <SelectItem value="ONLINE">Online</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label>Remarks (Optional)</Label>

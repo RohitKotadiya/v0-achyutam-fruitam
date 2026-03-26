@@ -1,5 +1,6 @@
-export function generatePrintHTML(billNo: number, billData: any) {
+export function generatePrintHTML(billNo: number, billData: any, options?: { copies?: number }) {
   const { customerName, customerMobile, grandTotal, lineItems, remarks } = billData
+  const copies = Math.max(1, Math.min(Number(options?.copies) || 1, 5))
 
   const now = new Date()
   const dd = String(now.getDate()).padStart(2, "0")
@@ -30,6 +31,34 @@ export function generatePrintHTML(billNo: number, billData: any) {
       <td class="amt">₹${itemTotal.toFixed(0)}</td>
     </tr>`
   })
+
+  const receiptHtml = `
+  <div class="receipt-copy">
+    <div class="center">
+      <div class="brand">ACHYUTAM FRUITAM</div>
+      <div class="tagline">Pure &bull; Fresh &bull; Premium</div>
+    </div>
+    <div class="dash"></div>
+
+    <div class="row"><span>Bill #${billNo}</span><span>${dateTimeStr}</span></div>
+    <div class="row"><span>${customerName}</span>${customerMobile ? `<span>${customerMobile}</span>` : ""}</div>
+    <div class="dash"></div>
+
+    <table>
+      <thead><tr><th>Item</th><th>Qty×Rate</th><th>Amt</th></tr></thead>
+      <tbody>${itemsHtml}</tbody>
+    </table>
+
+    <div class="total-line">
+      <div class="row grand"><span>TOTAL</span><span>₹${grandTotal.toFixed(0)}</span></div>
+    </div>
+    ${remarks ? `<div class="row" style="font-size:9px;margin-top:2px;"><span>${remarks}</span></div>` : ""}
+
+    <div class="dash"></div>
+    <div class="footer center">
+      <div class="ty">Thank You! Visit Again!</div>
+    </div>
+  </div>`
 
   return `<!DOCTYPE html>
 <html>
@@ -62,33 +91,12 @@ export function generatePrintHTML(billNo: number, billData: any) {
     .grand{font-size:15px;font-weight:bold;}
     .footer{font-size:9px;margin-top:4px;}
     .ty{font-weight:bold;font-size:10px;margin-top:2px;}
+    .receipt-copy{page-break-after:always;break-after:page;}
+    .receipt-copy:last-child{page-break-after:auto;break-after:auto;}
   </style>
 </head>
 <body>
-  <div class="center">
-    <div class="brand">ACHYUTAM FRUITAM</div>
-    <div class="tagline">Pure &bull; Fresh &bull; Premium</div>
-  </div>
-  <div class="dash"></div>
-
-  <div class="row"><span>Bill #${billNo}</span><span>${dateTimeStr}</span></div>
-  <div class="row"><span>${customerName}</span>${customerMobile ? `<span>${customerMobile}</span>` : ""}</div>
-  <div class="dash"></div>
-
-  <table>
-    <thead><tr><th>Item</th><th>Qty×Rate</th><th>Amt</th></tr></thead>
-    <tbody>${itemsHtml}</tbody>
-  </table>
-
-  <div class="total-line">
-    <div class="row grand"><span>TOTAL</span><span>₹${grandTotal.toFixed(0)}</span></div>
-  </div>
-  ${remarks ? `<div class="row" style="font-size:9px;margin-top:2px;"><span>${remarks}</span></div>` : ""}
-
-  <div class="dash"></div>
-  <div class="footer center">
-    <div class="ty">Thank You! Visit Again!</div>
-  </div>
+  ${Array.from({ length: copies }, () => receiptHtml).join("")}
 
   <script>window.onload=function(){window.print();};</script>
 </body>

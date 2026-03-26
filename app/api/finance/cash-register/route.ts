@@ -1,19 +1,44 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { startOfDay, endOfDay } from "date-fns"
+import { addDays, startOfDay } from "date-fns"
+
+const clampCutoffHour = (value: unknown) => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return 0
+  return Math.min(23, Math.max(0, Math.floor(parsed)))
+}
+
+const parseLocalDate = (date: string) => new Date(`${date}T00:00:00`)
+
+const getCurrentBusinessDate = (cutoffHour: number) => {
+  const shifted = new Date()
+  shifted.setHours(shifted.getHours() - cutoffHour)
+  return startOfDay(shifted)
+}
+
+const getBusinessRange = (businessDate: Date, cutoffHour: number) => {
+  const start = new Date(businessDate)
+  start.setHours(cutoffHour, 0, 0, 0)
+  const end = new Date(addDays(start, 1).getTime() - 1)
+  return { start, end }
+}
 
 // GET - Fetch cash register for a specific date (default: today)
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const dateParam = searchParams.get("date")
-    const targetDate = dateParam ? new Date(dateParam) : new Date()
-    const dayStart = startOfDay(targetDate)
-    const dayEnd = endOfDay(targetDate)
+    const cutoffConfig = await prisma.systemConfig.findUnique({ where: { key: "businessDayCutoffHour" } })
+    const cutoffHour = clampCutoffHour(cutoffConfig?.value)
+
+    const businessDate = dateParam
+      ? startOfDay(parseLocalDate(dateParam))
+      : getCurrentBusinessDate(cutoffHour)
+    const { start: dayStart, end: dayEnd } = getBusinessRange(businessDate, cutoffHour)
 
     // Get or create today's register
     let register = await prisma.cashRegister.findUnique({
-      where: { date: dayStart },
+      where: { date: businessDate },
     })
 
     // Calculate cash in (cash sales + cash portion of split + collections)
@@ -124,7 +149,11 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
     const { date, openingBalance, actualClosing, notes } = body
-    const targetDate = startOfDay(date ? new Date(date) : new Date())
+    const cutoffConfig = await prisma.systemConfig.findUnique({ where: { key: "businessDayCutoffHour" } })
+    const cutoffHour = clampCutoffHour(cutoffConfig?.value)
+    const targetDate = date
+      ? startOfDay(parseLocalDate(date))
+      : getCurrentBusinessDate(cutoffHour)
 
     const data: any = {}
     if (openingBalance !== undefined) data.openingBalance = parseFloat(openingBalance)
@@ -145,6 +174,20 @@ export async function POST(request: Request) {
         notes: data.notes,
       },
     })
+
+    // When closing the register, auto-seed next day's opening balance
+    // with today's closing amount — only if next day has no record yet
+    if (actualClosing !== undefined) {
+      const nextDay = startOfDay(addDays(targetDate, 1))
+      await prisma.cashRegister.upsert({
+        where: { date: nextDay },
+        create: {
+          date: nextDay,
+          openingBalance: parseFloat(actualClosing),
+        },
+        update: {}, // already exists — preserve whatever the user set
+      })
+    }
 
     return NextResponse.json(register)
   } catch (error) {
