@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server"
 import { prismaFast as prisma } from "@/lib/prisma-fast"
 import { addDays, startOfDay, endOfDay } from "date-fns"
+import { isMaintenanceKeyValid } from "@/lib/api-security"
 
 export async function POST(request: Request) {
   try {
+    if (!isMaintenanceKeyValid(request)) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
+
     const body = await request.json().catch(() => ({}))
     const days = Math.max(1, Math.min(365, Number(body?.days) || 60))
 

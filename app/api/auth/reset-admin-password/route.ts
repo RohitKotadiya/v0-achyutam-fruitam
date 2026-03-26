@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
+import { isMaintenanceKeyValid } from "@/lib/api-security"
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
+    if (!isMaintenanceKeyValid(request)) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
+
     const newPassword = "admin123" // or choose a new one
 
     const hash = await bcrypt.hash(newPassword, 10)
