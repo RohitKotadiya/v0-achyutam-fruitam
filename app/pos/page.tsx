@@ -1622,6 +1622,7 @@ export default function POSPage() {
         onLoginSuccess={() => {
           const unlockUntil = Date.now() + POS_ADMIN_SESSION_MS
           sessionStorage.setItem(POS_ADMIN_SESSION_KEY, String(unlockUntil))
+          setIsAdminModalOpen(false)
 
           if (adminIntent === "unlock-pos") {
             setIsPosLocked(false)
