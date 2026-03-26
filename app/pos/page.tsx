@@ -70,11 +70,16 @@ interface LastSavedBill {
   remarks: string
 }
 
+const POS_ADMIN_SESSION_KEY = "pos-admin-unlock-until"
+const POS_ADMIN_SESSION_MS = 8 * 60 * 60 * 1000
+
 export default function POSPage() {
   const [mounted, setMounted] = useState(false)
 
   const { toast } = useToast()
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false)
+  const [isPosLocked, setIsPosLocked] = useState(true)
+  const [adminIntent, setAdminIntent] = useState<"unlock-pos" | "open-admin">("unlock-pos")
 
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeCategoryId, setActiveCategoryId] = useState<string>("all")
@@ -122,6 +127,18 @@ export default function POSPage() {
 
   useEffect(() => {
     setMounted(true)
+
+    // Require admin verification before POS usage unless an active local session exists.
+    const unlockUntilRaw = sessionStorage.getItem(POS_ADMIN_SESSION_KEY)
+    const unlockUntil = Number(unlockUntilRaw || "0")
+    if (Number.isFinite(unlockUntil) && unlockUntil > Date.now()) {
+      setIsPosLocked(false)
+    } else {
+      setIsPosLocked(true)
+      setAdminIntent("unlock-pos")
+      setIsAdminModalOpen(true)
+    }
+
     // Check for edit bill from sessionStorage
     const editBillData = sessionStorage.getItem('editBill') || localStorage.getItem('editBill')
     if (editBillData) {
@@ -980,7 +997,15 @@ export default function POSPage() {
                 <FileText className="w-4 h-4 md:mr-1.5" />
                 <span className="hidden md:inline text-xs">Bills</span>
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setIsAdminModalOpen(true)} className="h-7 px-2 md:px-2.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setAdminIntent("open-admin")
+                  setIsAdminModalOpen(true)
+                }}
+                className="h-7 px-2 md:px-2.5"
+              >
                 <Settings className="w-4 h-4 md:mr-1.5" />
                 <span className="hidden md:inline text-xs">Admin</span>
               </Button>
@@ -1545,6 +1570,30 @@ export default function POSPage() {
         </div>
       </div>
 
+      {isPosLocked && (
+        <div className="fixed inset-0 z-20 bg-background/95 backdrop-blur-sm flex items-center justify-center p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle className="text-base md:text-lg">POS Locked</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Admin verification is required to use POS billing.
+              </p>
+              <Button
+                onClick={() => {
+                  setAdminIntent("unlock-pos")
+                  setIsAdminModalOpen(true)
+                }}
+                className="w-full"
+              >
+                Verify Admin Password
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* ─── Modals ─── */}
       {selectedProduct && (
         <>
@@ -1566,8 +1615,24 @@ export default function POSPage() {
       )}
       <AdminLoginModal
         isOpen={isAdminModalOpen}
-        onClose={() => setIsAdminModalOpen(false)}
+        onClose={() => {
+          if (isPosLocked && adminIntent === "unlock-pos") return
+          setIsAdminModalOpen(false)
+        }}
         onLoginSuccess={() => {
+          const unlockUntil = Date.now() + POS_ADMIN_SESSION_MS
+          sessionStorage.setItem(POS_ADMIN_SESSION_KEY, String(unlockUntil))
+
+          if (adminIntent === "unlock-pos") {
+            setIsPosLocked(false)
+            toast({
+              title: "POS Unlocked",
+              description: "Admin verification successful.",
+              duration: 1800,
+            })
+            return
+          }
+
           window.open("/admin?from=/pos", "_blank", "noopener,noreferrer")
         }}
       />
