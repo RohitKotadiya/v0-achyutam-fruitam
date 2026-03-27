@@ -67,10 +67,10 @@ export function generatePrintHTML(billNo: number, billData: any, options?: { cop
   <title>Bill #${billNo}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box;}
-    body{font-family:'Arial Narrow',Arial,sans-serif;font-size:11px;width:48mm;margin:0 auto;padding:2mm;}
+    body{font-family:'Arial Narrow',Arial,sans-serif;font-size:11px;width:46mm;margin:0 auto;padding:0;}
     @media print{
       @page{size:48mm auto;margin:0;}
-      body{padding:1mm;}
+      body{width:46mm;padding:0;margin:0 auto;}
       .no-print{display:none;}
     }
     .center{text-align:center;}
@@ -78,12 +78,12 @@ export function generatePrintHTML(billNo: number, billData: any, options?: { cop
     .tagline{font-size:8px;color:#555;margin-top:1px;}
     .dash{border-top:1px dashed #000;margin:3px 0;}
     .row{display:flex;justify-content:space-between;line-height:1.4;}
-    table{width:100%;border-collapse:collapse;margin:2px 0;}
+    table{width:100%;border-collapse:collapse;margin:2px 0;table-layout:fixed;}
     th{font-size:10px;border-bottom:1px solid #000;padding:2px 0;text-align:left;}
     th:nth-child(2){text-align:center;white-space:nowrap;}
     th:last-child{text-align:right;}
     td{padding:1px 0;vertical-align:top;font-size:11px;}
-    .item-name{max-width:22mm;overflow:hidden;text-overflow:ellipsis;}
+    .item-name{width:22mm;max-width:22mm;overflow:hidden;text-overflow:ellipsis;}
     .qty-rate{text-align:center;white-space:nowrap;padding:1px 2px;}
     .amt{text-align:right;white-space:nowrap;}
     .mix{font-size:8px;color:#666;}

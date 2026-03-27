@@ -47,6 +47,7 @@ export function SKUTab() {
 
   // Add SKU Form
   const [newSKU, setNewSKU] = useState({
+    sku: "",
     name: "",
     categoryId: "",
     originalCost: "",
@@ -98,6 +99,7 @@ export function SKUTab() {
           description: "Product added successfully",
         })
         setNewSKU({
+          sku: "",
           name: "",
           categoryId: "",
           originalCost: "",
@@ -219,7 +221,18 @@ export function SKUTab() {
           <form onSubmit={handleAddSKU} className="space-y-3">
             <div className="rounded-lg border bg-muted/20 p-3 md:p-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
-                <div className="space-y-1.5 md:col-span-4">
+                <div className="space-y-1.5 md:col-span-2">
+                <Label htmlFor="newSKUSku">SKU</Label>
+                <Input
+                  id="newSKUSku"
+                  value={newSKU.sku}
+                  onChange={(e) => setNewSKU({ ...newSKU, sku: e.target.value.toUpperCase() })}
+                  placeholder="e.g. APP001"
+                  required
+                />
+              </div>
+
+                <div className="space-y-1.5 md:col-span-3">
                 <Label htmlFor="newSKUName">Product Name</Label>
                 <Input
                   id="newSKUName"
@@ -230,7 +243,7 @@ export function SKUTab() {
                 />
               </div>
 
-                <div className="space-y-1.5 md:col-span-3">
+                <div className="space-y-1.5 md:col-span-2">
                 <Label htmlFor="newSKUCategory">Category</Label>
                 <Select
                   value={newSKU.categoryId}
@@ -300,6 +313,7 @@ export function SKUTab() {
                 variant="outline"
                 onClick={() =>
                   setNewSKU({
+                    sku: "",
                     name: "",
                     categoryId: "",
                     originalCost: "",
