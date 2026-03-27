@@ -145,7 +145,6 @@ export function MixDishModal({
                   <div key={p.sku} className="grid grid-cols-[1.3fr_90px_110px] gap-2 border-b px-3 py-2 text-sm">
                     <div className="min-w-0">
                       <div className="truncate font-medium">{p.name}</div>
-                      <div className="text-xs text-muted-foreground">{p.sku}</div>
                     </div>
                     <div className="text-right text-muted-foreground">{(p.currentStock?.currentStock || 0).toFixed(2)}</div>
                     <Input

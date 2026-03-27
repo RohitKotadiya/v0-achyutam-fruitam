@@ -47,7 +47,6 @@ export function SKUTab() {
 
   // Add SKU Form
   const [newSKU, setNewSKU] = useState({
-    sku: "",
     name: "",
     categoryId: "",
     originalCost: "",
@@ -82,15 +81,53 @@ export function SKUTab() {
     }
   }
 
+  const generateNextSKU = (existingProducts: Product[]): string => {
+    // Extract numeric part from SKUs and find the highest number
+    let maxNum = 0
+
+    existingProducts.forEach((product) => {
+      // Match both "AFMxxx" format and plain numbers
+      const match = product.sku.match(/AFM(\d+)/) || product.sku.match(/^(\d+)$/)
+      if (match && match[1]) {
+        const num = parseInt(match[1], 10)
+        if (num > maxNum) maxNum = num
+      }
+    })
+
+    // Generate next SKU with AFM prefix and zero-padded number
+    const nextNum = maxNum + 1
+    return `AFM${String(nextNum).padStart(3, "0")}`
+  }
+
   const handleAddSKU = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
 
+    // Validate required fields
+    if (!newSKU.name || !newSKU.categoryId || !newSKU.originalCost || !newSKU.sellingPrice) {
+      toast({
+        title: "Error",
+        description: "Please fill in all fields",
+        variant: "destructive",
+      })
+      setLoading(false)
+      return
+    }
+
     try {
+      // Auto-generate next sequential SKU
+      const generatedSKU = generateNextSKU(products)
+
       const res = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newSKU),
+        body: JSON.stringify({
+          ...newSKU,
+          sku: generatedSKU,
+          originalCost: parseFloat(newSKU.originalCost),
+          sellingPrice: parseFloat(newSKU.sellingPrice),
+          lowStockAlert: parseInt(newSKU.lowStockAlert),
+        }),
       })
 
       if (res.ok) {
@@ -99,7 +136,6 @@ export function SKUTab() {
           description: "Product added successfully",
         })
         setNewSKU({
-          sku: "",
           name: "",
           categoryId: "",
           originalCost: "",
@@ -209,6 +245,39 @@ export function SKUTab() {
     }
   }
 
+  const handleMigrateSKUs = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch("/api/products/migrate-sku", {
+        method: "POST",
+      })
+
+      const data = await res.json()
+
+      if (res.ok) {
+        toast({
+          title: "Success",
+          description: data.message,
+        })
+        fetchProducts()
+      } else {
+        toast({
+          title: "Error",
+          description: data.error || "Failed to migrate SKUs",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to migrate SKUs",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Add New SKU */}
@@ -221,18 +290,7 @@ export function SKUTab() {
           <form onSubmit={handleAddSKU} className="space-y-3">
             <div className="rounded-lg border bg-muted/20 p-3 md:p-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
-                <div className="space-y-1.5 md:col-span-2">
-                <Label htmlFor="newSKUSku">SKU</Label>
-                <Input
-                  id="newSKUSku"
-                  value={newSKU.sku}
-                  onChange={(e) => setNewSKU({ ...newSKU, sku: e.target.value.toUpperCase() })}
-                  placeholder="e.g. APP001"
-                  required
-                />
-              </div>
-
-                <div className="space-y-1.5 md:col-span-3">
+                <div className="space-y-1.5 md:col-span-4">
                 <Label htmlFor="newSKUName">Product Name</Label>
                 <Input
                   id="newSKUName"
@@ -291,7 +349,7 @@ export function SKUTab() {
                 />
               </div>
 
-                <div className="space-y-1.5 md:col-span-1">
+                <div className="space-y-1.5 md:col-span-2">
                 <Label htmlFor="lowStockAlert">Low Stock Alert Level</Label>
                 <Input
                   id="lowStockAlert"
@@ -313,7 +371,6 @@ export function SKUTab() {
                 variant="outline"
                 onClick={() =>
                   setNewSKU({
-                    sku: "",
                     name: "",
                     categoryId: "",
                     originalCost: "",
@@ -332,8 +389,21 @@ export function SKUTab() {
       {/* Existing SKUs Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Existing Products</CardTitle>
-          <CardDescription>Manage your product catalog</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Existing Products</CardTitle>
+              <CardDescription>Manage your product catalog</CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleMigrateSKUs}
+              disabled={loading}
+              title="Convert numeric SKUs (1, 2, 3) to AFM format (AFM001, AFM002, etc.)"
+            >
+              Migrate SKUs to AFM Format
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
