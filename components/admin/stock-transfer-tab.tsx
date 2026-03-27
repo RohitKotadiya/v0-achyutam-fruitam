@@ -563,7 +563,7 @@ export function StockTransferTab() {
             <div className="rounded border">
               <div className="grid grid-cols-[140px_1fr] items-center gap-2 border-b bg-muted/40 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 <span>Category</span>
-                <span>Products (Name | SKU | Stock | Weighted Cost)</span>
+                <span>Products (Name | Stock | Weighted Cost)</span>
               </div>
               <div className="max-h-[180px] overflow-y-auto">
                 {categoryStockRows.map((row) => (
@@ -574,11 +574,9 @@ export function StockTransferTab() {
                         <span
                           key={p.id}
                           className="inline-flex max-w-full items-center gap-1 rounded border bg-background px-1.5 py-0.5 text-[11px]"
-                          title={`${p.name} (${p.sku})`}
+                          title={p.name}
                         >
                           <span className="max-w-[120px] truncate">{p.name}</span>
-                          <span className="text-muted-foreground">|</span>
-                          <span className="text-muted-foreground">{p.sku}</span>
                           <span className="text-muted-foreground">|</span>
                           <span className="font-medium">{(p.currentStock?.currentStock || 0).toFixed(2)}</span>
                           <span className="text-muted-foreground">|</span>

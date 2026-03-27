@@ -1021,7 +1021,7 @@ export function InventoryTab() {
                                     className="grid grid-cols-[2.2fr_90px_90px_90px_110px_90px_110px_1.2fr_90px] gap-2 px-3 py-2 items-center"
                                   >
                                     <div className="min-w-0">
-                                      <div className="truncate text-sm font-medium">{product.sku}. {product.name}</div>
+                                        <div className="truncate text-sm font-medium">{product.name}</div>
                                       <div className="text-xs text-muted-foreground">Stock: {stockInfo[product.sku]?.currentStock?.toFixed(2) || "0"}</div>
                                     </div>
 
@@ -1145,10 +1145,10 @@ export function InventoryTab() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Target Mix SKU</Label>
+                    <Label>Target Product</Label>
                     <Select value={targetMixSku} onValueChange={setTargetMixSku}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select target SKU" />
+                        <SelectValue placeholder="Select product" />
                       </SelectTrigger>
                       <SelectContent>
                         <div className="p-2 border-b">
@@ -1165,7 +1165,7 @@ export function InventoryTab() {
                         ) : (
                           filteredTargetMixProducts.map((product) => (
                             <SelectItem key={product.sku} value={product.sku}>
-                              {product.sku}. {product.name} (Stock: {stockInfo[product.sku]?.currentStock?.toFixed(2) || "0"})
+                              {product.name} (Stock: {stockInfo[product.sku]?.currentStock?.toFixed(2) || "0"})
                             </SelectItem>
                           ))
                         )}
@@ -1221,7 +1221,6 @@ export function InventoryTab() {
                         <div key={product.sku} className="grid grid-cols-[1.3fr_90px_110px] gap-2 border-b px-3 py-2 text-sm">
                           <div className="min-w-0">
                             <div className="truncate font-medium">{product.name}</div>
-                            <div className="text-xs text-muted-foreground">{product.sku}</div>
                           </div>
                           <div className="text-right text-muted-foreground">{(stockInfo[product.sku]?.currentStock || 0).toFixed(2)}</div>
                           <div>
@@ -1281,7 +1280,7 @@ export function InventoryTab() {
                     <div className="mt-2 flex flex-wrap gap-2">
                       {openBatchStockSummary.products.map((p) => (
                         <div key={p.sku} className="rounded border bg-background px-2 py-1 text-xs">
-                          <span className="font-medium">{p.sku}</span> {p.name}: {p.qty.toFixed(2)}
+                          <span className="font-medium">{p.name}</span>: {p.qty.toFixed(2)}
                         </div>
                       ))}
                     </div>
@@ -1305,11 +1304,11 @@ export function InventoryTab() {
                       mixBatches.map((batch) => (
                         <div key={batch.id} className="grid grid-cols-[2fr_90px_90px_90px_90px_110px_180px] gap-2 border-b px-3 py-2 text-sm">
                           <div className="min-w-0">
-                            <div className="truncate font-medium">{batch.targetSku}. {batch.targetName}</div>
+                            <div className="truncate font-medium">{batch.targetName}</div>
                             <div className="text-xs text-muted-foreground">Batch: {new Date(batch.date).toLocaleString()}</div>
                             <div className="text-xs text-muted-foreground">Source: {batch.sourceCategoryDisplayName}</div>
                             <div className="mt-1 text-xs text-muted-foreground">
-                              Ingredients: {batch.ingredients.length > 0 ? batch.ingredients.map((ing) => `${ing.sku} ${ing.name} (${Number(ing.quantity).toFixed(2)})`).join(", ") : "-"}
+                              Ingredients: {batch.ingredients.length > 0 ? batch.ingredients.map((ing) => `${ing.name} (${Number(ing.quantity).toFixed(2)})`).join(", ") : "-"}
                             </div>
                             {batch.remarks ? <div className="mt-1 text-xs text-muted-foreground">Remarks: {batch.remarks}</div> : null}
                             <div className="mt-1 text-xs text-muted-foreground">Unit Cost: {batch.unitCostPerCostUnit.toFixed(2)}</div>
@@ -1504,7 +1503,7 @@ export function InventoryTab() {
                       <span className="text-xs text-muted-foreground">{new Date(row.date).toLocaleString()}</span>
                       <span className="text-xs font-medium">{row.type}{row.isUndone ? " (UNDONE)" : ""}</span>
                       <span className="truncate font-mono text-xs text-muted-foreground">{row.batchId || "-"}</span>
-                      <span className="truncate">{row.sku}. {row.name}</span>
+                      <span className="truncate">{row.name}</span>
                       <span className="text-right">{Number(row.quantity || 0).toFixed(2)}</span>
                       <span className="text-right">{row.weightedCostBefore == null ? "-" : Number(row.weightedCostBefore).toFixed(2)}</span>
                       <span className="text-right">{row.weightedCostAfter == null ? "-" : Number(row.weightedCostAfter).toFixed(2)}</span>
@@ -1548,7 +1547,7 @@ export function InventoryTab() {
                         <div className="px-3 py-2 text-xs text-muted-foreground">No products found</div>
                       ) : (
                         damageSelectableProducts.map((product) => (
-                          <SelectItem key={product.sku} value={product.sku}>{product.sku}. {product.name}</SelectItem>
+                          <SelectItem key={product.sku} value={product.sku}>{product.name}</SelectItem>
                         ))
                       )}
                     </SelectContent>
