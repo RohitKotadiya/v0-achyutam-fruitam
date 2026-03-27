@@ -401,6 +401,7 @@ export default function BillsPage() {
       customerMobile: bill.mobile,
       grandTotal: bill.grandTotal,
       lineItems: bill.lineItems,
+      billDate: bill.dateTime,
       paymentMethod: bill.paymentMethod,
       remarks: bill.remarks || "",
     })

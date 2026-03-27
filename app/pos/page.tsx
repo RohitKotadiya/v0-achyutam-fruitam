@@ -7,8 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
 import { QuantityModal } from "@/components/pos/quantity-modal"
 import { MixDishModal } from "@/components/pos/mix-dish-modal"
 import { useToast } from "@/hooks/use-toast"
@@ -70,16 +68,11 @@ interface LastSavedBill {
   remarks: string
 }
 
-const POS_ADMIN_SESSION_KEY = "pos-admin-unlock-until"
-const POS_ADMIN_SESSION_MS = 8 * 60 * 60 * 1000
-
 export default function POSPage() {
   const [mounted, setMounted] = useState(false)
 
   const { toast } = useToast()
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false)
-  const [isPosLocked, setIsPosLocked] = useState(true)
-  const [adminIntent, setAdminIntent] = useState<"unlock-pos" | "open-admin">("unlock-pos")
 
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeCategoryId, setActiveCategoryId] = useState<string>("all")
@@ -91,8 +84,8 @@ export default function POSPage() {
   const [cashAmount, setCashAmount] = useState("")
   const [onlineAmount, setOnlineAmount] = useState("")
   const [remarks, setRemarks] = useState("")
-  const [discountType, setDiscountType] = useState<"percent" | "fixed">("percent")
-  const [discountValue, setDiscountValue] = useState("")
+  const [discountPercent, setDiscountPercent] = useState("")
+  const [discountRupee, setDiscountRupee] = useState("")
   const [cashReceived, setCashReceived] = useState("")
 
   const [categories, setCategories] = useState<Category[]>([])
@@ -127,17 +120,6 @@ export default function POSPage() {
 
   useEffect(() => {
     setMounted(true)
-
-    // Require admin verification before POS usage unless an active local session exists.
-    const unlockUntilRaw = sessionStorage.getItem(POS_ADMIN_SESSION_KEY)
-    const unlockUntil = Number(unlockUntilRaw || "0")
-    if (Number.isFinite(unlockUntil) && unlockUntil > Date.now()) {
-      setIsPosLocked(false)
-    } else {
-      setIsPosLocked(true)
-      setAdminIntent("unlock-pos")
-      setIsAdminModalOpen(true)
-    }
 
     // Check for edit bill from sessionStorage
     const editBillData = sessionStorage.getItem('editBill') || localStorage.getItem('editBill')
@@ -288,9 +270,13 @@ export default function POSPage() {
   const handleRefreshProducts = async () => {
     try {
       setRefreshingProducts(true)
-      await fetchProducts({ silent: true })
+      await Promise.all([
+        fetchProducts({ silent: true }),
+        fetchCustomerLookup(),
+      ])
       toast({
-        title: "Products refreshed",
+        title: "POS data refreshed",
+        description: "Products and customers updated",
         duration: 800,
       })
     } finally {
@@ -639,8 +625,8 @@ export default function POSPage() {
       setCustomerIdInput("")
       setCustomerNo(null)
       setRemarks("")
-      setDiscountValue("")
-      setDiscountType("percent")
+      setDiscountPercent("")
+      setDiscountRupee("")
       setPaymentMethod("CASH")
       setCashAmount("")
       setOnlineAmount("")
@@ -687,6 +673,42 @@ export default function POSPage() {
     return true
   }
 
+  const openPrintDialogInPage = (printHTML: string) => {
+    const iframe = document.createElement("iframe")
+    iframe.style.position = "fixed"
+    iframe.style.right = "0"
+    iframe.style.bottom = "0"
+    iframe.style.width = "0"
+    iframe.style.height = "0"
+    iframe.style.border = "0"
+    iframe.setAttribute("aria-hidden", "true")
+    document.body.appendChild(iframe)
+
+    const frameWindow = iframe.contentWindow
+    if (!frameWindow) {
+      iframe.remove()
+      throw new Error("Unable to open print preview")
+    }
+
+    const cleanup = () => {
+      setTimeout(() => {
+        iframe.remove()
+      }, 300)
+    }
+
+    frameWindow.addEventListener("afterprint", cleanup, { once: true })
+
+    const doc = frameWindow.document
+    doc.open()
+    doc.write(printHTML)
+    doc.close()
+
+    // Fallback cleanup in case afterprint does not fire.
+    setTimeout(() => {
+      iframe.remove()
+    }, 20000)
+  }
+
   const handlePrintLastSavedBill = async () => {
     const bill = syncLastSavedBill()
     if (!bill) {
@@ -704,11 +726,7 @@ export default function POSPage() {
         await printBillSilently(bill.billNo, bill, posSettings)
       } else {
         const printHTML = generatePrintHTML(bill.billNo, bill, { copies: receiptPrintCopies })
-        const printWindow = window.open("", "_blank")
-        if (printWindow) {
-          printWindow.document.write(printHTML)
-          printWindow.document.close()
-        }
+        openPrintDialogInPage(printHTML)
       }
     } catch (error) {
       toast({
@@ -851,11 +869,7 @@ export default function POSPage() {
             await printBillSilently(savedBill.billNo, savedBill, posSettings)
           } else {
             const printHTML = generatePrintHTML(savedBill.billNo, savedBill, { copies: receiptPrintCopies })
-            const printWindow = window.open("", "_blank")
-            if (printWindow) {
-              printWindow.document.write(printHTML)
-              printWindow.document.close()
-            }
+            openPrintDialogInPage(printHTML)
           }
         } else if (afterSave === "whatsapp") {
           const whatsappMessage = generateWhatsAppMessage(savedBill.billNo, {
@@ -884,8 +898,8 @@ export default function POSPage() {
         setCustomerIdInput("")
         setCustomerNo(null)
         setRemarks("")
-        setDiscountValue("")
-        setDiscountType("percent")
+        setDiscountPercent("")
+        setDiscountRupee("")
         setPaymentMethod("CASH")
         setCashAmount("")
         setOnlineAmount("")
@@ -942,10 +956,11 @@ export default function POSPage() {
     return sum + (Number.isFinite(itemTotal) ? itemTotal : quantity * price)
   }, 0)
   const tax = 0
-  const discountNum = Number(discountValue) || 0
-  const discountAmount = discountType === "percent"
-    ? Math.round(subtotal * Math.min(discountNum, 100) / 100)
-    : Math.min(discountNum, subtotal)
+  const discountPercentNum = Math.min(Math.max(Number(discountPercent) || 0, 0), 100)
+  const discountRupeeNum = Math.max(Number(discountRupee) || 0, 0)
+  const discountAmount = discountPercentNum > 0
+    ? Math.round(subtotal * discountPercentNum / 100)
+    : Math.min(discountRupeeNum, subtotal)
   const grandTotal = Math.max(subtotal + tax - discountAmount, 0)
 
   const sourceCategoriesForMix = categories
@@ -980,11 +995,14 @@ export default function POSPage() {
                 </div>
                 {lowStockProducts.length > 0 && (
                   <div
-                    className="inline-flex items-center justify-center text-amber-600"
-                    title={lowStockMessage}
+                    className="group relative inline-flex items-center justify-center text-amber-600"
                     aria-label={lowStockMessage}
+                    tabIndex={0}
                   >
                     <AlertTriangle className="w-4 h-4" />
+                    <div className="pointer-events-none absolute right-0 top-full z-30 mt-2 hidden w-64 rounded-md bg-slate-900 px-3 py-2 text-left text-xs leading-relaxed text-white shadow-lg group-hover:block group-focus-within:block">
+                      {lowStockMessage}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1001,7 +1019,6 @@ export default function POSPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setAdminIntent("open-admin")
                   setIsAdminModalOpen(true)
                 }}
                 className="h-7 px-2 md:px-2.5"
@@ -1054,9 +1071,18 @@ export default function POSPage() {
             <div className="mb-2">
               <Tabs value={activeCategoryId} onValueChange={setActiveCategoryId}>
                 <TabsList className="h-8 md:h-9 w-full justify-start overflow-x-auto flex-nowrap">
-                  <TabsTrigger value="all" className="text-xs md:text-sm px-3 shrink-0">All</TabsTrigger>
+                  <TabsTrigger
+                    value="all"
+                    className="text-xs md:text-sm px-3 shrink-0 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm data-[state=inactive]:text-muted-foreground"
+                  >
+                    All
+                  </TabsTrigger>
                   {categories.map((cat) => (
-                    <TabsTrigger key={cat.id} value={cat.id} className="text-xs md:text-sm px-3 shrink-0">
+                    <TabsTrigger
+                      key={cat.id}
+                      value={cat.id}
+                      className="text-xs md:text-sm px-3 shrink-0 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm data-[state=inactive]:text-muted-foreground"
+                    >
                         {cat.displayName.split(" ")[0]}
                     </TabsTrigger>
                   ))}
@@ -1149,9 +1175,9 @@ export default function POSPage() {
 
               <CardContent className="flex flex-col flex-1 min-h-0 px-3 md:px-4 pb-1 space-y-1">
                 {/* Customer Info */}
-                <div className="shrink-0 space-y-1">
+                <div className="shrink-0 space-y-0.5">
                   {/* Row 1: Customer ID + Mobile */}
-                  <div className="grid grid-cols-[80px_1fr] md:grid-cols-[100px_1fr] gap-2">
+                  <div className="grid grid-cols-[72px_1fr] md:grid-cols-[92px_1fr] gap-1.5">
                     <div className="relative" ref={customerIdRef}>
                       <Input
                         placeholder="C001"
@@ -1167,20 +1193,20 @@ export default function POSPage() {
                             }
                           }
                         }}
-                        className="h-8 md:h-9 text-sm font-mono"
+                        className="h-[29px] md:h-[33px] text-xs md:text-sm font-mono"
                         autoComplete="off"
                       />
                       {showIdSuggestions && customerIdSuggestions.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-card border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        <div className="absolute top-full left-0 z-50 mt-1 w-[200%] bg-card border rounded-lg shadow-lg max-h-48 overflow-y-auto">
                           {customerIdSuggestions.map((c) => (
                             <button
                               key={`id-${c.id}`}
                               type="button"
-                              className="w-full text-left px-3 py-2 hover:bg-muted flex items-center gap-2 text-sm"
+                              className="w-full text-left px-3 py-2 hover:bg-muted flex items-start gap-2 text-sm"
                               onClick={() => selectCustomerSuggestion(c)}
                             >
                               <span className="text-[10px] text-muted-foreground font-mono shrink-0 w-8">C{String(c.customerNo || 0).padStart(3, "0")}</span>
-                              <span className="font-medium truncate flex-1">{c.name}</span>
+                              <span className="font-medium whitespace-normal break-words leading-tight flex-1">{c.name}</span>
                             </button>
                           ))}
                         </div>
@@ -1203,7 +1229,7 @@ export default function POSPage() {
                             }
                           }
                         }}
-                        className="h-8 md:h-9 text-sm"
+                        className="h-[29px] md:h-[33px] text-xs md:text-sm"
                         autoComplete="off"
                       />
                       {showMobileSuggestions && customerMobileSuggestions.length > 0 && (
@@ -1233,7 +1259,7 @@ export default function POSPage() {
                       value={customerName}
                       onChange={(e) => handleCustomerNameChange(e.target.value)}
                       onFocus={() => { if (customerSuggestions.length > 0) setShowSuggestions(true) }}
-                      className="h-8 md:h-9 text-sm"
+                      className="h-[29px] md:h-[33px] text-xs md:text-sm"
                       autoComplete="off"
                     />
                     {customerNo && (
@@ -1263,19 +1289,18 @@ export default function POSPage() {
                 </div>
 
                 {/* Bill Items */}
-                <div className="border rounded-lg flex-1 min-h-0 overflow-hidden flex flex-col">
-                  <div className="overflow-y-auto custom-scrollbar flex-1">
-                    {billItems.length === 0 ? (
-                      <div className="flex items-center justify-center h-full min-h-[120px] text-sm text-muted-foreground">
-                        Tap products to add items
-                      </div>
-                    ) : (
-                      <div className="divide-y">
-                        {billItems.map((item) => (
-                          <div key={item.id} className="px-2 md:px-3 py-2 flex items-center gap-2">
+                <div className="border rounded-lg min-h-[120px]">
+                  {billItems.length === 0 ? (
+                    <div className="flex items-center justify-center min-h-[120px] text-sm text-muted-foreground">
+                      Tap products to add items
+                    </div>
+                  ) : (
+                    <div className="divide-y">
+                      {billItems.map((item) => (
+                        <div key={item.id} className="px-2 md:px-2.5 py-1.5 flex items-center gap-1.5">
                             {/* Product name */}
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{item.product.name}</p>
+                              <p className="text-xs md:text-sm font-medium truncate">{item.product.name}</p>
                               {item.consumptionRate && (
                                 <p className="text-[10px] text-muted-foreground">({item.consumptionRate} unit)</p>
                               )}
@@ -1286,7 +1311,7 @@ export default function POSPage() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-7 w-7 p-0"
+                                className="h-6 w-6 p-0"
                                 onClick={() => updateQuantity(item.id, item.quantity - 1)}
                               >
                                 <Minus className="w-3 h-3" />
@@ -1296,12 +1321,12 @@ export default function POSPage() {
                                 min="1"
                                 value={item.quantity}
                                 onChange={(e) => updateQuantity(item.id, Number.parseInt(e.target.value) || 0)}
-                                className="w-10 md:w-12 h-7 text-center text-sm p-0"
+                                className="w-9 md:w-10 h-6 text-center text-xs p-0"
                               />
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-7 w-7 p-0"
+                                className="h-6 w-6 p-0"
                                 onClick={() => updateQuantity(item.id, item.quantity + 1)}
                               >
                                 <Plus className="w-3 h-3" />
@@ -1309,22 +1334,21 @@ export default function POSPage() {
                             </div>
 
                             {/* Total */}
-                            <span className="text-sm font-semibold w-14 text-right shrink-0">₹{(Number(item.total) || 0).toFixed(0)}</span>
+                            <span className="text-xs md:text-sm font-semibold w-12 md:w-14 text-right shrink-0">₹{(Number(item.total) || 0).toFixed(0)}</span>
 
                             {/* Delete */}
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-7 w-7 p-0 shrink-0"
+                              className="h-6 w-6 p-0 shrink-0"
                               onClick={() => removeItem(item.id)}
                             >
                               <Trash2 className="w-3.5 h-3.5 text-destructive" />
                             </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Totals + Payment + Actions */}
@@ -1335,26 +1359,41 @@ export default function POSPage() {
                       <span className="text-muted-foreground">Subtotal</span>
                       <span>₹{subtotal.toFixed(0)}</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground shrink-0">Discount</span>
-                      <Select value={discountType} onValueChange={(v) => setDiscountType(v as "percent" | "fixed")}>
-                        <SelectTrigger className="w-14 h-7 text-xs px-2">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="percent">%</SelectItem>
-                          <SelectItem value="fixed">₹</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Input
-                        type="number"
-                        min="0"
-                        max={discountType === "percent" ? "100" : undefined}
-                        placeholder={discountType === "percent" ? "0%" : "₹0"}
-                        value={discountValue}
-                        onChange={(e) => setDiscountValue(e.target.value)}
-                        className="h-7 flex-1 text-sm"
-                      />
+                    <div className="space-y-1">
+                      <div className="grid grid-cols-[64px_1fr_1fr] items-center gap-2">
+                        <span className="text-xs text-muted-foreground shrink-0">Discount</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          placeholder="%"
+                          value={discountPercent}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            setDiscountPercent(value)
+                            if (value.trim().length > 0) {
+                              setDiscountRupee("")
+                            }
+                          }}
+                          disabled={discountRupee.trim().length > 0}
+                          className="h-7 text-sm"
+                        />
+                        <Input
+                          type="number"
+                          min="0"
+                          placeholder="₹"
+                          value={discountRupee}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            setDiscountRupee(value)
+                            if (value.trim().length > 0) {
+                              setDiscountPercent("")
+                            }
+                          }}
+                          disabled={discountPercent.trim().length > 0}
+                          className="h-7 text-sm"
+                        />
+                      </div>
                       {discountAmount > 0 && (
                         <span className="text-xs text-red-500 shrink-0">-₹{discountAmount.toFixed(0)}</span>
                       )}
@@ -1362,9 +1401,9 @@ export default function POSPage() {
                   </div>
 
                   {/* Grand Total */}
-                  <div className="flex justify-between items-center bg-primary/5 rounded-lg px-3 py-2">
-                    <span className="text-sm md:text-base font-bold">Grand Total</span>
-                    <span className="text-xl md:text-2xl font-bold text-primary">₹{grandTotal.toFixed(0)}</span>
+                  <div className="flex justify-between items-center bg-primary/5 rounded-lg px-3 py-1.5">
+                    <span className="text-xs md:text-sm font-bold">Grand Total</span>
+                    <span className="text-lg md:text-xl font-bold text-primary">₹{grandTotal.toFixed(0)}</span>
                   </div>
 
                   {/* Payment Method */}
@@ -1459,12 +1498,11 @@ export default function POSPage() {
                   </div>
 
                   {/* Remarks */}
-                  <Textarea
+                  <Input
                     placeholder="Remarks (optional)"
                     value={remarks}
                     onChange={(e) => setRemarks(e.target.value)}
-                    rows={1}
-                    className="text-sm resize-none"
+                    className="h-8 text-sm"
                   />
 
                   {/* Action Buttons */}
@@ -1537,62 +1575,36 @@ export default function POSPage() {
                     </Button>
                   </div>
 
-                  <div className="space-y-1.5">
-                    {showLastSavedActions ? (
-                      <div className="grid grid-cols-2 gap-1.5">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-8 text-xs"
-                          onClick={handlePrintLastSavedBill}
-                          disabled={!lastSavedBill || billActionLoading !== null}
-                        >
-                          <Printer className="w-3.5 h-3.5 mr-1" />
-                          Print Last
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-8 text-xs bg-green-500 text-white hover:bg-green-600 border-green-500"
-                          onClick={handleSendLastSavedBill}
-                          disabled={!lastSavedBill || billActionLoading !== null}
-                        >
-                          <MessageCircle className="w-3.5 h-3.5 mr-1" />
-                          Send Last
-                        </Button>
-                      </div>
-                    ) : null}
-                  </div>
+                  {showLastSavedActions && (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 text-xs"
+                        onClick={handlePrintLastSavedBill}
+                        disabled={!lastSavedBill || billActionLoading !== null}
+                      >
+                        <Printer className="w-3.5 h-3.5 mr-1" />
+                        Print Last
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 text-xs bg-green-500 text-white hover:bg-green-600 border-green-500"
+                        onClick={handleSendLastSavedBill}
+                        disabled={!lastSavedBill || billActionLoading !== null}
+                      >
+                        <MessageCircle className="w-3.5 h-3.5 mr-1" />
+                        Send Last
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
           </div>
         </div>
       </div>
-
-      {isPosLocked && (
-        <div className="fixed inset-0 z-20 bg-background/95 backdrop-blur-sm flex items-center justify-center p-4">
-          <Card className="w-full max-w-md">
-            <CardHeader>
-              <CardTitle className="text-base md:text-lg">POS Locked</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Admin verification is required to use POS billing.
-              </p>
-              <Button
-                onClick={() => {
-                  setAdminIntent("unlock-pos")
-                  setIsAdminModalOpen(true)
-                }}
-                className="w-full"
-              >
-                Verify Admin Password
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      )}
 
       {/* ─── Modals ─── */}
       {selectedProduct && (
@@ -1615,25 +1627,9 @@ export default function POSPage() {
       )}
       <AdminLoginModal
         isOpen={isAdminModalOpen}
-        onClose={() => {
-          if (isPosLocked && adminIntent === "unlock-pos") return
-          setIsAdminModalOpen(false)
-        }}
+        onClose={() => setIsAdminModalOpen(false)}
         onLoginSuccess={() => {
-          const unlockUntil = Date.now() + POS_ADMIN_SESSION_MS
-          sessionStorage.setItem(POS_ADMIN_SESSION_KEY, String(unlockUntil))
           setIsAdminModalOpen(false)
-
-          if (adminIntent === "unlock-pos") {
-            setIsPosLocked(false)
-            toast({
-              title: "POS Unlocked",
-              description: "Admin verification successful.",
-              duration: 1800,
-            })
-            return
-          }
-
           window.open("/admin?from=/pos", "_blank", "noopener,noreferrer")
         }}
       />
