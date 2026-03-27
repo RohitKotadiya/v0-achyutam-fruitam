@@ -1,27 +1,72 @@
-export function generateWhatsAppMessage(billNo: number, billData: any) {
-  const { customerName, grandTotal, lineItems, remarks } = billData
+function formatBillDateTime(value?: string) {
+  const date = value ? new Date(value) : new Date()
+  if (Number.isNaN(date.getTime())) {
+    return ""
+  }
 
-  let itemsList = ""
+  const datePart = new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+  }).format(date)
+
+  const timePart = new Intl.DateTimeFormat("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  })
+    .format(date)
+    .replace(/\s/g, " ")
+    .toLowerCase()
+
+  return `${datePart}, ${timePart}`
+}
+
+function formatPaymentMethod(value?: string) {
+  switch (String(value || "").toUpperCase()) {
+    case "ONLINE":
+      return "Online"
+    case "SPLIT":
+      return "Split"
+    case "CASH":
+    default:
+      return "Cash"
+  }
+}
+
+export function generateWhatsAppMessage(billNo: number, billData: any) {
+  const { customerName, grandTotal, lineItems, paymentMethod, remarks, billDate } = billData
+  const lines: string[] = []
+
+  lines.push("*ACHYUTAM FRUITAM*")
+
+  const billStamp = formatBillDateTime(billDate)
+  lines.push(billStamp ? `Bill #${billNo} | ${billStamp}` : `Bill #${billNo}`)
+  lines.push(`Customer: ${customerName || "Walk-in Customer"}`)
+  lines.push("─────────────────")
+
   lineItems.forEach((item: any, index: number) => {
     const price = Number.parseFloat(item.price) || 0
     const quantity = Number.parseFloat(item.quantity) || 0
     const itemTotal = price * quantity
-
     const itemName = item.product?.name || item.productName || "Item"
-    itemsList += `${index + 1}. *${itemName}*    ${quantity}x${price.toFixed(0)} = ${itemTotal.toFixed(0)}\n`
+
+    lines.push(`${index + 1}. ${itemName}`)
+    lines.push(`   ${quantity} x ₹${price.toFixed(0)} = ₹${itemTotal.toFixed(0)}`)
   })
 
-  const message = `*ACHYUTAM FRUITAM*
-Hello, ${customerName}
+  lines.push("─────────────────")
+  lines.push(`*Total: ₹${Number(grandTotal || 0).toFixed(0)}*`)
+  lines.push(`Paid: ${formatPaymentMethod(paymentMethod)}`)
 
-*Bill #${billNo}*
+  if (remarks?.trim()) {
+    lines.push("")
+    lines.push(`Note: ${remarks.trim()}`)
+  }
 
-${itemsList}
-*Grand Total: ₹${grandTotal.toFixed(0)}*
-${remarks ? `Note: ${remarks}\n` : ""}
-Thank you! Visit Again!`
+  lines.push("")
+  lines.push("Thank you!")
 
-  return message
+  return lines.join("\n")
 }
 
 export function getWhatsAppUrl(mobile: string, message: string) {
