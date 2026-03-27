@@ -47,7 +47,6 @@ export function SKUTab() {
 
   // Add SKU Form
   const [newSKU, setNewSKU] = useState({
-    sku: "",
     name: "",
     categoryId: "",
     originalCost: "",
@@ -86,11 +85,31 @@ export function SKUTab() {
     e.preventDefault()
     setLoading(true)
 
+    // Validate required fields
+    if (!newSKU.name || !newSKU.categoryId || !newSKU.originalCost || !newSKU.sellingPrice) {
+      toast({
+        title: "Error",
+        description: "Please fill in all fields",
+        variant: "destructive",
+      })
+      setLoading(false)
+      return
+    }
+
     try {
+      // Auto-generate unique SKU
+      const generatedSKU = `SKU${Math.random().toString(36).substring(2, 10).toUpperCase()}`
+
       const res = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newSKU),
+        body: JSON.stringify({
+          ...newSKU,
+          sku: generatedSKU,
+          originalCost: parseFloat(newSKU.originalCost),
+          sellingPrice: parseFloat(newSKU.sellingPrice),
+          lowStockAlert: parseInt(newSKU.lowStockAlert),
+        }),
       })
 
       if (res.ok) {
@@ -99,7 +118,6 @@ export function SKUTab() {
           description: "Product added successfully",
         })
         setNewSKU({
-          sku: "",
           name: "",
           categoryId: "",
           originalCost: "",
@@ -221,18 +239,7 @@ export function SKUTab() {
           <form onSubmit={handleAddSKU} className="space-y-3">
             <div className="rounded-lg border bg-muted/20 p-3 md:p-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
-                <div className="space-y-1.5 md:col-span-2">
-                <Label htmlFor="newSKUSku">SKU</Label>
-                <Input
-                  id="newSKUSku"
-                  value={newSKU.sku}
-                  onChange={(e) => setNewSKU({ ...newSKU, sku: e.target.value.toUpperCase() })}
-                  placeholder="e.g. APP001"
-                  required
-                />
-              </div>
-
-                <div className="space-y-1.5 md:col-span-3">
+                <div className="space-y-1.5 md:col-span-4">
                 <Label htmlFor="newSKUName">Product Name</Label>
                 <Input
                   id="newSKUName"
@@ -291,7 +298,7 @@ export function SKUTab() {
                 />
               </div>
 
-                <div className="space-y-1.5 md:col-span-1">
+                <div className="space-y-1.5 md:col-span-2">
                 <Label htmlFor="lowStockAlert">Low Stock Alert Level</Label>
                 <Input
                   id="lowStockAlert"
@@ -313,7 +320,6 @@ export function SKUTab() {
                 variant="outline"
                 onClick={() =>
                   setNewSKU({
-                    sku: "",
                     name: "",
                     categoryId: "",
                     originalCost: "",
