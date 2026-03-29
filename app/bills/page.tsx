@@ -5,6 +5,15 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrency, formatIndianDateTime } from "@/lib/client-helpers"
 import { BackButton } from "@/components/ui/back-button"
@@ -12,6 +21,7 @@ import {
   Search, Eye, Trash2, RefreshCw, Edit3, RotateCcw,
   Printer, MessageCircle, ArrowUp, ArrowDown, ArrowUpDown,
   ChevronDown, ChevronUp, ShoppingCart, Settings, X,
+  HandCoins,
 } from "lucide-react"
 import { ReturnDialog } from "@/components/bills/return-dialog"
 import { generateWhatsAppMessage, openWhatsAppWithFallback } from "@/lib/whatsapp"
@@ -22,11 +32,15 @@ interface Bill {
   id: string
   billNo: number
   dateTime: string
+  updatedAt: string
   customerName: string
   mobile: string | null
   customerNo: number | null
+  customerId: string | null
   paymentMethod: string
   grandTotal: number
+  collectedAmount: number
+  remainingDue: number
   lineItems: any[]
   remarks?: string
 }
@@ -97,6 +111,15 @@ export default function BillsPage() {
   const [busyBillAction, setBusyBillAction] = useState<{ billNo: number; action: "edit" | "delete" } | null>(null)
   const [returnBill, setReturnBill] = useState<{ id: string; billNo: number } | null>(null)
   const [expandedBillId, setExpandedBillId] = useState<string | null>(null)
+  // Collect Payment state
+  const [showCollectDialog, setShowCollectDialog] = useState(false)
+  const [selectedCollectBill, setSelectedCollectBill] = useState<Bill | null>(null)
+  const [collectForm, setCollectForm] = useState<{ amount: string; paymentMethod: string; remarks: string }>({
+    amount: "",
+    paymentMethod: "CASH",
+    remarks: "",
+  })
+  const [collecting, setCollecting] = useState(false)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -417,6 +440,45 @@ export default function BillsPage() {
     })
   }
 
+  const openCollectDialog = (bill: Bill) => {
+    setSelectedCollectBill(bill)
+    setCollectForm({
+      amount: String(bill.remainingDue || 0),
+      paymentMethod: "CASH",
+      remarks: "",
+    })
+    setShowCollectDialog(true)
+  }
+
+  const handleCollectPayment = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedCollectBill) return
+
+    try {
+      setCollecting(true)
+      const response = await fetch(`/api/bills/${selectedCollectBill.billNo}/collect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: parseFloat(collectForm.amount),
+          paymentMethod: collectForm.paymentMethod,
+          remarks: collectForm.remarks,
+        }),
+      })
+
+      if (!response.ok) throw new Error("Failed to collect payment")
+
+      toast({ title: "Success", description: "Payment collected" })
+      setShowCollectDialog(false)
+      setSelectedCollectBill(null)
+      await loadBills()
+    } catch {
+      toast({ title: "Error", description: "Failed to collect payment", variant: "destructive" })
+    } finally {
+      setCollecting(false)
+    }
+  }
+
   const getPaymentBadge = (method: string) => {
     const colors: Record<string, string> = {
       CASH: "bg-green-100 text-green-800",
@@ -689,9 +751,28 @@ export default function BillsPage() {
                             <td className="p-2.5 text-sm text-muted-foreground">{bill.mobile || "—"}</td>
                             <td className="p-2.5 text-center text-sm">{bill.lineItems.length}</td>
                             <td className="p-2.5 text-center">{getPaymentBadge(bill.paymentMethod)}</td>
-                            <td className="p-2.5 text-right font-medium text-sm">{formatCurrency(bill.grandTotal)}</td>
+                            <td className="p-2.5 text-right font-medium text-sm">
+                              <div>{formatCurrency(bill.grandTotal)}</div>
+                              {(bill.remainingDue || 0) > 0 && (
+                                <div className="text-[11px] font-semibold text-orange-600">
+                                  Due: {formatCurrency(bill.remainingDue)}
+                                </div>
+                              )}
+                            </td>
                             <td className="p-2.5">
                               <div className="flex gap-1 justify-center">
+                                {bill.paymentMethod === "PENDING" && Number(bill.remainingDue) > 0 && (
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => openCollectDialog(bill)}
+                                    disabled={isBillActionBusy(bill.billNo) || collecting}
+                                    title="Collect Payment"
+                                  >
+                                    <HandCoins className="w-3.5 h-3.5 text-emerald-600" />
+                                  </Button>
+                                )}
                                 <Button
                                   variant="outline"
                                   size="icon"
@@ -835,11 +916,25 @@ export default function BillsPage() {
                         </div>
                         <div className="text-right shrink-0">
                           <p className="text-sm font-bold text-primary">{formatCurrency(bill.grandTotal)}</p>
+                          {(bill.remainingDue || 0) > 0 && (
+                            <p className="text-[11px] font-semibold text-orange-600">Due: {formatCurrency(bill.remainingDue)}</p>
+                          )}
                         </div>
                       </div>
 
                       {/* Row 3: Actions */}
                       <div className="flex gap-1 pt-1">
+                        {bill.paymentMethod === "PENDING" && Number(bill.remainingDue) > 0 && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 flex-1 text-xs bg-emerald-50"
+                            onClick={() => openCollectDialog(bill)}
+                            disabled={isBillActionBusy(bill.billNo) || collecting}
+                          >
+                            <HandCoins className="w-3 h-3 mr-1 text-emerald-600" />Collect
+                          </Button>
+                        )}
                         <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={() => printBill(bill)} disabled={isBillActionBusy(bill.billNo)}>
                           <Printer className="w-3 h-3 mr-1" />Print
                         </Button>
@@ -901,7 +996,7 @@ export default function BillsPage() {
         </Card>
       </div>
 
-      {/* Return Dialog */}
+      {/* ─── Return Dialog ─── */}
       <ReturnDialog
         open={returnBill !== null}
         onOpenChange={(open) => { if (!open) setReturnBill(null) }}
@@ -909,6 +1004,69 @@ export default function BillsPage() {
         billId={returnBill?.id || ""}
         onSuccess={loadBills}
       />
+
+      {/* ─── Collect Payment Dialog ─── */}
+      <Dialog open={showCollectDialog} onOpenChange={setShowCollectDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Collect Payment</DialogTitle>
+            <DialogDescription>
+              Bill #{selectedCollectBill?.billNo} — {selectedCollectBill?.customerName} — Remaining: {formatCurrency(selectedCollectBill?.remainingDue || 0)}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCollectPayment} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Amount</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={collectForm.amount}
+                onChange={(e) => setCollectForm({ ...collectForm, amount: e.target.value })}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Payment Method</Label>
+              <Select
+                value={collectForm.paymentMethod}
+                onValueChange={(value) => setCollectForm({ ...collectForm, paymentMethod: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CASH">Cash</SelectItem>
+                  <SelectItem value="ONLINE">Online</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Remarks (Optional)</Label>
+              <Input
+                value={collectForm.remarks}
+                onChange={(e) => setCollectForm({ ...collectForm, remarks: e.target.value })}
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button type="submit" disabled={collecting || !selectedCollectBill?.id}>
+                {collecting ? "Recording..." : "Record Payment"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  if (collecting) return
+                  setShowCollectDialog(false)
+                  setSelectedCollectBill(null)
+                }}
+                disabled={collecting}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

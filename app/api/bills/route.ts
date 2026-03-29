@@ -59,10 +59,31 @@ export async function GET(request: Request) {
       take: limit,
     })
 
-    const mapped = bills.map((b) => ({
-      ...b,
-      customerNo: b.customer?.customerNo ?? null,
-    }))
+    const billIds = bills.map((b) => b.id)
+    const collectionsPerBill = billIds.length
+      ? await prisma.paymentCollection.groupBy({
+          by: ["billId"],
+          where: { billId: { in: billIds } },
+          _sum: { amount: true },
+        })
+      : []
+
+    const collectionsMap = new Map(collectionsPerBill.map((c) => [c.billId, c._sum.amount || 0]))
+
+    const mapped = bills.map((b) => {
+      const collectedFromCollections = collectionsMap.get(b.id) || 0
+      const isPendingBill = b.paymentMethod === "PENDING"
+      const collectedAmount = isPendingBill ? collectedFromCollections : b.grandTotal
+      const remainingDue = isPendingBill ? Math.max(0, b.grandTotal - collectedFromCollections) : 0
+
+      return {
+        ...b,
+        customerNo: b.customer?.customerNo ?? null,
+        collectedAmount,
+        remainingDue,
+        updatedAt: b.updatedAt,
+      }
+    })
 
     return NextResponse.json({ success: true, bills: mapped })
   } catch (error) {

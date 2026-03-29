@@ -38,6 +38,16 @@ export async function POST(request: Request) {
       }, { status: 400 })
     }
 
+    if (paymentMethod === "PENDING" && (!customerMobile || String(customerMobile).length !== 10)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Pending bills require a valid 10-digit customer mobile",
+        },
+        { status: 400 },
+      )
+    }
+
     // Customer optional
     const customerNameFinal = customerName || "Walk-in-Cust"
     let customerId = null

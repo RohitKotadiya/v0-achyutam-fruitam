@@ -475,12 +475,14 @@ model Expense {
   description   String
   amount        Float
   paymentMethod PaymentMethod @default(CASH)
+  paidFrom      String        @default("COUNTER") // COUNTER, SAFE, BANK
   remarks       String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@index([date])
   @@index([category])
+  @@index([paidFrom])
 }
 
 // Suppliers
@@ -605,6 +607,27 @@ model ReturnLog {
   @@index([billId])
   @@index([productId])
   @@index([date])
+}
+
+// Cash Location Transactions (Counter ↔ Safe ↔ Bank physical money movements)
+// fromLocation / toLocation values: COUNTER | SAFE | BANK | OWNER | EXTERNAL
+// category values: TRANSFER | OWNER | OPENING | EXPENSE
+model CashTransaction {
+  id           String   @id @default(cuid())
+  date         DateTime @default(now())
+  fromLocation String   // where money leaves
+  toLocation   String   // where money arrives
+  amount       Float
+  note         String
+  category     String   // TRANSFER, OWNER, OPENING, EXPENSE
+  expenseId    String?  // populated when category=EXPENSE, links to Expense record
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([date])
+  @@index([fromLocation])
+  @@index([toLocation])
+  @@index([category])
 }
 
 // System Configuration (key-value store)
