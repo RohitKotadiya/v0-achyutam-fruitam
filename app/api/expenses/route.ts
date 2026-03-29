@@ -39,22 +39,45 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { date, category, description, amount, paymentMethod, remarks } = body
+    const { date, category, description, amount, paidFrom, remarks } = body
 
     if (!category || !description || !amount) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
+    const parsedAmount = parseFloat(amount)
+    const expenseDate = date ? new Date(date) : new Date()
+    const location = (paidFrom || "COUNTER").toUpperCase() as "COUNTER" | "SAFE" | "BANK"
+
+    // paymentMethod kept for backward compat: COUNTER→CASH, SAFE→CASH, BANK→ONLINE
+    const paymentMethod = location === "BANK" ? "ONLINE" : "CASH"
+
     const expense = await prisma.expense.create({
       data: {
-        date: date ? new Date(date) : new Date(),
+        date: expenseDate,
         category,
         description,
-        amount: Number.parseFloat(amount),
-        paymentMethod: paymentMethod || "CASH",
-        remarks,
+        amount: parsedAmount,
+        paymentMethod,
+        paidFrom: location,
+        remarks: remarks || null,
       },
     })
+
+    // For SAFE or BANK expenses, create a CashTransaction to reduce that location's balance
+    if (location === "SAFE" || location === "BANK") {
+      await prisma.cashTransaction.create({
+        data: {
+          date: expenseDate,
+          fromLocation: location,
+          toLocation: "EXTERNAL",
+          amount: parsedAmount,
+          note: `Expense: ${description} (${category})`,
+          category: "EXPENSE",
+          expenseId: expense.id,
+        },
+      })
+    }
 
     return NextResponse.json(expense)
   } catch (error) {

@@ -76,7 +76,8 @@ export async function POST(request: Request) {
         )
       }
 
-      totalIngredientCost += ingredient.qty * product.originalCost
+      const sourceUnitCost = product.currentStock?.weightedAvgCost ?? product.originalCost
+      totalIngredientCost += ingredient.qty * sourceUnitCost
       costUnits += ingredient.qty
     }
 

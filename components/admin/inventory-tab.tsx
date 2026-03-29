@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
+import { InventorySection } from "@/components/admin/reports-tab"
 import { Loader2, ChevronDown, ChevronRight, ChevronUp } from "lucide-react"
 
 interface Product {
@@ -95,11 +96,28 @@ const toLocalDateInputValue = (date: Date) => {
 type HistorySortKey = "date" | "type" | "sku" | "quantity" | "weightedCostBefore" | "weightedCostAfter" | "costPrice"
 
 const UNDO_WINDOW_MS = 120000
+const INVENTORY_ACTIVE_SUB_TAB_KEY = "inventory-active-sub-tab-v1"
+const INVENTORY_PREPARE_MIX_VIEW_KEY = "inventory-prepare-mix-view-v1"
+const INVENTORY_PREPARE_MIX_PREFS_KEY = "inventory-prepare-mix-prefs-v1"
 
-export function InventoryTab() {
+type InventorySubTab = "add-stock" | "prepare-mix" | "report" | "damage" | "history"
+type PrepareMixView = "entry" | "batches"
+
+export function InventoryTab({
+  forcedSubTab,
+  forcedPrepareMixView,
+  hideSubTabList = false,
+}: {
+  forcedSubTab?: InventorySubTab
+  forcedPrepareMixView?: PrepareMixView
+  hideSubTabList?: boolean
+} = {}) {
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
-  const [activeSubTab, setActiveSubTab] = useState("add-stock")
+  const [activeSubTab, setActiveSubTab] = useState<InventorySubTab>(forcedSubTab || "add-stock")
+  const [isActiveSubTabRestored, setIsActiveSubTabRestored] = useState(false)
+  const [prepareMixView, setPrepareMixView] = useState<PrepareMixView>(forcedPrepareMixView || "entry")
+  const [isPrepareMixViewRestored, setIsPrepareMixViewRestored] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [stockInfo, setStockInfo] = useState<Record<string, StockInfo>>({})
@@ -165,6 +183,71 @@ export function InventoryTab() {
   const [historyCurrentPage, setHistoryCurrentPage] = useState(1)
   const [historyPageSize, setHistoryPageSize] = useState(20)
   const [showHistoryPaginationControls, setShowHistoryPaginationControls] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (forcedSubTab) {
+      setActiveSubTab(forcedSubTab)
+      setIsActiveSubTabRestored(true)
+      return
+    }
+    const savedSubTab = window.localStorage.getItem(INVENTORY_ACTIVE_SUB_TAB_KEY)
+    const allowedSubTabs = ["add-stock", "prepare-mix", "report", "damage", "history"]
+    if (savedSubTab && allowedSubTabs.includes(savedSubTab)) {
+      setActiveSubTab(savedSubTab as InventorySubTab)
+    }
+    setIsActiveSubTabRestored(true)
+  }, [forcedSubTab])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (!isActiveSubTabRestored) return
+    if (forcedSubTab) return
+    window.localStorage.setItem(INVENTORY_ACTIVE_SUB_TAB_KEY, activeSubTab)
+  }, [activeSubTab, isActiveSubTabRestored, forcedSubTab])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (forcedPrepareMixView) {
+      setPrepareMixView(forcedPrepareMixView)
+      setIsPrepareMixViewRestored(true)
+      return
+    }
+    const savedView = window.localStorage.getItem(INVENTORY_PREPARE_MIX_VIEW_KEY)
+    if (savedView === "entry" || savedView === "batches") {
+      setPrepareMixView(savedView)
+    }
+    setIsPrepareMixViewRestored(true)
+  }, [forcedPrepareMixView])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (!isPrepareMixViewRestored) return
+    if (forcedPrepareMixView) return
+    window.localStorage.setItem(INVENTORY_PREPARE_MIX_VIEW_KEY, prepareMixView)
+  }, [prepareMixView, isPrepareMixViewRestored, forcedPrepareMixView])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const raw = window.localStorage.getItem(INVENTORY_PREPARE_MIX_PREFS_KEY)
+    if (!raw) return
+    try {
+      const saved = JSON.parse(raw) as { targetMixSku?: string; sourceCategoryId?: string; targetCategoryFilterId?: string }
+      if (saved.targetMixSku) setTargetMixSku(saved.targetMixSku)
+      if (saved.sourceCategoryId) setSourceCategoryId(saved.sourceCategoryId)
+      if (saved.targetCategoryFilterId) setTargetCategoryFilterId(saved.targetCategoryFilterId)
+    } catch {
+      // Ignore corrupted persisted state and continue with defaults.
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    window.localStorage.setItem(
+      INVENTORY_PREPARE_MIX_PREFS_KEY,
+      JSON.stringify({ targetMixSku, sourceCategoryId, targetCategoryFilterId }),
+    )
+  }, [targetMixSku, sourceCategoryId, targetCategoryFilterId])
 
   const hasHistoryDraftChanges =
     draftHistoryStartDate !== historyStartDate ||
@@ -857,10 +940,11 @@ export function InventoryTab() {
         throw new Error(data.error || "Failed to prepare mix")
       }
 
-      toast({ title: "Success", description: "Mix prepared successfully" })
+      toast({ title: "Success", description: "Mix prepared. Opening batch management..." })
       setIngredientQtyBySku({})
       setMixPreparedQuantity("")
       setMixRemarks("")
+      setPrepareMixView("batches")
       await fetchProducts()
       await fetchMixBatches()
     } catch (error) {
@@ -945,17 +1029,20 @@ export function InventoryTab() {
   }
 
   return (
-    <Tabs value={activeSubTab} onValueChange={setActiveSubTab} className="space-y-4">
+    <Tabs value={activeSubTab} onValueChange={(v) => setActiveSubTab(v as InventorySubTab)} className="space-y-4">
+      {!hideSubTabList ? (
       <div className="w-full overflow-x-auto pb-1">
         <TabsList className="inline-flex w-max min-w-full gap-1">
-          <TabsTrigger value="add-stock" className="!flex-none px-3">Add Stock</TabsTrigger>
+          <TabsTrigger value="add-stock" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Add Stock</TabsTrigger>
           {settings.enableMixDishPrep === "true" && (
-            <TabsTrigger value="prepare-mix" className="!flex-none px-3">Prepare Mix</TabsTrigger>
+            <TabsTrigger value="prepare-mix" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Prepare Mix</TabsTrigger>
           )}
-          <TabsTrigger value="damage" className="!flex-none px-3">Damage Record</TabsTrigger>
-          <TabsTrigger value="history" className="!flex-none px-3">Stock History</TabsTrigger>
+          <TabsTrigger value="report" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Inventory Report</TabsTrigger>
+          <TabsTrigger value="damage" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Damage Record</TabsTrigger>
+          <TabsTrigger value="history" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Stock History</TabsTrigger>
         </TabsList>
       </div>
+      ) : null}
 
       <TabsContent value="add-stock" className="space-y-4">
         <Card>
@@ -1127,6 +1214,21 @@ export function InventoryTab() {
                 </div>
               ) : null}
 
+              <div className="sticky top-0 z-10 mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+                <Tabs value={prepareMixView} onValueChange={(v) => setPrepareMixView(v as PrepareMixView)}>
+                  <TabsList className="h-8">
+                    <TabsTrigger value="entry" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Entry</TabsTrigger>
+                    <TabsTrigger value="batches" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Mix Batches</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+                <div className="flex items-center gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => void fetchMixBatches()}>
+                    Refresh Batches
+                  </Button>
+                </div>
+              </div>
+
+              {prepareMixView === "entry" ? (
               <form onSubmit={handlePrepareMix} className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div className="space-y-2">
@@ -1255,10 +1357,13 @@ export function InventoryTab() {
                   <Input value={mixRemarks} onChange={(e) => setMixRemarks(e.target.value)} />
                 </div>
 
-                <Button type="submit" disabled={loading}>{loading ? "Preparing..." : "Prepare Mix"}</Button>
+                <div className="sticky bottom-0 z-10 flex flex-wrap gap-2 rounded-md border bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+                  <Button type="submit" disabled={loading}>{loading ? "Preparing..." : "Prepare Mix"}</Button>
+                  <Button type="button" variant="outline" onClick={() => setPrepareMixView("batches")}>Mix Batches</Button>
+                </div>
               </form>
-
-              <div className="mt-6 space-y-4 border-t pt-4">
+              ) : (
+              <div className="space-y-4">
                 <div>
                   <h4 className="text-sm font-semibold">Open Batch Management</h4>
                   <p className="text-xs text-muted-foreground">Update prepared qty directly per batch from Action column when actual yield differs from planned yield.</p>
@@ -1290,11 +1395,11 @@ export function InventoryTab() {
                 <div className="rounded border">
                   <div className="grid grid-cols-[2fr_90px_90px_90px_90px_110px_180px] gap-2 border-b bg-muted/50 px-3 py-2 text-xs font-medium">
                     <span>Open Batch Details</span>
-                    <span className="text-right">Prepared</span>
-                    <span className="text-right">Sold</span>
-                    <span className="text-right">Produced Rem.</span>
-                    <span className="text-right">Cost Rem.</span>
-                    <span className="text-right">Zero-Cost Rem.</span>
+                    <span className="text-right">Prepared Units</span>
+                    <span className="text-right">Sold Units</span>
+                    <span className="text-right">Produced Remaining</span>
+                    <span className="text-right">Cost Remaining</span>
+                    <span className="text-right">Zero-Cost Remaining</span>
                     <span className="text-center">Action</span>
                   </div>
                   <div className="max-h-[360px] overflow-y-auto">
@@ -1325,15 +1430,17 @@ export function InventoryTab() {
                               step="0.01"
                               value={batchPreparedQtyDraft[batch.id] ?? String(batch.producedUnits)}
                               onChange={(e) => setBatchPreparedQtyDraft((prev) => ({ ...prev, [batch.id]: e.target.value }))}
+                              disabled={batch.producedUnitsRemaining <= 0}
                               className="h-8 text-right"
                             />
                             <Button
                               type="button"
                               size="sm"
-                              disabled={batchUpdateLoadingId === batch.id}
+                              disabled={batchUpdateLoadingId === batch.id || batch.producedUnitsRemaining <= 0}
+                              title={batch.producedUnitsRemaining <= 0 ? "Batch is fully sold and closed" : ""}
                               onClick={() => handleUpdateBatchPreparedQty(batch)}
                             >
-                              {batchUpdateLoadingId === batch.id ? "..." : "Update"}
+                              {batchUpdateLoadingId === batch.id ? "..." : batch.producedUnitsRemaining <= 0 ? "Closed" : "Update"}
                             </Button>
                           </div>
                         </div>
@@ -1342,10 +1449,15 @@ export function InventoryTab() {
                   </div>
                 </div>
               </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
       )}
+
+      <TabsContent value="report" className="space-y-4">
+        <InventorySection />
+      </TabsContent>
 
       <TabsContent value="history" className="space-y-4">
         <Card>

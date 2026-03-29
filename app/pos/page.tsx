@@ -64,7 +64,7 @@ interface LastSavedBill {
   customerMobile: string | null
   grandTotal: number
   lineItems: BillItem[]
-  paymentMethod: "CASH" | "ONLINE" | "SPLIT"
+  paymentMethod: "CASH" | "ONLINE" | "SPLIT" | "PENDING"
   remarks: string
 }
 
@@ -80,7 +80,7 @@ export default function POSPage() {
   const [billItems, setBillItems] = useState<BillItem[]>([])
   const [customerName, setCustomerName] = useState("")
   const [customerMobile, setCustomerMobile] = useState("")
-  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ONLINE" | "SPLIT">("CASH")
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ONLINE" | "SPLIT" | "PENDING">("CASH")
   const [cashAmount, setCashAmount] = useState("")
   const [onlineAmount, setOnlineAmount] = useState("")
   const [remarks, setRemarks] = useState("")
@@ -142,7 +142,12 @@ export default function POSPage() {
       setBillItems(normalizedLineItems)
       setCustomerName(bill.customerName || '')
       setCustomerMobile(bill.mobile || '')
-      setPaymentMethod(bill.paymentMethod || 'CASH')
+      const incomingPaymentMethod = (bill.paymentMethod || "CASH").toUpperCase()
+      setPaymentMethod(
+        incomingPaymentMethod === "ONLINE" || incomingPaymentMethod === "SPLIT" || incomingPaymentMethod === "PENDING"
+          ? incomingPaymentMethod
+          : "CASH"
+      )
       setRemarks(bill.remarks || '')
       sessionStorage.removeItem('editBill')
       localStorage.removeItem('editBill')
@@ -168,7 +173,12 @@ export default function POSPage() {
         customerMobile: parsed?.customerMobile ? String(parsed.customerMobile) : null,
         grandTotal: Number(parsed?.grandTotal) || 0,
         lineItems: Array.isArray(parsed?.lineItems) ? parsed.lineItems : [],
-        paymentMethod: parsed?.paymentMethod === "ONLINE" || parsed?.paymentMethod === "SPLIT" ? parsed.paymentMethod : "CASH",
+        paymentMethod:
+          parsed?.paymentMethod === "ONLINE" ||
+          parsed?.paymentMethod === "SPLIT" ||
+          parsed?.paymentMethod === "PENDING"
+            ? parsed.paymentMethod
+            : "CASH",
         remarks: String(parsed?.remarks || ""),
       }
     } catch {
@@ -807,6 +817,15 @@ export default function POSPage() {
       return
     }
 
+    if (paymentMethod === "PENDING" && (!customerMobile || customerMobile.length !== 10)) {
+      toast({
+        title: "Customer mobile required",
+        description: "Pending bills require a valid 10-digit mobile number for dues tracking",
+        variant: "destructive",
+      })
+      return
+    }
+
     setBillActionLoading(actionType)
 
     const customerNameFinal = customerName || "Walk-in-Cust"
@@ -1408,8 +1427,8 @@ export default function POSPage() {
 
                   {/* Payment Method */}
                   <div className="space-y-1.5">
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {(["CASH", "ONLINE", "SPLIT"] as const).map((method) => (
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {(["CASH", "ONLINE", "SPLIT", "PENDING"] as const).map((method) => (
                         <Button
                           key={method}
                           type="button"
@@ -1422,12 +1441,21 @@ export default function POSPage() {
                               setCashAmount("")
                               setOnlineAmount("")
                             }
+                            if (method !== "CASH" && method !== "SPLIT") {
+                              setCashReceived("")
+                            }
                           }}
                         >
-                          {method === "CASH" ? "Cash" : method === "ONLINE" ? "Online" : "Split"}
+                          {method === "CASH" ? "Cash" : method === "ONLINE" ? "Online" : method === "SPLIT" ? "Split" : "Pending"}
                         </Button>
                       ))}
                     </div>
+
+                    {paymentMethod === "PENDING" && (
+                      <p className="text-[10px] text-amber-600">
+                        Pending bill will be added to customer dues. Customer mobile is required.
+                      </p>
+                    )}
 
                     {/* Split amounts */}
                     {paymentMethod === "SPLIT" && (

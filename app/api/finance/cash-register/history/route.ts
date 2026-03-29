@@ -54,7 +54,7 @@ export async function GET(request: Request) {
       registers.map(async (reg) => {
         const { start: dayStart, end: dayEnd } = getBusinessRange(startOfDay(reg.date), cutoffHour)
 
-        const [pureCashBills, splitBills, cashCollections, cashCapital, cashExpenses, cashDrawings] = await Promise.all([
+        const [pureCashBills, splitBills, cashCollections, counterTransfersIn, cashExpenses, counterTransfersOut] = await Promise.all([
           prisma.bill.aggregate({
             where: { dateTime: { gte: dayStart, lte: dayEnd }, paymentMethod: "CASH" },
             _sum: { grandTotal: true },
@@ -67,16 +67,16 @@ export async function GET(request: Request) {
             where: { date: { gte: dayStart, lte: dayEnd }, paymentMethod: "CASH" },
             _sum: { amount: true },
           }),
-          prisma.ownerTransaction.aggregate({
-            where: { date: { gte: dayStart, lte: dayEnd }, type: "CAPITAL", paymentMethod: "CASH" },
+          prisma.cashTransaction.aggregate({
+            where: { date: { gte: dayStart, lte: dayEnd }, toLocation: "COUNTER" },
             _sum: { amount: true },
           }),
           prisma.expense.aggregate({
-            where: { date: { gte: dayStart, lte: dayEnd }, paymentMethod: "CASH" },
+            where: { date: { gte: dayStart, lte: dayEnd }, paidFrom: "COUNTER" },
             _sum: { amount: true },
           }),
-          prisma.ownerTransaction.aggregate({
-            where: { date: { gte: dayStart, lte: dayEnd }, type: "DRAWING", paymentMethod: "CASH" },
+          prisma.cashTransaction.aggregate({
+            where: { date: { gte: dayStart, lte: dayEnd }, fromLocation: "COUNTER" },
             _sum: { amount: true },
           }),
         ])
@@ -85,9 +85,9 @@ export async function GET(request: Request) {
           (pureCashBills._sum.grandTotal || 0) +
           (splitBills._sum.cashAmount || 0) +
           (cashCollections._sum.amount || 0) +
-          (cashCapital._sum.amount || 0)
+          (counterTransfersIn._sum.amount || 0)
 
-        const cashOut = (cashExpenses._sum.amount || 0) + (cashDrawings._sum.amount || 0)
+        const cashOut = (cashExpenses._sum.amount || 0) + (counterTransfersOut._sum.amount || 0)
 
         const expectedClosing = reg.openingBalance + cashIn - cashOut
         const difference = reg.actualClosing != null ? reg.actualClosing - expectedClosing : null

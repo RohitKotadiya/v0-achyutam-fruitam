@@ -23,6 +23,18 @@ const getBusinessRange = (businessDate: Date, cutoffHour: number) => {
   return { start, end }
 }
 
+const isPrismaMissingSchemaError = (error: unknown) => {
+  const code = (error as { code?: string } | null)?.code
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    code === "P2021" ||
+    code === "P2022" ||
+    /unknown arg(ument)?\s+`?paidFrom`?/i.test(message) ||
+    /cashTransaction/i.test(message) ||
+    /cannot read properties of undefined.*aggregate/i.test(message)
+  )
+}
+
 // GET - Fetch cash register for a specific date (default: today)
 export async function GET(request: Request) {
   try {
@@ -83,37 +95,68 @@ export async function GET(request: Request) {
       _sum: { amount: true },
     })
 
-    // Capital (owner putting cash in)
-    const cashCapital = await prisma.ownerTransaction.aggregate({
-      where: {
-        date: { gte: dayStart, lte: dayEnd },
-        type: "CAPITAL",
-        paymentMethod: "CASH",
-      },
-      _sum: { amount: true },
-    })
+    // Transfers from Safe/Bank arriving at Counter (physical cash in)
+    let counterTransfersInAmount = 0
+    try {
+      const counterTransfersIn = await prisma.cashTransaction.aggregate({
+        where: {
+          date: { gte: dayStart, lte: dayEnd },
+          toLocation: "COUNTER",
+        },
+        _sum: { amount: true },
+      })
+      counterTransfersInAmount = counterTransfersIn._sum.amount || 0
+    } catch (error) {
+      if (!isPrismaMissingSchemaError(error)) throw error
+      counterTransfersInAmount = 0
+    }
 
-    const totalCashIn = cashFromSales + (cashCollections._sum.amount || 0) + (cashCapital._sum.amount || 0)
+    const totalCashIn =
+      cashFromSales +
+      (cashCollections._sum.amount || 0) +
+      counterTransfersInAmount
 
-    // Calculate cash out (cash expenses + cash drawings)
-    const cashExpenses = await prisma.expense.aggregate({
-      where: {
-        date: { gte: dayStart, lte: dayEnd },
-        paymentMethod: "CASH",
-      },
-      _sum: { amount: true },
-    })
+    // Counter expenses (paid from counter cash drawer)
+    // Fallback to legacy paymentMethod when paidFrom column is not migrated yet.
+    let cashExpensesAmount = 0
+    try {
+      const cashExpenses = await prisma.expense.aggregate({
+        where: {
+          date: { gte: dayStart, lte: dayEnd },
+          paidFrom: "COUNTER",
+        },
+        _sum: { amount: true },
+      })
+      cashExpensesAmount = cashExpenses._sum.amount || 0
+    } catch (error) {
+      if (!isPrismaMissingSchemaError(error)) throw error
+      const legacyCashExpenses = await prisma.expense.aggregate({
+        where: {
+          date: { gte: dayStart, lte: dayEnd },
+          paymentMethod: "CASH",
+        },
+        _sum: { amount: true },
+      })
+      cashExpensesAmount = legacyCashExpenses._sum.amount || 0
+    }
 
-    const cashDrawings = await prisma.ownerTransaction.aggregate({
-      where: {
-        date: { gte: dayStart, lte: dayEnd },
-        type: "DRAWING",
-        paymentMethod: "CASH",
-      },
-      _sum: { amount: true },
-    })
+    // Transfers from Counter going to Safe/Bank
+    let counterTransfersOutAmount = 0
+    try {
+      const counterTransfersOut = await prisma.cashTransaction.aggregate({
+        where: {
+          date: { gte: dayStart, lte: dayEnd },
+          fromLocation: "COUNTER",
+        },
+        _sum: { amount: true },
+      })
+      counterTransfersOutAmount = counterTransfersOut._sum.amount || 0
+    } catch (error) {
+      if (!isPrismaMissingSchemaError(error)) throw error
+      counterTransfersOutAmount = 0
+    }
 
-    const totalCashOut = (cashExpenses._sum.amount || 0) + (cashDrawings._sum.amount || 0)
+    const totalCashOut = cashExpensesAmount + counterTransfersOutAmount
 
     const openingBalance = register?.openingBalance || 0
     const expectedClosing = openingBalance + totalCashIn - totalCashOut
@@ -125,12 +168,12 @@ export async function GET(request: Request) {
         cashIn: {
           sales: cashFromSales,
           collections: cashCollections._sum.amount || 0,
-          capital: cashCapital._sum.amount || 0,
+          transfersIn: counterTransfersInAmount,
           total: totalCashIn,
         },
         cashOut: {
-          expenses: cashExpenses._sum.amount || 0,
-          drawings: cashDrawings._sum.amount || 0,
+          expenses: cashExpensesAmount,
+          transfersOut: counterTransfersOutAmount,
           total: totalCashOut,
         },
         expectedClosing,
@@ -140,7 +183,14 @@ export async function GET(request: Request) {
     })
   } catch (error) {
     console.error("Error fetching cash register:", error)
-    return NextResponse.json({ error: "Failed to fetch cash register" }, { status: 500 })
+    const details = error instanceof Error ? error.message : String(error)
+    return NextResponse.json(
+      {
+        error: "Failed to fetch cash register",
+        ...(process.env.NODE_ENV !== "production" ? { details } : {}),
+      },
+      { status: 500 }
+    )
   }
 }
 

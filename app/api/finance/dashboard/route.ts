@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { startOfMonth } from "date-fns"
 
+const getCashTransactionModel = () => (prisma as any).cashTransaction
+
 const clampCutoffHour = (value: unknown) => {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return 0
@@ -17,6 +19,7 @@ const addDays = (date: Date, days: number) => {
 // GET - Finance dashboard overview
 export async function GET() {
   try {
+    const cashTransaction = getCashTransactionModel()
     const now = new Date()
     const cutoffConfig = await prisma.systemConfig.findUnique({ where: { key: "businessDayCutoffHour" } })
     const cutoffHour = clampCutoffHour(cutoffConfig?.value)
@@ -41,11 +44,10 @@ export async function GET() {
       todayBills,
       todayExpenses,
       todayCollections,
-      todayDrawings,
       monthBills,
       monthExpenses,
-      monthDrawings,
-      monthCapital,
+      monthSafeWithdrawals,
+      monthSafeDeposits,
     ] = await Promise.all([
       prisma.bill.aggregate({
         where: { dateTime: { gte: todayStart, lte: todayEnd } },
@@ -61,10 +63,6 @@ export async function GET() {
         _sum: { amount: true },
         _count: true,
       }),
-      prisma.ownerTransaction.aggregate({
-        where: { date: { gte: todayStart, lte: todayEnd }, type: "DRAWING" },
-        _sum: { amount: true },
-      }),
       prisma.bill.aggregate({
         where: { dateTime: { gte: monthStart, lte: monthEnd } },
         _sum: { grandTotal: true, totalCost: true, totalProfit: true },
@@ -74,14 +72,20 @@ export async function GET() {
         where: { date: { gte: monthStart, lte: monthEnd } },
         _sum: { amount: true },
       }),
-      prisma.ownerTransaction.aggregate({
-        where: { date: { gte: monthStart, lte: monthEnd }, type: "DRAWING" },
-        _sum: { amount: true },
-      }),
-      prisma.ownerTransaction.aggregate({
-        where: { date: { gte: monthStart, lte: monthEnd }, type: "CAPITAL" },
-        _sum: { amount: true },
-      }),
+      // Owner took money from Safe this month
+      cashTransaction
+        ? cashTransaction.aggregate({
+            where: { date: { gte: monthStart, lte: monthEnd }, fromLocation: "SAFE", toLocation: "OWNER", category: "OWNER" },
+            _sum: { amount: true },
+          })
+        : Promise.resolve({ _sum: { amount: 0 } }),
+      // Owner added money to Safe this month
+      cashTransaction
+        ? cashTransaction.aggregate({
+            where: { date: { gte: monthStart, lte: monthEnd }, fromLocation: "OWNER", toLocation: "SAFE", category: "OWNER" },
+            _sum: { amount: true },
+          })
+        : Promise.resolve({ _sum: { amount: 0 } }),
     ])
 
     return NextResponse.json(
@@ -95,7 +99,6 @@ export async function GET() {
           billCount: todayBills._count,
           collections: todayCollections._sum.amount || 0,
           collectionCount: todayCollections._count,
-          drawings: todayDrawings._sum.amount || 0,
         },
         month: {
           sales: monthBills._sum.grandTotal || 0,
@@ -104,8 +107,8 @@ export async function GET() {
           expenses: monthExpenses._sum.amount || 0,
           netProfit: (monthBills._sum.totalProfit || 0) - (monthExpenses._sum.amount || 0),
           billCount: monthBills._count,
-          drawings: monthDrawings._sum.amount || 0,
-          capital: monthCapital._sum.amount || 0,
+          safeWithdrawals: monthSafeWithdrawals._sum.amount || 0,
+          safeDeposits: monthSafeDeposits._sum.amount || 0,
         },
         outstanding: {
           total: 0,

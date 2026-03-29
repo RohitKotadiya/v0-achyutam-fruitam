@@ -61,6 +61,13 @@ export async function GET() {
       const producedRemaining = Number(batch.producedUnitsRemaining) || 0
       const costRemaining = Number(batch.costUnitsRemaining) || 0
       const producedUnits = Number(batch.producedUnits) || 0
+      const soldUnits = Math.max(0, producedUnits - producedRemaining)
+      
+      // Debug log to track sold units calculation
+      if (soldUnits === 0 && producedUnits > 0 && producedRemaining > 0) {
+        console.log(`[mix-batches] Batch ${batch.id} (${batch.targetName}): produced=${producedUnits}, remaining=${producedRemaining}, sold=${soldUnits}`)
+      }
+      
       return {
         id: batch.id,
         date: batch.date,
@@ -71,7 +78,7 @@ export async function GET() {
         sourceCategoryDisplayName: batch.sourceCategoryDisplayName,
         producedUnits,
         costUnits: batch.costUnits,
-        soldUnits: Math.max(0, producedUnits - producedRemaining),
+        soldUnits,
         producedUnitsRemaining: producedRemaining,
         costUnitsRemaining: costRemaining,
         zeroCostUnitsRemaining: Math.max(0, producedRemaining - costRemaining),

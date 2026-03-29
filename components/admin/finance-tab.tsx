@@ -11,6 +11,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -22,9 +23,13 @@ import {
   TrendingUp,
   TrendingDown,
   DollarSign,
+  Download,
   Users,
   ArrowUpRight,
   ArrowDownLeft,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
   Plus,
   Trash2,
   Pencil,
@@ -33,16 +38,69 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   CalendarDays,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { formatCurrency, formatIndianDate } from "@/lib/client-helpers"
+import { formatCurrency, formatIndianDate, formatIndianDateTime } from "@/lib/client-helpers"
 
 const toLocalDateInputValue = (date: Date) => {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, "0")
   const day = String(date.getDate()).padStart(2, "0")
   return `${year}-${month}-${day}`
+}
+
+type DateRangePreset = "today" | "this-week" | "this-month" | "last-7" | "last-30" | "custom"
+
+const DATE_RANGE_OPTIONS: Array<{ value: DateRangePreset; label: string }> = [
+  { value: "today", label: "Today" },
+  { value: "this-week", label: "This Week" },
+  { value: "this-month", label: "This Month" },
+  { value: "last-7", label: "Last 7 Days" },
+  { value: "last-30", label: "Last 30 Days" },
+  { value: "custom", label: "Custom" },
+]
+
+function getDateRangeForPreset(preset: Exclude<DateRangePreset, "custom">): { start: string; end: string } {
+  const now = new Date()
+  const end = toLocalDateInputValue(now)
+  if (preset === "today") return { start: end, end }
+  if (preset === "this-week") {
+    const day = now.getDay()
+    const diff = day === 0 ? 6 : day - 1
+    const startDate = new Date(now)
+    startDate.setDate(now.getDate() - diff)
+    return { start: toLocalDateInputValue(startDate), end }
+  }
+  if (preset === "this-month") {
+    const startDate = new Date(now.getFullYear(), now.getMonth(), 1)
+    return { start: toLocalDateInputValue(startDate), end }
+  }
+  if (preset === "last-7") {
+    const startDate = new Date(now)
+    startDate.setDate(now.getDate() - 6)
+    return { start: toLocalDateInputValue(startDate), end }
+  }
+  const startDate = new Date(now)
+  startDate.setDate(now.getDate() - 29)
+  return { start: toLocalDateInputValue(startDate), end }
+}
+
+function downloadCsv(filename: string, headers: string[], rows: Array<Array<string | number | null | undefined>>) {
+  const escapeCell = (value: string | number | null | undefined) => {
+    const text = value == null ? "" : String(value)
+    return `"${text.replace(/"/g, '""')}"`
+  }
+  const csv = [headers.map(escapeCell).join(","), ...rows.map((row) => row.map(escapeCell).join(","))].join("\n")
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 // ==================== TYPES ====================
@@ -55,51 +113,6 @@ interface DashboardData {
     expenses: number
     netProfit: number
     billCount: number
-    collections: number
-    collectionCount: number
-    drawings: number
-  }
-  month: {
-    sales: number
-    cost: number
-    grossProfit: number
-    expenses: number
-    netProfit: number
-    billCount: number
-    drawings: number
-    capital: number
-  }
-  outstanding: {
-    total: number
-    count: number
-    dues: Array<{
-      id: string
-      billNo: number
-      grandTotal: number
-      customerName: string
-      customerId: string | null
-      dateTime: string
-      collected: number
-      remaining: number
-    }>
-  }
-}
-
-interface CashRegisterData {
-  register: {
-    id: string
-    date: string
-    openingBalance: number
-    actualClosing: number | null
-    notes: string | null
-    closedAt: string | null
-  } | null
-  summary: {
-    openingBalance: number
-    cashIn: { sales: number; collections: number; capital: number; total: number }
-    cashOut: { expenses: number; drawings: number; total: number }
-    expectedClosing: number
-    actualClosing: number | null
     difference: number | null
   }
 }
@@ -117,14 +130,42 @@ interface RegisterHistoryRow {
   closedAt: string | null
 }
 
-interface OwnerTxn {
+interface CashTxn {
   id: string
-  type: "DRAWING" | "CAPITAL"
-  amount: number
   date: string
-  description: string
-  paymentMethod: string
-  remarks: string | null
+  fromLocation: string
+  toLocation: string
+  amount: number
+  note: string
+  category: string
+  expenseId: string | null
+}
+
+interface SafeSummary {
+  balance: number
+  totalIn: number
+  totalOut: number
+  transactions: CashTxn[]
+}
+
+interface BankSummaryData {
+  summary: {
+    openingBalance: number
+    onlineSales: number
+    cashDeposited: number
+    cashWithdrawn: number
+    bankExpenses: number
+    netChange: number
+    balance: number
+  }
+  transactions: Array<{
+    date: string
+    description: string
+    credit: number
+    debit: number
+    category: string
+    type: string
+  }>
 }
 
 interface Collection {
@@ -143,7 +184,8 @@ interface Expense {
   category: string
   description: string
   amount: number
-  paymentMethod: string
+  paymentMethod: string  // legacy
+  paidFrom?: string      // COUNTER | SAFE | BANK
   remarks: string | null
 }
 
@@ -152,27 +194,91 @@ const EXPENSE_CATEGORIES = [
   "Marketing", "Maintenance", "Supplies", "Other",
 ]
 
+const PAID_FROM_OPTIONS = [
+  { value: "COUNTER", label: "Counter (Galla — Cash)" },
+  { value: "SAFE", label: "Safe (Tizori — Cash)" },
+  { value: "BANK", label: "Bank / Online" },
+]
+
+const FINANCE_ACTIVE_SUB_TAB_KEY = "finance-active-sub-tab-v2"
+const FINANCE_CASH_REGISTER_INNER_TAB_KEY = "finance-cash-register-inner-tab-v1"
+
+// ==================== SHARED UI HELPERS ====================
+
+type SortDir = "asc" | "desc"
+
+function SortableHeader({ label, field, sortField, sortDir, onSort }: {
+  label: string; field: string; sortField: string; sortDir: SortDir; onSort: (f: string) => void
+}) {
+  const active = sortField === field
+  return (
+    <button type="button" className="flex items-center gap-1 font-medium text-xs md:text-sm hover:text-primary transition-colors" onClick={() => onSort(field)}>
+      {label}
+      {active ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 text-muted-foreground/50" />}
+    </button>
+  )
+}
+
+function PaginationBar({ total, page, pageSize, totalPages, onPage }: {
+  total: number; page: number; pageSize: number; totalPages: number; onPage: (p: number) => void
+}) {
+  const pageStart = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const pageEnd = total === 0 ? 0 : Math.min(page * pageSize, total)
+  return (
+    <div className="mb-4 rounded-lg border bg-muted/20 px-3 py-2 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+      <span className="text-sm text-muted-foreground">{pageStart}–{pageEnd} of {total}</span>
+      <div className="flex items-center gap-2 justify-end">
+        <span className="text-xs text-muted-foreground">Page {page} of {totalPages}</span>
+        <Button variant="outline" size="sm" onClick={() => onPage(Math.max(1, page - 1))} disabled={page === 1} className="h-7 px-2.5 text-xs">Prev</Button>
+        <Button variant="outline" size="sm" onClick={() => onPage(Math.min(totalPages, page + 1))} disabled={page >= totalPages || total === 0} className="h-7 px-2.5 text-xs">Next</Button>
+      </div>
+    </div>
+  )
+}
+
+const KPI_CARD_CLASS = "h-full min-h-[96px]"
+const KPI_CARD_CONTENT_CLASS = "flex flex-col justify-between"
+
 // ==================== MAIN COMPONENT ====================
 
 export function FinanceTab() {
   const [subTab, setSubTab] = useState("overview")
+  const [isSubTabRestored, setIsSubTabRestored] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const savedSubTab = window.localStorage.getItem(FINANCE_ACTIVE_SUB_TAB_KEY)
+    const allowedSubTabs = ["overview", "counter", "dues", "safe", "expenses", "bank"]
+    if (savedSubTab && allowedSubTabs.includes(savedSubTab)) {
+      setSubTab(savedSubTab)
+    }
+    setIsSubTabRestored(true)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (!isSubTabRestored) return
+    window.localStorage.setItem(FINANCE_ACTIVE_SUB_TAB_KEY, subTab)
+  }, [subTab, isSubTabRestored])
 
   return (
     <div className="space-y-4">
       <Tabs value={subTab} onValueChange={setSubTab}>
-        <TabsList className="grid w-full grid-cols-5 lg:w-auto">
-          <TabsTrigger value="overview" className="text-xs sm:text-sm">Overview</TabsTrigger>
-          <TabsTrigger value="cash-register" className="text-xs sm:text-sm">Cash Register</TabsTrigger>
-          <TabsTrigger value="dues" className="text-xs sm:text-sm">Customer Dues</TabsTrigger>
-          <TabsTrigger value="owner" className="text-xs sm:text-sm">Owner A/C</TabsTrigger>
-          <TabsTrigger value="expenses" className="text-xs sm:text-sm">Expenses</TabsTrigger>
+        <TabsList className="flex flex-wrap gap-1 h-auto w-full">
+          <TabsTrigger value="overview" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Overview</TabsTrigger>
+          <TabsTrigger value="counter" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Counter (Galla)</TabsTrigger>
+          <TabsTrigger value="safe" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Safe (Tizori)</TabsTrigger>
+          <TabsTrigger value="expenses" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Expenses</TabsTrigger>
+          <TabsTrigger value="bank" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Bank Tracker</TabsTrigger>
+          <TabsTrigger value="dues" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Customer Dues</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview"><OverviewSection /></TabsContent>
-        <TabsContent value="cash-register"><CashRegisterSection /></TabsContent>
-        <TabsContent value="dues"><CustomerDuesSection /></TabsContent>
-        <TabsContent value="owner"><OwnerTransactionsSection /></TabsContent>
+        <TabsContent value="counter"><CashRegisterSection /></TabsContent>
+        <TabsContent value="safe"><SafeSection /></TabsContent>
         <TabsContent value="expenses"><ExpensesSection /></TabsContent>
+        <TabsContent value="bank"><BankSection /></TabsContent>
+        <TabsContent value="dues"><CustomerDuesSection /></TabsContent>
       </Tabs>
     </div>
   )
@@ -213,7 +319,7 @@ function OverviewSection() {
   }, [])
 
   useEffect(() => {
-    fetch("/api/finance/outstanding")
+    fetch("/api/finance/outstanding", { cache: "no-store" })
       .then((r) => r.json())
       .then((json) => {
         const outstanding = json?.outstanding
@@ -296,15 +402,15 @@ function OverviewSection() {
           />
           <SummaryCard
             label="Owner Drawings"
-            value={data.month.drawings}
-            sub="Withdrawn"
+            value={data.month.safeWithdrawals}
+            sub="Owner took from Safe"
             icon={<ArrowUpRight className="h-4 w-4 text-orange-600" />}
             gradient="from-orange-500/10 to-amber-500/10"
           />
           <SummaryCard
             label="Capital Added"
-            value={data.month.capital}
-            sub="Invested"
+            value={data.month.safeDeposits}
+            sub="Owner added to Safe"
             icon={<ArrowDownLeft className="h-4 w-4 text-teal-600" />}
             gradient="from-teal-500/10 to-cyan-500/10"
           />
@@ -363,14 +469,14 @@ function SummaryCard({
 }) {
   return (
     <Card className={`bg-gradient-to-br ${gradient} border-transparent`}>
-      <CardHeader className="pb-1 pt-3 px-4">
+      <CardHeader>
         <CardTitle className="text-xs font-medium flex items-center gap-1.5">
           {icon} {label}
         </CardTitle>
       </CardHeader>
-      <CardContent className="px-4 pb-3">
+      <CardContent>
         <p className="text-lg font-bold">{formatCurrency(value)}</p>
-        <p className="text-[10px] text-muted-foreground">{sub}</p>
+        <p className="text-xs text-muted-foreground">{sub}</p>
       </CardContent>
     </Card>
   )
@@ -380,12 +486,29 @@ function SummaryCard({
 
 function CashRegisterSection() {
   const [innerTab, setInnerTab] = useState("daily")
+  const [isInnerTabRestored, setIsInnerTabRestored] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const savedInnerTab = window.localStorage.getItem(FINANCE_CASH_REGISTER_INNER_TAB_KEY)
+    if (savedInnerTab === "daily" || savedInnerTab === "history") {
+      setInnerTab(savedInnerTab)
+    }
+    setIsInnerTabRestored(true)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (!isInnerTabRestored) return
+    window.localStorage.setItem(FINANCE_CASH_REGISTER_INNER_TAB_KEY, innerTab)
+  }, [innerTab, isInnerTabRestored])
+
   return (
     <div className="space-y-3">
       <Tabs value={innerTab} onValueChange={setInnerTab}>
         <TabsList className="h-8">
-          <TabsTrigger value="daily" className="text-xs px-4">Daily Entry</TabsTrigger>
-          <TabsTrigger value="history" className="text-xs px-4">History</TabsTrigger>
+          <TabsTrigger value="daily" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Daily Entry</TabsTrigger>
+          <TabsTrigger value="history" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">History</TabsTrigger>
         </TabsList>
         <TabsContent value="daily"><CashRegisterDailySection /></TabsContent>
         <TabsContent value="history"><CashRegisterHistorySection /></TabsContent>
@@ -403,11 +526,24 @@ function CashRegisterDailySection() {
   const [actualClosing, setActualClosing] = useState("")
   const [notes, setNotes] = useState("")
 
+  // Counter ↔ Safe transfer state
+  const [showTransferDialog, setShowTransferDialog] = useState(false)
+  const [transferDirection, setTransferDirection] = useState<"COUNTER_TO_SAFE" | "SAFE_TO_COUNTER">("COUNTER_TO_SAFE")
+  const [transferAmount, setTransferAmount] = useState("")
+  const [transferNote, setTransferNote] = useState("")
+  const [transferSaving, setTransferSaving] = useState(false)
+
   const fetchRegister = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/finance/cash-register?date=${selectedDate}`)
+      const res = await fetch(`/api/finance/cash-register?date=${selectedDate}`, { cache: "no-store" })
       const json = await res.json()
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to load cash register")
+      }
+      if (!json?.summary) {
+        throw new Error("Cash register summary is unavailable")
+      }
       setData(json)
       if (json.register) {
         setOpeningBalance(json.register.openingBalance.toString())
@@ -422,20 +558,22 @@ function CashRegisterDailySection() {
       }
     } catch (e) {
       console.error(e)
+      const message = e instanceof Error ? e.message : "Failed to load cash register"
+      toast({ title: "Error", description: message, variant: "destructive" })
     } finally {
       setLoading(false)
     }
-  }, [selectedDate])
+  }, [selectedDate, toast])
 
   useEffect(() => { fetchRegister() }, [fetchRegister])
 
   const handleSave = async (action: "open" | "close") => {
     const body: any = { date: selectedDate }
     if (action === "open") {
-      body.openingBalance = openingBalance
+      body.openingBalance = parseFloat(openingBalance || "0")
       body.notes = notes
     } else {
-      body.actualClosing = actualClosing
+      body.actualClosing = parseFloat(actualClosing || "0")
       body.notes = notes
     }
 
@@ -446,10 +584,75 @@ function CashRegisterDailySection() {
     })
 
     if (res.ok) {
+      const savedRegister = await res.json()
+      if (action === "open") {
+        const nextOpening = parseFloat(openingBalance || "0")
+        setData((prev) => {
+          const fallbackSummary = {
+            openingBalance: nextOpening,
+            cashIn: { sales: 0, collections: 0, transfersIn: 0, total: 0 },
+            cashOut: { expenses: 0, transfersOut: 0, total: 0 },
+            expectedClosing: nextOpening,
+            actualClosing: null,
+            difference: null,
+          }
+          const currentSummary = prev?.summary || fallbackSummary
+          const cashInTotal = currentSummary.cashIn?.total || 0
+          const cashOutTotal = currentSummary.cashOut?.total || 0
+          const expectedClosing = nextOpening + cashInTotal - cashOutTotal
+          return {
+            ...prev,
+            register: {
+              ...(prev?.register || {}),
+              ...(savedRegister || {}),
+              openingBalance: nextOpening,
+              notes,
+            },
+            summary: {
+              ...currentSummary,
+              openingBalance: nextOpening,
+              expectedClosing,
+              difference: currentSummary.actualClosing != null ? currentSummary.actualClosing - expectedClosing : null,
+            },
+          }
+        })
+      }
       toast({ title: "Success", description: action === "open" ? "Register opened" : "Register closed" })
       fetchRegister()
     } else {
       toast({ title: "Error", description: "Failed to save", variant: "destructive" })
+    }
+  }
+
+  const handleTransfer = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setTransferSaving(true)
+    const isToSafe = transferDirection === "COUNTER_TO_SAFE"
+    try {
+      const res = await fetch("/api/finance/cash-transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fromLocation: isToSafe ? "COUNTER" : "SAFE",
+          toLocation: isToSafe ? "SAFE" : "COUNTER",
+          amount: transferAmount,
+          note: transferNote || (isToSafe ? "Counter to Safe transfer" : "Safe to Counter transfer"),
+          category: "TRANSFER",
+          date: selectedDate,
+        }),
+      })
+      if (res.ok) {
+        toast({ title: "Transfer recorded", description: isToSafe ? "Moved cash to Safe" : "Moved cash to Counter" })
+        setShowTransferDialog(false)
+        setTransferAmount("")
+        setTransferNote("")
+        fetchRegister()
+      } else {
+        const err = await res.json()
+        toast({ title: "Error", description: err.error || "Failed", variant: "destructive" })
+      }
+    } finally {
+      setTransferSaving(false)
     }
   }
 
@@ -468,7 +671,7 @@ function CashRegisterDailySection() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <Button variant="outline" size="icon" onClick={() => shiftDate(-1)} title="Previous Day">
           <ChevronLeft className="h-4 w-4" />
         </Button>
@@ -491,7 +694,70 @@ function CashRegisterDailySection() {
           onChange={(e) => setSelectedDate(e.target.value)}
           className="w-40"
         />
+        {/* Safe transfer quick actions */}
+        <div className="ml-auto flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
+            onClick={() => { setTransferDirection("COUNTER_TO_SAFE"); setShowTransferDialog(true) }}
+          >
+            <ArrowUpRight className="h-3.5 w-3.5" /> Transfer to Safe
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 border-green-300 text-green-700 hover:bg-green-50"
+            onClick={() => { setTransferDirection("SAFE_TO_COUNTER"); setShowTransferDialog(true) }}
+          >
+            <ArrowDownLeft className="h-3.5 w-3.5" /> From Safe
+          </Button>
+        </div>
       </div>
+
+      {/* Counter ↔ Safe Transfer Dialog */}
+      <Dialog open={showTransferDialog} onOpenChange={setShowTransferDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {transferDirection === "COUNTER_TO_SAFE" ? "Transfer: Counter → Safe (Tizori)" : "Transfer: Safe (Tizori) → Counter"}
+            </DialogTitle>
+            <DialogDescription>
+              {transferDirection === "COUNTER_TO_SAFE"
+                ? "Move cash from the Counter to Safe. Reduces counter balance, increases Safe balance."
+                : "Move cash from Safe to Counter. Reduces Safe balance, increases counter balance."}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleTransfer} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Amount (₹)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={transferAmount}
+                onChange={(e) => setTransferAmount(e.target.value)}
+                placeholder="Enter amount..."
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Note (Optional)</Label>
+              <Input
+                value={transferNote}
+                onChange={(e) => setTransferNote(e.target.value)}
+                placeholder="Reason or note..."
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button type="submit" disabled={transferSaving}>
+                {transferSaving ? "Saving..." : "Record Transfer"}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setShowTransferDialog(false)}>Cancel</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Opening / Closing */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -575,12 +841,12 @@ function CashRegisterDailySection() {
                 <span>{formatCurrency(s.cashIn.sales)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Collections (Dues):</span>
+                <span className="text-muted-foreground">Collection (from customer dues):</span>
                 <span>{formatCurrency(s.cashIn.collections)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Capital Added:</span>
-                <span>{formatCurrency(s.cashIn.capital)}</span>
+                <span className="text-muted-foreground">Transfers from Safe/Bank:</span>
+                <span>{formatCurrency(s.cashIn.transfersIn)}</span>
               </div>
             </CardContent>
           </Card>
@@ -592,12 +858,12 @@ function CashRegisterDailySection() {
             </CardHeader>
             <CardContent className="space-y-1 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Expenses:</span>
+                <span className="text-muted-foreground">Expenses (Counter):</span>
                 <span>{formatCurrency(s.cashOut.expenses)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Owner Drawings:</span>
-                <span>{formatCurrency(s.cashOut.drawings)}</span>
+                <span className="text-muted-foreground">Transfers to Safe/Bank:</span>
+                <span>{formatCurrency(s.cashOut.transfersOut)}</span>
               </div>
             </CardContent>
           </Card>
@@ -611,7 +877,7 @@ function CashRegisterDailySection() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
                 <Receipt className="h-4 w-4 text-muted-foreground" />
-                Daily Cash Register Report
+                Daily Cash Counter Report (Galla)
               </CardTitle>
               <div className="flex items-center gap-2">
                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${isClosed ? "bg-green-100 text-green-700 border-green-200" : "bg-amber-100 text-amber-700 border-amber-200"}`}>
@@ -645,8 +911,8 @@ function CashRegisterDailySection() {
                   <TableCell className="text-right text-xs text-green-700">{formatCurrency(s.cashIn.collections)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="pl-6 text-muted-foreground text-xs" colSpan={2}>+ Capital Added (Cash)</TableCell>
-                  <TableCell className="text-right text-xs text-green-700">{formatCurrency(s.cashIn.capital)}</TableCell>
+                  <TableCell className="pl-6 text-muted-foreground text-xs" colSpan={2}>+ Transfers from Safe / Bank</TableCell>
+                  <TableCell className="text-right text-xs text-green-700">{formatCurrency(s.cashIn.transfersIn)}</TableCell>
                 </TableRow>
                 <TableRow className="bg-green-500/5">
                   <TableCell className="font-semibold text-sm text-green-700" colSpan={2}>Total Cash In</TableCell>
@@ -655,12 +921,12 @@ function CashRegisterDailySection() {
 
                 {/* Cash Out */}
                 <TableRow>
-                  <TableCell className="pl-6 text-muted-foreground text-xs" colSpan={2}>− Expenses (Cash)</TableCell>
+                  <TableCell className="pl-6 text-muted-foreground text-xs" colSpan={2}>− Expenses (Counter Cash)</TableCell>
                   <TableCell className="text-right text-xs text-red-600">{formatCurrency(s.cashOut.expenses)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="pl-6 text-muted-foreground text-xs" colSpan={2}>− Owner Drawings (Cash)</TableCell>
-                  <TableCell className="text-right text-xs text-red-600">{formatCurrency(s.cashOut.drawings)}</TableCell>
+                  <TableCell className="pl-6 text-muted-foreground text-xs" colSpan={2}>− Transfers to Safe / Bank</TableCell>
+                  <TableCell className="text-right text-xs text-red-600">{formatCurrency(s.cashOut.transfersOut)}</TableCell>
                 </TableRow>
                 <TableRow className="bg-red-500/5">
                   <TableCell className="font-semibold text-sm text-red-700" colSpan={2}>Total Cash Out</TableCell>
@@ -716,12 +982,22 @@ function CashRegisterHistorySection() {
   const [loading, setLoading] = useState(true)
 
   const today = toLocalDateInputValue(new Date())
-  const thirtyDaysAgo = toLocalDateInputValue(new Date(Date.now() - 29 * 86400000))
 
-  const [startDate, setStartDate] = useState(thirtyDaysAgo)
+  const [rangePreset, setRangePreset] = useState<DateRangePreset>("today")
+  const [startDate, setStartDate] = useState(today)
   const [endDate, setEndDate] = useState(today)
   const [statusFilter, setStatusFilter] = useState("all")
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
+
+  const [draftRangePreset, setDraftRangePreset] = useState<DateRangePreset>("today")
+  const [draftStart, setDraftStart] = useState(today)
+  const [draftEnd, setDraftEnd] = useState(today)
+  const [draftStatus, setDraftStatus] = useState("all")
+
+  const [sortField, setSortField] = useState("date")
+  const [sortDir, setSortDir] = useState<SortDir>("desc")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [showPaginationControls, setShowPaginationControls] = useState(false)
 
   const fetchHistory = useCallback(async () => {
     setLoading(true)
@@ -750,18 +1026,96 @@ function CashRegisterHistorySection() {
     }
   }, [startDate, endDate, statusFilter])
 
-  useEffect(() => { fetchHistory() }, [fetchHistory])
+  useEffect(() => {
+    fetchHistory()
+  }, [fetchHistory])
+
+  const hasDraftChanges = draftStart !== startDate || draftEnd !== endDate || draftStatus !== statusFilter || draftRangePreset !== rangePreset
+
+  const applyFilters = () => {
+    setRangePreset(draftRangePreset)
+    setStartDate(draftStart)
+    setEndDate(draftEnd)
+    setStatusFilter(draftStatus)
+    setCurrentPage(1)
+  }
+
+  const resetAllFilters = () => {
+    setDraftRangePreset("today")
+    setRangePreset("today")
+    setDraftStart(today)
+    setDraftEnd(today)
+    setDraftStatus("all")
+    setStartDate(today)
+    setEndDate(today)
+    setStatusFilter("all")
+    setCurrentPage(1)
+  }
+
+  const onDraftRangeChange = (value: DateRangePreset) => {
+    setDraftRangePreset(value)
+    if (value === "custom") return
+    const range = getDateRangeForPreset(value)
+    setDraftStart(range.start)
+    setDraftEnd(range.end)
+  }
+
+  const exportHistory = () => {
+    downloadCsv(
+      `cash-register-history-${startDate}-to-${endDate}.csv`,
+      ["Date", "Opening", "Cash In", "Cash Out", "Expected", "Actual", "Difference", "Status", "Notes"],
+      sorted.map((row) => [
+        formatIndianDateTime(new Date(row.date)),
+        row.openingBalance,
+        row.cashIn,
+        row.cashOut,
+        row.expectedClosing,
+        row.actualClosing,
+        row.difference,
+        row.closedAt ? "Closed" : "Open",
+        row.notes || "",
+      ])
+    )
+  }
+
+  const toggleSort = (field: string) => {
+    if (sortField === field) setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+    else {
+      setSortField(field)
+      setSortDir("desc")
+    }
+  }
 
   const sorted = useMemo(() => {
-    return [...rows].sort((a, b) => {
+    const list = [...rows]
+    list.sort((a, b) => {
+      if (sortField === "opening") return sortDir === "asc" ? a.openingBalance - b.openingBalance : b.openingBalance - a.openingBalance
+      if (sortField === "cashIn") return sortDir === "asc" ? a.cashIn - b.cashIn : b.cashIn - a.cashIn
+      if (sortField === "cashOut") return sortDir === "asc" ? a.cashOut - b.cashOut : b.cashOut - a.cashOut
       const diff = new Date(a.date).getTime() - new Date(b.date).getTime()
-      return sortDir === "desc" ? -diff : diff
+      return sortDir === "asc" ? diff : -diff
     })
-  }, [rows, sortDir])
+    return list
+  }, [rows, sortField, sortDir])
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
+
+  const pagedRows = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize
+    return sorted.slice(startIndex, startIndex + pageSize)
+  }, [sorted, currentPage, pageSize])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [startDate, endDate, statusFilter, pageSize])
+
+  useEffect(() => {
+    setCurrentPage((prev) => Math.min(prev, totalPages))
+  }, [totalPages])
 
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader>
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -771,13 +1125,43 @@ function CashRegisterHistorySection() {
               {totals.closedDays} closed · {totals.openDays} open · Cash In {formatCurrency(totals.cashIn)} · Cash Out {formatCurrency(totals.cashOut)}
             </CardDescription>
           </div>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={exportHistory} disabled={sorted.length === 0}>
+              <Download className="h-4 w-4 mr-1" /> Export
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowPaginationControls((prev) => !prev)}>
+              <span>Pagination</span>
+              {showPaginationControls ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
+            </Button>
+            {showPaginationControls ? (
+              <div className="flex items-center gap-2 rounded-md border bg-muted/20 px-2 py-1 text-xs text-muted-foreground">
+                <span>Rows</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="h-7 rounded-md border bg-background px-2 text-xs text-foreground"
+                >
+                  {[10, 20, 50, 100].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+          </div>
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap gap-2 pt-2">
-          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-40 h-8 text-sm" />
-          <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-40 h-8 text-sm" />
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <div className="flex flex-wrap gap-3 mt-2">
+          <Select value={draftRangePreset} onValueChange={(v) => onDraftRangeChange(v as DateRangePreset)}>
+            <SelectTrigger className="w-40 h-8 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {DATE_RANGE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Input type="date" value={draftStart} onChange={(e) => { setDraftRangePreset("custom"); setDraftStart(e.target.value) }} className="w-40 h-8 text-sm" />
+          <Input type="date" value={draftEnd} onChange={(e) => { setDraftRangePreset("custom"); setDraftEnd(e.target.value) }} className="w-40 h-8 text-sm" />
+          <Select value={draftStatus} onValueChange={setDraftStatus}>
             <SelectTrigger className="w-32 h-8 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
@@ -785,18 +1169,16 @@ function CashRegisterHistorySection() {
               <SelectItem value="open">Open</SelectItem>
             </SelectContent>
           </Select>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs gap-1"
-            onClick={() => setSortDir(sortDir === "desc" ? "asc" : "desc")}
-          >
-            Date {sortDir === "desc" ? "↓" : "↑"}
-          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={resetAllFilters}>Reset Filters</Button>
+          <Button type="button" size="sm" onClick={applyFilters} disabled={!hasDraftChanges}>Apply</Button>
         </div>
       </CardHeader>
 
-      <CardContent className="p-0">
+      <CardContent>
+        {showPaginationControls && sorted.length > 0 && (
+          <PaginationBar total={sorted.length} page={currentPage} pageSize={pageSize} totalPages={totalPages} onPage={setCurrentPage} />
+        )}
+
         {loading ? (
           <div className="text-center py-8 text-muted-foreground text-sm">Loading...</div>
         ) : sorted.length === 0 ? (
@@ -806,10 +1188,10 @@ function CashRegisterHistorySection() {
             <Table>
               <TableHeader className="sticky top-0 bg-background z-10">
                 <TableRow>
-                  <TableHead className="text-xs">Date</TableHead>
-                  <TableHead className="text-xs text-right">Opening</TableHead>
-                  <TableHead className="text-xs text-right">Cash In</TableHead>
-                  <TableHead className="text-xs text-right">Cash Out</TableHead>
+                  <TableHead className="text-xs"><SortableHeader label="Date" field="date" sortField={sortField} sortDir={sortDir} onSort={toggleSort} /></TableHead>
+                  <TableHead className="text-xs text-right"><div className="flex justify-end"><SortableHeader label="Opening" field="opening" sortField={sortField} sortDir={sortDir} onSort={toggleSort} /></div></TableHead>
+                  <TableHead className="text-xs text-right"><div className="flex justify-end"><SortableHeader label="Cash In" field="cashIn" sortField={sortField} sortDir={sortDir} onSort={toggleSort} /></div></TableHead>
+                  <TableHead className="text-xs text-right"><div className="flex justify-end"><SortableHeader label="Cash Out" field="cashOut" sortField={sortField} sortDir={sortDir} onSort={toggleSort} /></div></TableHead>
                   <TableHead className="text-xs text-right">Expected</TableHead>
                   <TableHead className="text-xs text-right">Actual</TableHead>
                   <TableHead className="text-xs text-right">Diff</TableHead>
@@ -818,7 +1200,7 @@ function CashRegisterHistorySection() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sorted.map((row) => {
+                {pagedRows.map((row) => {
                   const isBalanced = row.difference === 0
                   const isSurplus = row.difference != null && row.difference > 0
                   const diffClass = row.difference == null ? "" : isBalanced ? "text-muted-foreground" : isSurplus ? "text-green-600" : "text-red-600"
@@ -835,14 +1217,19 @@ function CashRegisterHistorySection() {
                         {row.actualClosing != null ? formatCurrency(row.actualClosing) : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className={`text-xs text-right font-semibold ${diffClass}`}>
-                        {row.difference != null
-                          ? `${row.difference >= 0 ? "+" : ""}${formatCurrency(row.difference)}`
-                          : <span className="text-muted-foreground">—</span>}
+                        {row.difference != null ? `${row.difference >= 0 ? "+" : ""}${formatCurrency(row.difference)}` : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell>
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${row.closedAt ? "bg-green-100 text-green-700 border-green-200" : "bg-amber-100 text-amber-700 border-amber-200"}`}>
-                          {row.closedAt ? "Closed" : "Open"}
-                        </span>
+                        <div className="flex flex-col gap-0.5">
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border self-start ${row.closedAt ? "bg-green-100 text-green-700 border-green-200" : "bg-amber-100 text-amber-700 border-amber-200"}`}>
+                            {row.closedAt ? "Closed" : "Open"}
+                          </span>
+                          {row.closedAt && (
+                            <span className="text-[10px] text-muted-foreground pl-1">
+                              {new Date(row.closedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate" title={row.notes || ""}>
                         {row.notes || "—"}
@@ -870,13 +1257,14 @@ function CustomerDuesSection() {
   const [showCollectDialog, setShowCollectDialog] = useState(false)
   const [selectedDue, setSelectedDue] = useState<DashboardData["outstanding"]["dues"][0] | null>(null)
   const [collectForm, setCollectForm] = useState({ amount: "", paymentMethod: "CASH", remarks: "" })
+  const [collecting, setCollecting] = useState(false)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
       const [outstandingRes, colRes] = await Promise.all([
-        fetch("/api/finance/outstanding"),
-        fetch("/api/finance/collections"),
+        fetch("/api/finance/outstanding", { cache: "no-store" }),
+        fetch("/api/finance/collections", { cache: "no-store" }),
       ])
       const outstandingData = await outstandingRes.json()
       const colData = await colRes.json()
@@ -897,31 +1285,54 @@ function CustomerDuesSection() {
 
   const handleCollect = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedDue?.customerId) {
-      toast({ title: "Error", description: "No customer linked to this bill", variant: "destructive" })
+    const due = selectedDue
+
+    if (!due?.id) {
+      toast({ title: "Error", description: "No bill selected for collection", variant: "destructive" })
       return
     }
 
-    const res = await fetch("/api/finance/collections", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        customerId: selectedDue.customerId,
-        billId: selectedDue.id,
-        amount: collectForm.amount,
+    const parsedAmount = Number.parseFloat(String(collectForm.amount))
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      toast({ title: "Error", description: "Enter a valid amount", variant: "destructive" })
+      return
+    }
+
+    if (parsedAmount - (due.remaining || 0) > 1e-9) {
+      toast({ title: "Error", description: "Amount cannot exceed remaining due", variant: "destructive" })
+      return
+    }
+
+    setCollecting(true)
+
+    try {
+      const requestBody = {
+        customerId: due.customerId || null,
+        billId: due.id,
+        amount: parsedAmount,
         paymentMethod: collectForm.paymentMethod,
         remarks: collectForm.remarks || null,
-      }),
-    })
+      }
 
-    if (res.ok) {
-      toast({ title: "Success", description: "Payment collected" })
-      setShowCollectDialog(false)
-      setCollectForm({ amount: "", paymentMethod: "CASH", remarks: "" })
-      fetchData()
-    } else {
-      const err = await res.json()
-      toast({ title: "Error", description: err.error || "Failed to collect", variant: "destructive" })
+      const res = await fetch("/api/finance/collections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      })
+
+      if (res.ok) {
+        toast({ title: "Success", description: "Payment collected" })
+        setShowCollectDialog(false)
+        setCollectForm({ amount: "", paymentMethod: "CASH", remarks: "" })
+        await fetchData()
+      } else {
+        const err = await res.json()
+        toast({ title: "Error", description: err.error || "Failed to collect", variant: "destructive" })
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to collect", variant: "destructive" })
+    } finally {
+      setCollecting(false)
     }
   }
 
@@ -1069,8 +1480,10 @@ function CustomerDuesSection() {
               />
             </div>
             <div className="flex gap-2">
-              <Button type="submit">Record Payment</Button>
-              <Button type="button" variant="outline" onClick={() => setShowCollectDialog(false)}>Cancel</Button>
+              <Button type="submit" disabled={collecting || !selectedDue?.id}>
+                {collecting ? "Recording..." : "Record Payment"}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setShowCollectDialog(false)} disabled={collecting}>Cancel</Button>
             </div>
           </form>
         </DialogContent>
@@ -1079,289 +1492,478 @@ function CustomerDuesSection() {
   )
 }
 
-// ==================== OWNER TRANSACTIONS ====================
+// ==================== SAFE (TIZORI) ====================
 
-function OwnerTransactionsSection() {
+type SafeAction = {
+  label: string
+  fromLocation: string
+  toLocation: string
+  category: string
+  defaultNote: string
+  colorClass: string
+}
+
+const SAFE_ACTIONS: SafeAction[] = [
+  { label: "Transfer from Counter", fromLocation: "COUNTER", toLocation: "SAFE", category: "TRANSFER", defaultNote: "Counter to Safe", colorClass: "border-green-300 text-green-700 hover:bg-green-50" },
+  { label: "Transfer to Counter", fromLocation: "SAFE", toLocation: "COUNTER", category: "TRANSFER", defaultNote: "Safe to Counter", colorClass: "border-amber-300 text-amber-700 hover:bg-amber-50" },
+  { label: "Owner Added Money", fromLocation: "OWNER", toLocation: "SAFE", category: "OWNER", defaultNote: "Owner added money to Safe", colorClass: "border-blue-300 text-blue-700 hover:bg-blue-50" },
+  { label: "Owner Took Money", fromLocation: "SAFE", toLocation: "OWNER", category: "OWNER", defaultNote: "Owner took money from Safe", colorClass: "border-red-300 text-red-700 hover:bg-red-50" },
+  { label: "Set Opening Balance", fromLocation: "EXTERNAL", toLocation: "SAFE", category: "OPENING", defaultNote: "Safe opening balance", colorClass: "border-purple-300 text-purple-700 hover:bg-purple-50" },
+]
+
+function SafeSection() {
   const { toast } = useToast()
-  const [transactions, setTransactions] = useState<OwnerTxn[]>([])
-  const [totals, setTotals] = useState({ drawings: 0, capital: 0, net: 0 })
-  const [loading, setLoading] = useState(false)
+  const today = toLocalDateInputValue(new Date())
+  const [summary, setSummary] = useState<SafeSummary>({ balance: 0, totalIn: 0, totalOut: 0, transactions: [] })
+  const [loading, setLoading] = useState(true)
   const [showDialog, setShowDialog] = useState(false)
-  const [editingTxn, setEditingTxn] = useState<OwnerTxn | null>(null)
-  const [filterType, setFilterType] = useState("all")
+  const [activeAction, setActiveAction] = useState<SafeAction | null>(null)
+  const [form, setForm] = useState({ amount: "", note: "", date: toLocalDateInputValue(new Date()) })
+  const [saving, setSaving] = useState(false)
+  const [rangePreset, setRangePreset] = useState<DateRangePreset>("today")
+  const [filterStartDate, setFilterStartDate] = useState(today)
+  const [filterEndDate, setFilterEndDate] = useState(today)
+  const [typeFilter, setTypeFilter] = useState("all")
+  const [draftRangePreset, setDraftRangePreset] = useState<DateRangePreset>("today")
+  const [draftStartDate, setDraftStartDate] = useState(today)
+  const [draftEndDate, setDraftEndDate] = useState(today)
+  const [draftTypeFilter, setDraftTypeFilter] = useState("all")
+  const [sortKey, setSortKey] = useState("date")
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [showPaginationControls, setShowPaginationControls] = useState(false)
 
-  const [form, setForm] = useState({
-    type: "DRAWING",
-    amount: "",
-    date: toLocalDateInputValue(new Date()),
-    description: "",
-    paymentMethod: "CASH",
-    remarks: "",
-  })
-
-  const fetchTxns = useCallback(async () => {
-    try {
-      const params = new URLSearchParams()
-      if (filterType !== "all") params.append("type", filterType)
-      const res = await fetch(`/api/finance/owner-transactions?${params}`)
-      const data = await res.json()
-      setTransactions(Array.isArray(data?.transactions) ? data.transactions : [])
-      setTotals(
-        typeof data?.totals === "object" && data.totals
-          ? {
-              drawings: Number(data.totals.drawings) || 0,
-              capital: Number(data.totals.capital) || 0,
-              net: Number(data.totals.net) || 0,
-            }
-          : { drawings: 0, capital: 0, net: 0 }
-      )
-    } catch (e) {
-      console.error(e)
-      setTransactions([])
-      setTotals({ drawings: 0, capital: 0, net: 0 })
-    }
-  }, [filterType])
-
-  useEffect(() => { fetchTxns() }, [fetchTxns])
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const fetchSafe = useCallback(async () => {
     setLoading(true)
     try {
-      const url = editingTxn ? `/api/finance/owner-transactions/${editingTxn.id}` : "/api/finance/owner-transactions"
-      const method = editingTxn ? "PUT" : "POST"
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+      const params = new URLSearchParams({ location: "SAFE" })
+      if (filterStartDate) params.append("startDate", filterStartDate)
+      if (filterEndDate) params.append("endDate", filterEndDate)
+      const res = await fetch(`/api/finance/cash-transactions?${params}`)
+      const data = await res.json()
+      setSummary({
+        balance: Number(data.balance) || 0,
+        totalIn: Number(data.totalIn) || 0,
+        totalOut: Number(data.totalOut) || 0,
+        transactions: Array.isArray(data.transactions) ? data.transactions : [],
       })
-      if (res.ok) {
-        toast({ title: "Success", description: `Transaction ${editingTxn ? "updated" : "added"}` })
-        setShowDialog(false)
-        resetForm()
-        fetchTxns()
-      } else {
-        const err = await res.json()
-        toast({ title: "Error", description: err.error || "Failed to save", variant: "destructive" })
-      }
     } catch (e) {
-      toast({ title: "Error", description: "Failed to save", variant: "destructive" })
+      console.error(e)
     } finally {
       setLoading(false)
     }
+  }, [filterStartDate, filterEndDate])
+
+  useEffect(() => { fetchSafe() }, [fetchSafe])
+
+  const hasDraftChanges =
+    draftRangePreset !== rangePreset ||
+    draftStartDate !== filterStartDate ||
+    draftEndDate !== filterEndDate ||
+    draftTypeFilter !== typeFilter
+
+  const applyFilters = () => {
+    setRangePreset(draftRangePreset)
+    setFilterStartDate(draftStartDate)
+    setFilterEndDate(draftEndDate)
+    setTypeFilter(draftTypeFilter)
+    setPage(1)
   }
 
-  const handleEdit = (txn: OwnerTxn) => {
-    setEditingTxn(txn)
-    setForm({
-      type: txn.type,
-      amount: txn.amount.toString(),
-      date: toLocalDateInputValue(new Date(txn.date)),
-      description: txn.description,
-      paymentMethod: txn.paymentMethod,
-      remarks: txn.remarks || "",
+  const resetAllFilters = () => {
+    setRangePreset("today")
+    setDraftRangePreset("today")
+    setFilterStartDate(today)
+    setFilterEndDate(today)
+    setDraftStartDate(today)
+    setDraftEndDate(today)
+    setTypeFilter("all")
+    setDraftTypeFilter("all")
+    setPage(1)
+  }
+
+  const onDraftRangeChange = (value: DateRangePreset) => {
+    setDraftRangePreset(value)
+    if (value === "custom") return
+    const range = getDateRangeForPreset(value)
+    setDraftStartDate(range.start)
+    setDraftEndDate(range.end)
+  }
+
+  const toggleSort = (field: string) => {
+    if (sortKey === field) setSortDir(d => d === "desc" ? "asc" : "desc")
+    else { setSortKey(field); setSortDir("desc") }
+    setPage(1)
+  }
+
+  const filteredTxns = useMemo(() => {
+    let list = [...summary.transactions]
+    if (typeFilter === "in") list = list.filter(t => t.toLocation === "SAFE")
+    else if (typeFilter === "out") list = list.filter(t => t.fromLocation === "SAFE")
+    list.sort((a, b) => {
+      if (sortKey === "date") {
+        const diff = new Date(a.date).getTime() - new Date(b.date).getTime()
+        return sortDir === "desc" ? -diff : diff
+      }
+      if (sortKey === "amount") return sortDir === "desc" ? b.amount - a.amount : a.amount - b.amount
+      return 0
     })
+    return list
+  }, [summary.transactions, typeFilter, sortKey, sortDir])
+
+  const exportSafe = () => {
+    downloadCsv(
+      `safe-transactions-${filterStartDate}-to-${filterEndDate}.csv`,
+      ["Date", "Type", "Note", "Money In", "Money Out", "From", "To", "Category"],
+      filteredTxns.map((t) => {
+        const isIn = t.toLocation === "SAFE"
+        return [
+          formatIndianDateTime(new Date(t.date)),
+          txnLabel(t),
+          t.note,
+          isIn ? t.amount : "",
+          !isIn ? t.amount : "",
+          t.fromLocation,
+          t.toLocation,
+          t.category,
+        ]
+      })
+    )
+  }
+
+  const pagedTxns = useMemo(() =>
+    filteredTxns.slice((page - 1) * pageSize, page * pageSize),
+    [filteredTxns, page, pageSize]
+  )
+
+  const totalPages = Math.max(1, Math.ceil(filteredTxns.length / pageSize))
+
+  useEffect(() => {
+    setPage((prev) => Math.min(prev, totalPages))
+  }, [totalPages])
+
+  const openAction = (action: SafeAction) => {
+    setActiveAction(action)
+    setForm({ amount: "", note: action.defaultNote, date: toLocalDateInputValue(new Date()) })
     setShowDialog(true)
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this transaction?")) return
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!activeAction) return
+    setSaving(true)
     try {
-      const res = await fetch(`/api/finance/owner-transactions/${id}`, { method: "DELETE" })
+      const res = await fetch("/api/finance/cash-transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fromLocation: activeAction.fromLocation,
+          toLocation: activeAction.toLocation,
+          amount: form.amount,
+          note: form.note,
+          category: activeAction.category,
+          date: form.date,
+        }),
+      })
       if (res.ok) {
-        toast({ title: "Deleted" })
-        fetchTxns()
+        toast({ title: "Recorded", description: `${activeAction.label} saved` })
+        setShowDialog(false)
+        fetchSafe()
+      } else {
+        const err = await res.json()
+        toast({ title: "Error", description: err.error || "Failed", variant: "destructive" })
       }
-    } catch (e) {
-      toast({ title: "Error", description: "Failed to delete", variant: "destructive" })
+    } finally {
+      setSaving(false)
     }
   }
 
-  const resetForm = () => {
-    setForm({
-      type: "DRAWING",
-      amount: "",
-      date: toLocalDateInputValue(new Date()),
-      description: "",
-      paymentMethod: "CASH",
-      remarks: "",
-    })
-    setEditingTxn(null)
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this Safe transaction?")) return
+    const res = await fetch(`/api/finance/cash-transactions/${id}`, { method: "DELETE" })
+    if (res.ok) {
+      toast({ title: "Deleted" })
+      fetchSafe()
+    }
+  }
+
+  const txnLabel = (t: CashTxn) => {
+    if (t.fromLocation === "COUNTER" && t.toLocation === "SAFE") return "↓ From Counter"
+    if (t.fromLocation === "SAFE" && t.toLocation === "COUNTER") return "↑ To Counter"
+    if (t.fromLocation === "OWNER" && t.toLocation === "SAFE") return "↓ Owner Added"
+    if (t.fromLocation === "SAFE" && t.toLocation === "OWNER") return "↑ Owner Took"
+    if (t.category === "EXPENSE") return "↑ Expense Paid"
+    if (t.category === "OPENING") return "↓ Opening Balance"
+    if (t.fromLocation === "SAFE") return `↑ To ${t.toLocation}`
+    return `↓ From ${t.fromLocation}`
   }
 
   return (
     <div className="space-y-4">
-      {/* Summary Cards */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-3 gap-3">
-        <Card className="bg-gradient-to-br from-orange-500/10 to-red-500/10">
-          <CardHeader className="pb-1 pt-3 px-4">
+        <Card className={`bg-gradient-to-br from-slate-500/10 to-gray-500/10 ${KPI_CARD_CLASS}`}>
+          <CardHeader className="pb-2">
             <CardTitle className="text-xs font-medium flex items-center gap-1.5">
-              <ArrowUpRight className="h-4 w-4 text-red-600" /> Total Drawings
+              <Landmark className="h-4 w-4 text-slate-600" /> Safe Balance
             </CardTitle>
           </CardHeader>
-          <CardContent className="px-4 pb-3">
-            <p className="text-lg font-bold">{formatCurrency(totals.drawings)}</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-teal-500/10 to-green-500/10">
-          <CardHeader className="pb-1 pt-3 px-4">
-            <CardTitle className="text-xs font-medium flex items-center gap-1.5">
-              <ArrowDownLeft className="h-4 w-4 text-teal-600" /> Total Capital
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-3">
-            <p className="text-lg font-bold">{formatCurrency(totals.capital)}</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-blue-500/10 to-indigo-500/10">
-          <CardHeader className="pb-1 pt-3 px-4">
-            <CardTitle className="text-xs font-medium flex items-center gap-1.5">
-              <Landmark className="h-4 w-4 text-blue-600" /> Net Position
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-3">
-            <p className={`text-lg font-bold ${totals.net >= 0 ? "text-green-700" : "text-red-700"}`}>
-              {formatCurrency(totals.net)}
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className={`text-2xl font-bold ${summary.balance >= 0 ? "text-slate-800" : "text-red-700"}`}>
+              {formatCurrency(summary.balance)}
             </p>
+            <p className="text-[10px] text-muted-foreground">{summary.transactions.length} transactions</p>
+          </CardContent>
+        </Card>
+        <Card className={`bg-gradient-to-br from-green-500/10 to-emerald-500/10 ${KPI_CARD_CLASS}`}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium flex items-center gap-1.5">
+              <ArrowDownLeft className="h-4 w-4 text-green-600" /> Total Added
+            </CardTitle>
+          </CardHeader>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-lg font-bold text-green-700">{formatCurrency(summary.totalIn)}</p>
+          </CardContent>
+        </Card>
+        <Card className={`bg-gradient-to-br from-red-500/10 to-orange-500/10 ${KPI_CARD_CLASS}`}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium flex items-center gap-1.5">
+              <ArrowUpRight className="h-4 w-4 text-red-600" /> Total Removed
+            </CardTitle>
+          </CardHeader>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-lg font-bold text-red-700">{formatCurrency(summary.totalOut)}</p>
           </CardContent>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Owner Transactions</CardTitle>
-              <CardDescription>Track owner drawings (withdrawals) and capital (investments)</CardDescription>
+      {/* Action Buttons */}
+      <div className="flex flex-wrap gap-2">
+        {SAFE_ACTIONS.map((action) => (
+          <Button
+            key={action.label}
+            variant="outline"
+            size="sm"
+            className={`gap-1.5 ${action.colorClass}`}
+            onClick={() => openAction(action)}
+          >
+            <Plus className="h-3.5 w-3.5" /> {action.label}
+          </Button>
+        ))}
+      </div>
+
+      {/* Action Dialog */}
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{activeAction?.label}</DialogTitle>
+            <DialogDescription>
+              {activeAction?.fromLocation} → {activeAction?.toLocation}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Amount (₹)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={form.amount}
+                  onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                  required
+                  placeholder="0.00"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Date</Label>
+                <Input
+                  type="date"
+                  value={form.date}
+                  onChange={(e) => setForm({ ...form, date: e.target.value })}
+                  required
+                />
+              </div>
             </div>
-            <Dialog open={showDialog} onOpenChange={setShowDialog}>
-              <DialogTrigger asChild>
-                <Button onClick={resetForm}><Plus className="h-4 w-4 mr-2" /> Add</Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>{editingTxn ? "Edit" : "Add"} Transaction</DialogTitle>
-                  <DialogDescription>Record owner drawing or capital investment</DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label>Type</Label>
-                      <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="DRAWING">Drawing (Money Out)</SelectItem>
-                          <SelectItem value="CAPITAL">Capital (Money In)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Date</Label>
-                      <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} required />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label>Amount</Label>
-                      <Input type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Payment Method</Label>
-                      <Select value={form.paymentMethod} onValueChange={(v) => setForm({ ...form, paymentMethod: v })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="CASH">Cash</SelectItem>
-                          <SelectItem value="ONLINE">Online</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Description</Label>
-                    <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required placeholder="e.g. Personal withdrawal, Business investment" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Remarks (Optional)</Label>
-                    <Input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
-                  </div>
-                  <div className="flex gap-2">
-                    <Button type="submit" disabled={loading}>{loading ? "Saving..." : "Save"}</Button>
-                    <Button type="button" variant="outline" onClick={() => setShowDialog(false)}>Cancel</Button>
-                  </div>
-                </form>
-              </DialogContent>
-            </Dialog>
+            <div className="space-y-2">
+              <Label>Note</Label>
+              <Input
+                value={form.note}
+                onChange={(e) => setForm({ ...form, note: e.target.value })}
+                required
+                placeholder="Description..."
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
+              <Button type="button" variant="outline" onClick={() => setShowDialog(false)}>Cancel</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2 items-end px-4 py-3 rounded-md border bg-muted/20">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Range</span>
+          <Select value={draftRangePreset} onValueChange={(v) => onDraftRangeChange(v as DateRangePreset)}>
+            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {DATE_RANGE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">From</span>
+          <Input type="date" value={draftStartDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftStartDate(e.target.value) }} className="h-8 w-40 text-xs" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">To</span>
+          <Input type="date" value={draftEndDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftEndDate(e.target.value) }} className="h-8 w-40 text-xs" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Direction</span>
+          <Select value={draftTypeFilter} onValueChange={setDraftTypeFilter}>
+            <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="in">Money In</SelectItem>
+              <SelectItem value="out">Money Out</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Button variant="outline" size="sm" onClick={resetAllFilters}>Reset</Button>
+        <Button size="sm" onClick={applyFilters} disabled={!hasDraftChanges}>Apply</Button>
+      </div>
+
+      {/* Transaction History */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Landmark className="h-4 w-4 text-muted-foreground" /> Safe Transaction History
+              </CardTitle>
+              <CardDescription>All money movements in and out of the Safe (Tizori)</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={exportSafe} disabled={filteredTxns.length === 0}>
+                <Download className="h-4 w-4 mr-1" /> Export
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowPaginationControls((prev) => !prev)}>
+                <span>Pagination</span>
+                {showPaginationControls ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
+              </Button>
+              {showPaginationControls ? (
+                <div className="flex items-center gap-2 rounded-md border bg-muted/20 px-2 py-1 text-xs text-muted-foreground">
+                  <span>Rows</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                    className="h-7 rounded-md border bg-background px-2 text-xs text-foreground"
+                  >
+                    {[10, 20, 50, 100].map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="mb-4">
-            <Select value={filterType} onValueChange={setFilterType}>
-              <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="DRAWING">Drawings Only</SelectItem>
-                <SelectItem value="CAPITAL">Capital Only</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Payment</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {transactions.map((txn) => (
-                <TableRow key={txn.id}>
-                  <TableCell>{formatIndianDate(new Date(txn.date))}</TableCell>
-                  <TableCell>
-                    <span className={`px-2 py-1 rounded text-xs ${txn.type === "DRAWING" ? "bg-red-500/10 text-red-700" : "bg-green-500/10 text-green-700"}`}>
-                      {txn.type === "DRAWING" ? "Drawing" : "Capital"}
-                    </span>
-                  </TableCell>
-                  <TableCell>{txn.description}</TableCell>
-                  <TableCell>{txn.paymentMethod}</TableCell>
-                  <TableCell className={`text-right font-semibold ${txn.type === "DRAWING" ? "text-red-600" : "text-green-600"}`}>
-                    {txn.type === "DRAWING" ? "-" : "+"}{formatCurrency(txn.amount)}
-                  </TableCell>
-                  <TableCell className="text-right space-x-2">
-                    <Button variant="outline" size="icon" onClick={() => handleEdit(txn)}><Pencil className="h-4 w-4" /></Button>
-                    <Button variant="outline" size="icon" onClick={() => handleDelete(txn.id)}><Trash2 className="h-4 w-4" /></Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {transactions.length === 0 && (
-                <TableRow><TableCell colSpan={6} className="text-center py-4 text-muted-foreground">No transactions found</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
+          {showPaginationControls && filteredTxns.length > 0 && (
+            <PaginationBar total={filteredTxns.length} page={page} pageSize={pageSize} totalPages={totalPages} onPage={setPage} />
+          )}
+          {loading ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">Loading...</div>
+          ) : filteredTxns.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">No transactions found</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader className="sticky top-0 bg-background z-10">
+                  <TableRow>
+                    <TableHead className="text-xs cursor-pointer select-none whitespace-nowrap" onClick={() => toggleSort("date")}>
+                      Date &amp; Time {sortKey === "date" ? (sortDir === "desc" ? " ↓" : " ↑") : " ↕"}
+                    </TableHead>
+                    <TableHead className="text-xs">Type</TableHead>
+                    <TableHead className="text-xs">Note</TableHead>
+                    <TableHead className="text-xs text-right text-green-700 cursor-pointer select-none" onClick={() => toggleSort("amount")}>
+                      Money In {sortKey === "amount" ? (sortDir === "desc" ? "↓" : "↑") : ""}
+                    </TableHead>
+                    <TableHead className="text-xs text-right text-red-600">Money Out</TableHead>
+                    <TableHead className="text-xs"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pagedTxns.map((t) => {
+                    const isIn = t.toLocation === "SAFE"
+                    return (
+                      <TableRow key={t.id}>
+                        <TableCell className="text-xs whitespace-nowrap">
+                          {formatIndianDateTime(new Date(t.date))}
+                        </TableCell>
+                        <TableCell>
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${isIn ? "bg-green-100 text-green-700 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
+                            {txnLabel(t)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate">{t.note}</TableCell>
+                        <TableCell className="text-right text-xs font-semibold text-green-700">
+                          {isIn ? formatCurrency(t.amount) : "—"}
+                        </TableCell>
+                        <TableCell className="text-right text-xs font-semibold text-red-600">
+                          {!isIn ? formatCurrency(t.amount) : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(t.id)}>
+                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
   )
 }
 
-// ==================== EXPENSES (moved from expenses-tab) ====================
+// ==================== EXPENSES ====================
 
 function ExpensesSection() {
   const { toast } = useToast()
+  const today = toLocalDateInputValue(new Date())
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [loading, setLoading] = useState(false)
   const [showDialog, setShowDialog] = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
-  const [filter, setFilter] = useState({ category: "all", startDate: "", endDate: "" })
+  const [rangePreset, setRangePreset] = useState<DateRangePreset>("today")
+  const [filter, setFilter] = useState({ category: "all", startDate: today, endDate: today })
+  const [draftRangePreset, setDraftRangePreset] = useState<DateRangePreset>("today")
+  const [draftFilter, setDraftFilter] = useState({ category: "all", startDate: today, endDate: today })
+  const [sortKey, setSortKey] = useState("date")
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
+  const [paidFromFilter, setPaidFromFilter] = useState("all")
+  const [draftPaidFromFilter, setDraftPaidFromFilter] = useState("all")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [showPaginationControls, setShowPaginationControls] = useState(false)
 
   const [formData, setFormData] = useState({
     date: toLocalDateInputValue(new Date()),
     category: "Other",
     description: "",
     amount: "",
-    paymentMethod: "CASH",
+    paidFrom: "COUNTER",
     remarks: "",
   })
 
@@ -1381,6 +1983,70 @@ function ExpensesSection() {
   }, [filter])
 
   useEffect(() => { fetchExpenses() }, [fetchExpenses])
+
+  const hasDraftChanges =
+    draftRangePreset !== rangePreset ||
+    draftFilter.category !== filter.category ||
+    draftFilter.startDate !== filter.startDate ||
+    draftFilter.endDate !== filter.endDate ||
+    draftPaidFromFilter !== paidFromFilter
+
+  const applyFilters = () => {
+    setRangePreset(draftRangePreset)
+    setFilter(draftFilter)
+    setPaidFromFilter(draftPaidFromFilter)
+    setPage(1)
+  }
+
+  const resetAllFilters = () => {
+    const reset = { category: "all", startDate: today, endDate: today }
+    setRangePreset("today")
+    setDraftRangePreset("today")
+    setFilter(reset)
+    setDraftFilter(reset)
+    setPaidFromFilter("all")
+    setDraftPaidFromFilter("all")
+    setPage(1)
+  }
+
+  const onDraftRangeChange = (value: DateRangePreset) => {
+    setDraftRangePreset(value)
+    if (value === "custom") return
+    const range = getDateRangeForPreset(value)
+    setDraftFilter((f) => ({ ...f, startDate: range.start, endDate: range.end }))
+  }
+
+  const toggleSort = (field: string) => {
+    if (sortKey === field) setSortDir(d => d === "desc" ? "asc" : "desc")
+    else { setSortKey(field); setSortDir("desc") }
+    setPage(1)
+  }
+
+  const filteredSorted = useMemo(() => {
+    let list = [...expenses]
+    if (paidFromFilter !== "all") list = list.filter(e => ((e as any).paidFrom ?? "COUNTER") === paidFromFilter)
+    list.sort((a, b) => {
+      if (sortKey === "date") {
+        const diff = new Date(a.date).getTime() - new Date(b.date).getTime()
+        return sortDir === "desc" ? -diff : diff
+      }
+      if (sortKey === "amount") return sortDir === "desc" ? b.amount - a.amount : a.amount - b.amount
+      if (sortKey === "category") return sortDir === "desc" ? b.category.localeCompare(a.category) : a.category.localeCompare(b.category)
+      return 0
+    })
+    return list
+  }, [expenses, paidFromFilter, sortKey, sortDir])
+
+  const pagedExpenses = useMemo(() =>
+    filteredSorted.slice((page - 1) * pageSize, page * pageSize),
+    [filteredSorted, page, pageSize]
+  )
+
+  const totalPages = Math.max(1, Math.ceil(filteredSorted.length / pageSize))
+
+  useEffect(() => {
+    setPage((prev) => Math.min(prev, totalPages))
+  }, [totalPages])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1416,7 +2082,7 @@ function ExpensesSection() {
       category: expense.category,
       description: expense.description,
       amount: expense.amount.toString(),
-      paymentMethod: expense.paymentMethod,
+      paidFrom: (expense as any).paidFrom || "COUNTER",
       remarks: expense.remarks || "",
     })
     setShowDialog(true)
@@ -1441,28 +2107,101 @@ function ExpensesSection() {
       category: "Other",
       description: "",
       amount: "",
-      paymentMethod: "CASH",
+      paidFrom: "COUNTER",
       remarks: "",
     })
     setEditingExpense(null)
   }
 
-  const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0)
+  const totalExpenses = filteredSorted.reduce((sum, exp) => sum + exp.amount, 0)
+  const expenseByCategory = (cat: string) => filteredSorted.filter((e) => e.category === cat).reduce((s, e) => s + e.amount, 0)
+
+  const exportExpenses = () => {
+    downloadCsv(
+      `expenses-${filter.startDate}-to-${filter.endDate}.csv`,
+      ["Date", "Category", "Description", "Paid From", "Amount", "Remarks"],
+      filteredSorted.map((expense) => [
+        formatIndianDateTime(new Date(expense.date)),
+        expense.category,
+        expense.description,
+        PAID_FROM_OPTIONS.find((o) => o.value === (expense.paidFrom ?? "COUNTER"))?.label ?? expense.paidFrom ?? "COUNTER",
+        expense.amount,
+        expense.remarks ?? "",
+      ])
+    )
+  }
 
   return (
     <div className="space-y-4">
-      <Card className="bg-gradient-to-br from-red-500/10 to-orange-500/10 border-red-200/20">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2">
-            <TrendingDown className="h-5 w-5 text-red-500" />
-            Total Expenses
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-3xl font-bold">{formatCurrency(totalExpenses)}</p>
-          <p className="text-sm text-muted-foreground">{expenses.length} entries</p>
-        </CardContent>
-      </Card>
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        <Card className={`bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardHeader className="pb-2"><CardTitle className="text-xs font-medium flex items-center gap-1.5"><DollarSign className="h-4 w-4 text-blue-600" /> Rent</CardTitle></CardHeader>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}><p className="text-lg font-bold">{formatCurrency(expenseByCategory("Rent"))}</p><p className="text-xs text-muted-foreground">Filtered period</p></CardContent>
+        </Card>
+        <Card className={`bg-gradient-to-br from-amber-500/10 to-orange-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardHeader className="pb-2"><CardTitle className="text-xs font-medium flex items-center gap-1.5"><TrendingDown className="h-4 w-4 text-amber-600" /> Electricity</CardTitle></CardHeader>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}><p className="text-lg font-bold">{formatCurrency(expenseByCategory("Electricity"))}</p><p className="text-xs text-muted-foreground">Filtered period</p></CardContent>
+        </Card>
+        <Card className={`bg-gradient-to-br from-purple-500/10 to-pink-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardHeader className="pb-2"><CardTitle className="text-xs font-medium flex items-center gap-1.5"><Users className="h-4 w-4 text-purple-600" /> Salary</CardTitle></CardHeader>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}><p className="text-lg font-bold">{formatCurrency(expenseByCategory("Salary"))}</p><p className="text-xs text-muted-foreground">Filtered period</p></CardContent>
+        </Card>
+        <Card className={`bg-gradient-to-br from-slate-500/10 to-gray-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardHeader className="pb-2"><CardTitle className="text-xs font-medium flex items-center gap-1.5"><Receipt className="h-4 w-4 text-slate-600" /> Other</CardTitle></CardHeader>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}><p className="text-lg font-bold">{formatCurrency(expenseByCategory("Other"))}</p><p className="text-xs text-muted-foreground">Filtered period</p></CardContent>
+        </Card>
+        <Card className={`bg-gradient-to-br from-red-500/10 to-orange-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardHeader className="pb-2"><CardTitle className="text-xs font-medium flex items-center gap-1.5"><TrendingDown className="h-4 w-4 text-red-600" /> Total</CardTitle></CardHeader>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}><p className="text-lg font-bold">{formatCurrency(totalExpenses)}</p><p className="text-xs text-muted-foreground">{expenses.length} entries</p></CardContent>
+        </Card>
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex flex-wrap gap-3 items-end rounded-md border bg-muted/20 px-4 py-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Range</span>
+          <Select value={draftRangePreset} onValueChange={(v) => onDraftRangeChange(v as DateRangePreset)}>
+            <SelectTrigger className="h-9 w-40 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {DATE_RANGE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">From</span>
+          <Input type="date" value={draftFilter.startDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftFilter((f) => ({ ...f, startDate: e.target.value })) }} className="h-9 w-40 text-xs" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">To</span>
+          <Input type="date" value={draftFilter.endDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftFilter((f) => ({ ...f, endDate: e.target.value })) }} className="h-9 w-40 text-xs" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Category</span>
+          <Select value={draftFilter.category} onValueChange={(v) => setDraftFilter((f) => ({ ...f, category: v }))}>
+            <SelectTrigger className="h-9 w-44 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              <SelectItem value="Rent">Rent</SelectItem>
+              <SelectItem value="Electricity">Electricity</SelectItem>
+              <SelectItem value="Salary">Salary</SelectItem>
+              <SelectItem value="Other">Other</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Paid From</span>
+          <Select value={draftPaidFromFilter} onValueChange={setDraftPaidFromFilter}>
+            <SelectTrigger className="h-9 w-44 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Sources</SelectItem>
+              {PAID_FROM_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button variant="outline" size="sm" onClick={resetAllFilters}>Reset Filters</Button>
+        <Button size="sm" onClick={applyFilters} disabled={!hasDraftChanges}>Apply</Button>
+      </div>
 
       <Card>
         <CardHeader>
@@ -1471,10 +2210,34 @@ function ExpensesSection() {
               <CardTitle>Expense Management</CardTitle>
               <CardDescription>Track business expenses</CardDescription>
             </div>
-            <Dialog open={showDialog} onOpenChange={setShowDialog}>
-              <DialogTrigger asChild>
-                <Button onClick={resetForm}><Plus className="h-4 w-4 mr-2" /> Add Expense</Button>
-              </DialogTrigger>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={exportExpenses} disabled={filteredSorted.length === 0}>
+                <Download className="h-4 w-4 mr-1" /> Export
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowPaginationControls((prev) => !prev)}>
+                <span>Pagination</span>
+                {showPaginationControls ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
+              </Button>
+              {showPaginationControls ? (
+                <div className="flex items-center gap-2 rounded-md border bg-muted/20 px-2 py-1 text-xs text-muted-foreground">
+                  <span>Rows</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                    className="h-7 rounded-md border bg-background px-2 text-xs text-foreground"
+                  >
+                    {[10, 20, 50, 100].map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              <Dialog open={showDialog} onOpenChange={setShowDialog}>
+                <DialogTrigger asChild>
+                  <Button onClick={resetForm}><Plus className="h-4 w-4 mr-2" /> Add Expense</Button>
+                </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>{editingExpense ? "Edit" : "Add"} Expense</DialogTitle>
@@ -1508,12 +2271,13 @@ function ExpensesSection() {
                       <Input type="number" step="0.01" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required />
                     </div>
                     <div className="space-y-2">
-                      <Label>Payment Method</Label>
-                      <Select value={formData.paymentMethod} onValueChange={(v) => setFormData({ ...formData, paymentMethod: v })}>
+                      <Label>Paid From *</Label>
+                      <Select value={formData.paidFrom} onValueChange={(v) => setFormData({ ...formData, paidFrom: v })}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="CASH">Cash</SelectItem>
-                          <SelectItem value="ONLINE">Online</SelectItem>
+                          {PAID_FROM_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -1528,43 +2292,48 @@ function ExpensesSection() {
                   </div>
                 </form>
               </DialogContent>
-            </Dialog>
+              </Dialog>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-3 mb-4">
-            <Select value={filter.category} onValueChange={(v) => setFilter({ ...filter, category: v })}>
-              <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {EXPENSE_CATEGORIES.map((cat) => (
-                  <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Input type="date" value={filter.startDate} onChange={(e) => setFilter({ ...filter, startDate: e.target.value })} className="w-44" />
-            <Input type="date" value={filter.endDate} onChange={(e) => setFilter({ ...filter, endDate: e.target.value })} className="w-44" />
+          {showPaginationControls && filteredSorted.length > 0 && (
+            <PaginationBar total={filteredSorted.length} page={page} pageSize={pageSize} totalPages={totalPages} onPage={setPage} />
+          )}
+          <div className="flex flex-wrap gap-3 mb-2">
+            <span className="text-xs text-muted-foreground self-center">{filteredSorted.length} entries</span>
           </div>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Payment</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="text-xs cursor-pointer select-none whitespace-nowrap" onClick={() => toggleSort("date")}>
+                  Date &amp; Time {sortKey === "date" ? (sortDir === "desc" ? " ↓" : " ↑") : " ↕"}
+                </TableHead>
+                <TableHead className="text-xs cursor-pointer select-none" onClick={() => toggleSort("category")}>
+                  Category {sortKey === "category" ? (sortDir === "desc" ? "↓" : "↑") : "↕"}
+                </TableHead>
+                <TableHead className="text-xs">Description</TableHead>
+                <TableHead className="text-xs">Paid From</TableHead>
+                <TableHead className="text-xs text-right cursor-pointer select-none" onClick={() => toggleSort("amount")}>
+                  Amount {sortKey === "amount" ? (sortDir === "desc" ? "↓" : "↑") : "↕"}
+                </TableHead>
+                <TableHead className="text-xs text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {expenses.map((expense) => (
+              {pagedExpenses.map((expense) => (
                 <TableRow key={expense.id}>
-                  <TableCell>{formatIndianDate(new Date(expense.date))}</TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">{formatIndianDateTime(new Date(expense.date))}</TableCell>
                   <TableCell>
                     <span className="px-2 py-1 bg-orange-500/10 text-orange-700 rounded text-xs">{expense.category}</span>
                   </TableCell>
                   <TableCell>{expense.description}</TableCell>
-                  <TableCell>{expense.paymentMethod}</TableCell>
+                  {/* paidFrom display */}
+                  <TableCell>
+                    <span className="text-xs px-1.5 py-0.5 rounded border bg-muted/40">
+                      {PAID_FROM_OPTIONS.find(o => o.value === (expense.paidFrom ?? "COUNTER"))?.label ?? expense.paidFrom}
+                    </span>
+                  </TableCell>
                   <TableCell className="text-right font-semibold">{formatCurrency(expense.amount)}</TableCell>
                   <TableCell className="text-right space-x-2">
                     <Button variant="outline" size="icon" onClick={() => handleEdit(expense)}><Pencil className="h-4 w-4" /></Button>
@@ -1572,13 +2341,468 @@ function ExpensesSection() {
                   </TableCell>
                 </TableRow>
               ))}
-              {expenses.length === 0 && (
+              {pagedExpenses.length === 0 && (
                 <TableRow><TableCell colSpan={6} className="text-center py-4 text-muted-foreground">No expenses found</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+// ==================== BANK TRACKER ====================
+function BankSection() {
+  const [data, setData] = useState<BankSummaryData | null>(null)
+  const [loading, setLoading] = useState(false)
+  const today = toLocalDateInputValue(new Date())
+  const [rangePreset, setRangePreset] = useState<DateRangePreset>("today")
+  const [startDate, setStartDate] = useState(today)
+  const [endDate, setEndDate] = useState(today)
+  const [draftRangePreset, setDraftRangePreset] = useState<DateRangePreset>("today")
+  const [draftStartDate, setDraftStartDate] = useState(today)
+  const [draftEndDate, setDraftEndDate] = useState(today)
+  const [showDepositDialog, setShowDepositDialog] = useState(false)
+  const [showWithdrawDialog, setShowWithdrawDialog] = useState(false)
+  const [depositForm, setDepositForm] = useState({ fromLocation: "COUNTER", amount: "", note: "", date: today })
+  const [withdrawForm, setWithdrawForm] = useState({ toLocation: "COUNTER", amount: "", note: "", date: today })
+  const [depositSaving, setDepositSaving] = useState(false)
+  const [withdrawSaving, setWithdrawSaving] = useState(false)
+  const { toast } = useToast()
+  const [sortKey, setSortKey] = useState("date")
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
+  const [txnTypeFilter, setTxnTypeFilter] = useState("all")
+  const [draftTxnTypeFilter, setDraftTxnTypeFilter] = useState("all")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [showPaginationControls, setShowPaginationControls] = useState(false)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (startDate) params.set("startDate", startDate)
+      if (endDate) params.set("endDate", endDate)
+      const res = await fetch(`/api/finance/bank?${params}`)
+      if (res.ok) setData(await res.json())
+    } catch {
+      toast({ title: "Error", description: "Failed to load bank data", variant: "destructive" })
+    } finally {
+      setLoading(false)
+    }
+  }, [startDate, endDate, toast])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  const hasDraftChanges =
+    draftRangePreset !== rangePreset ||
+    draftStartDate !== startDate ||
+    draftEndDate !== endDate ||
+    draftTxnTypeFilter !== txnTypeFilter
+
+  const applyFilters = () => {
+    setRangePreset(draftRangePreset)
+    setStartDate(draftStartDate)
+    setEndDate(draftEndDate)
+    setTxnTypeFilter(draftTxnTypeFilter)
+    setPage(1)
+  }
+
+  const resetAllFilters = () => {
+    setRangePreset("today")
+    setDraftRangePreset("today")
+    setStartDate(today)
+    setEndDate(today)
+    setDraftStartDate(today)
+    setDraftEndDate(today)
+    setTxnTypeFilter("all")
+    setDraftTxnTypeFilter("all")
+    setPage(1)
+  }
+
+  const onDraftRangeChange = (value: DateRangePreset) => {
+    setDraftRangePreset(value)
+    if (value === "custom") return
+    const range = getDateRangeForPreset(value)
+    setDraftStartDate(range.start)
+    setDraftEndDate(range.end)
+  }
+
+  const toggleSort = (field: string) => {
+    if (sortKey === field) setSortDir(d => d === "desc" ? "asc" : "desc")
+    else { setSortKey(field); setSortDir("desc") }
+    setPage(1)
+  }
+
+  const getTxnType = useCallback((txn: { category: string; credit: number; debit: number }) => {
+    if (txn.category === "SALE") return "SALE"
+    if (txn.category === "EXPENSE") return "EXPENSE"
+    return txn.credit > 0 ? "DEPOSIT" : "WITHDRAWAL"
+  }, [])
+
+  const filteredSortedTxns = useMemo(() => {
+    let list = [...(data?.transactions ?? [])]
+    if (txnTypeFilter !== "all") list = list.filter((t) => getTxnType(t) === txnTypeFilter)
+    list.sort((a, b) => {
+      if (sortKey === "date") {
+        const diff = new Date(a.date).getTime() - new Date(b.date).getTime()
+        return sortDir === "desc" ? -diff : diff
+      }
+      if (sortKey === "credit") return sortDir === "desc" ? b.credit - a.credit : a.credit - b.credit
+      if (sortKey === "debit") return sortDir === "desc" ? b.debit - a.debit : a.debit - b.debit
+      return 0
+    })
+    return list
+  }, [data, txnTypeFilter, sortKey, sortDir, getTxnType])
+
+  const pagedTxns = useMemo(() =>
+    filteredSortedTxns.slice((page - 1) * pageSize, page * pageSize),
+    [filteredSortedTxns, page, pageSize]
+  )
+
+  const totalPages = Math.max(1, Math.ceil(filteredSortedTxns.length / pageSize))
+
+  useEffect(() => {
+    setPage((prev) => Math.min(prev, totalPages))
+  }, [totalPages])
+
+  const handleDeposit = async () => {
+    if (!depositForm.amount || isNaN(parseFloat(depositForm.amount)) || parseFloat(depositForm.amount) <= 0) {
+      toast({ title: "Invalid amount", variant: "destructive" }); return
+    }
+    setDepositSaving(true)
+    try {
+      const res = await fetch("/api/finance/cash-transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fromLocation: depositForm.fromLocation,
+          toLocation: "BANK",
+          amount: parseFloat(depositForm.amount),
+          note: depositForm.note || `Cash deposited to bank from ${depositForm.fromLocation.toLowerCase()}`,
+          category: "TRANSFER",
+          date: depositForm.date,
+        }),
+      })
+      if (res.ok) {
+        toast({ title: "Deposit recorded" })
+        setShowDepositDialog(false)
+        setDepositForm({ fromLocation: "COUNTER", amount: "", note: "", date: today })
+        fetchData()
+      } else {
+        const err = await res.json()
+        toast({ title: "Error", description: err.error || "Failed", variant: "destructive" })
+      }
+    } finally {
+      setDepositSaving(false)
+    }
+  }
+
+  const handleWithdraw = async () => {
+    if (!withdrawForm.amount || isNaN(parseFloat(withdrawForm.amount)) || parseFloat(withdrawForm.amount) <= 0) {
+      toast({ title: "Invalid amount", variant: "destructive" }); return
+    }
+    setWithdrawSaving(true)
+    try {
+      const res = await fetch("/api/finance/cash-transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fromLocation: "BANK",
+          toLocation: withdrawForm.toLocation,
+          amount: parseFloat(withdrawForm.amount),
+          note: withdrawForm.note || `Cash withdrawn from bank to ${withdrawForm.toLocation.toLowerCase()}`,
+          category: "TRANSFER",
+          date: withdrawForm.date,
+        }),
+      })
+      if (res.ok) {
+        toast({ title: "Withdrawal recorded" })
+        setShowWithdrawDialog(false)
+        setWithdrawForm({ toLocation: "COUNTER", amount: "", note: "", date: today })
+        fetchData()
+      } else {
+        const err = await res.json()
+        toast({ title: "Error", description: err.error || "Failed", variant: "destructive" })
+      }
+    } finally {
+      setWithdrawSaving(false)
+    }
+  }
+
+  const s = data?.summary
+
+  const exportBank = () => {
+    downloadCsv(
+      `bank-transactions-${startDate}-to-${endDate}.csv`,
+      ["Date", "Description", "Type", "Credit", "Debit", "Category"],
+      filteredSortedTxns.map((txn) => {
+        const txnType = getTxnType(txn)
+        return [
+          formatIndianDateTime(new Date(txn.date)),
+          txn.description,
+          txnType,
+          txn.credit,
+          txn.debit,
+          txn.category,
+        ]
+      })
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <Card className={`bg-muted/20 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground">Opening Balance</p>
+            <p className="text-lg font-bold">{s ? formatCurrency(s.openingBalance) : "—"}</p>
+          </CardContent>
+        </Card>
+        <Card className={`bg-green-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground">Online Sales</p>
+            <p className="text-lg font-bold text-green-700">{s ? formatCurrency(s.onlineSales) : "—"}</p>
+          </CardContent>
+        </Card>
+        <Card className={`bg-blue-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground">Cash Deposited</p>
+            <p className="text-lg font-bold text-blue-700">{s ? formatCurrency(s.cashDeposited) : "—"}</p>
+          </CardContent>
+        </Card>
+        <Card className={`bg-orange-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground">Cash Withdrawn</p>
+            <p className="text-lg font-bold text-orange-700">{s ? formatCurrency(s.cashWithdrawn) : "—"}</p>
+          </CardContent>
+        </Card>
+        <Card className={`bg-red-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground">Bank Expenses</p>
+            <p className="text-lg font-bold text-red-700">{s ? formatCurrency(s.bankExpenses) : "—"}</p>
+          </CardContent>
+        </Card>
+        <Card className={`bg-gradient-to-br from-purple-500/10 to-indigo-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground">Expected Balance</p>
+            <p className="text-lg font-bold text-purple-700">{s ? formatCurrency(s.balance) : "—"}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filter + Actions bar */}
+      <div className="flex flex-wrap gap-3 items-end rounded-md border bg-muted/20 px-4 py-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Range</span>
+          <Select value={draftRangePreset} onValueChange={(v) => onDraftRangeChange(v as DateRangePreset)}>
+            <SelectTrigger className="h-9 w-36 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {DATE_RANGE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">From</span>
+          <Input type="date" value={draftStartDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftStartDate(e.target.value) }} className="h-9 w-40 text-xs" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">To</span>
+          <Input type="date" value={draftEndDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftEndDate(e.target.value) }} className="h-9 w-40 text-xs" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Type</span>
+          <Select value={draftTxnTypeFilter} onValueChange={setDraftTxnTypeFilter}>
+            <SelectTrigger className="h-9 w-36 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="SALE">Sale</SelectItem>
+              <SelectItem value="DEPOSIT">Deposit</SelectItem>
+              <SelectItem value="WITHDRAWAL">Withdrawal</SelectItem>
+              <SelectItem value="EXPENSE">Expense</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Button variant="outline" size="sm" onClick={resetAllFilters}>Reset Filters</Button>
+        <Button size="sm" onClick={applyFilters} disabled={!hasDraftChanges}>Apply</Button>
+        <div className="ml-auto flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => setShowWithdrawDialog(true)}>
+            <ArrowDownLeft className="h-4 w-4 mr-1" /> Withdraw Cash from Bank
+          </Button>
+          <Button size="sm" onClick={() => setShowDepositDialog(true)}>
+            <ArrowUpRight className="h-4 w-4 mr-1" /> Deposit Cash to Bank
+          </Button>
+        </div>
+      </div>
+
+      {/* Transaction Table */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <CardTitle className="text-base">Bank Transactions</CardTitle>
+              <p className="text-xs text-muted-foreground">All online sales + cash deposits/withdrawals + bank expenses</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={exportBank} disabled={filteredSortedTxns.length === 0}>
+                <Download className="h-4 w-4 mr-1" /> Export
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowPaginationControls((prev) => !prev)}>
+                <span>Pagination</span>
+                {showPaginationControls ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
+              </Button>
+              {showPaginationControls ? (
+                <div className="flex items-center gap-2 rounded-md border bg-muted/20 px-2 py-1 text-xs text-muted-foreground">
+                  <span>Rows</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                    className="h-7 rounded-md border bg-background px-2 text-xs text-foreground"
+                  >
+                    {[10, 20, 50, 100].map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {showPaginationControls && filteredSortedTxns.length > 0 && (
+            <PaginationBar total={filteredSortedTxns.length} page={page} pageSize={pageSize} totalPages={totalPages} onPage={setPage} />
+          )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="text-xs cursor-pointer select-none whitespace-nowrap" onClick={() => toggleSort("date")}>
+                  Date &amp; Time {sortKey === "date" ? (sortDir === "desc" ? " ↓" : " ↑") : " ↕"}
+                </TableHead>
+                <TableHead className="text-xs">Description</TableHead>
+                <TableHead className="text-xs">Type</TableHead>
+                <TableHead className="text-xs text-right text-green-700 cursor-pointer select-none" onClick={() => toggleSort("credit")}>
+                  Credit (+) {sortKey === "credit" ? (sortDir === "desc" ? "↓" : "↑") : ""}
+                </TableHead>
+                <TableHead className="text-xs text-right text-red-700 cursor-pointer select-none" onClick={() => toggleSort("debit")}>
+                  Debit (−) {sortKey === "debit" ? (sortDir === "desc" ? "↓" : "↑") : ""}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pagedTxns.map((txn, i) => {
+                const txnType = getTxnType(txn)
+                return (
+                <TableRow key={i}>
+                  <TableCell className="text-xs whitespace-nowrap">{formatIndianDateTime(new Date(txn.date))}</TableCell>
+                  <TableCell className="text-sm">{txn.description}</TableCell>
+                  <TableCell>
+                    <span className={`text-xs px-1.5 py-0.5 rounded border ${
+                      txnType === "SALE" ? "bg-green-500/10 text-green-700" :
+                      txnType === "DEPOSIT" ? "bg-blue-500/10 text-blue-700" :
+                      txnType === "WITHDRAWAL" ? "bg-orange-500/10 text-orange-700" :
+                      "bg-red-500/10 text-red-700"
+                    }`}>{txnType}</span>
+                  </TableCell>
+                  <TableCell className="text-right font-medium text-green-700">
+                    {txn.credit > 0 ? formatCurrency(txn.credit) : "—"}
+                  </TableCell>
+                  <TableCell className="text-right font-medium text-red-700">
+                    {txn.debit > 0 ? formatCurrency(txn.debit) : "—"}
+                  </TableCell>
+                </TableRow>
+                )
+              })}
+              {filteredSortedTxns.length === 0 && (
+                <TableRow><TableCell colSpan={5} className="text-center py-4 text-muted-foreground">
+                  {loading ? "Loading…" : "No bank transactions in this period"}
+                </TableCell></TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Deposit Dialog */}
+      <Dialog open={showDepositDialog} onOpenChange={setShowDepositDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Deposit Cash to Bank</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">From</label>
+                <Select value={depositForm.fromLocation} onValueChange={(v) => setDepositForm({ ...depositForm, fromLocation: v })}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="COUNTER">Counter (Galla)</SelectItem>
+                    <SelectItem value="SAFE">Safe (Tizori)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Date</label>
+                <Input type="date" value={depositForm.date} onChange={(e) => setDepositForm({ ...depositForm, date: e.target.value })} className="h-9 text-xs" />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground">Amount (₹)</label>
+              <Input type="number" placeholder="0" value={depositForm.amount} onChange={(e) => setDepositForm({ ...depositForm, amount: e.target.value })} min={0} className="h-9" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground">Note (optional)</label>
+              <Input placeholder="e.g. Day collection deposit" value={depositForm.note} onChange={(e) => setDepositForm({ ...depositForm, note: e.target.value })} className="h-9" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDepositDialog(false)}>Cancel</Button>
+            <Button onClick={handleDeposit} disabled={depositSaving}>{depositSaving ? "Saving…" : "Record Deposit"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Withdraw Dialog */}
+      <Dialog open={showWithdrawDialog} onOpenChange={setShowWithdrawDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Withdraw Cash from Bank</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">To</label>
+                <Select value={withdrawForm.toLocation} onValueChange={(v) => setWithdrawForm({ ...withdrawForm, toLocation: v })}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="COUNTER">Counter (Galla)</SelectItem>
+                    <SelectItem value="SAFE">Safe (Tizori)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Date</label>
+                <Input type="date" value={withdrawForm.date} onChange={(e) => setWithdrawForm({ ...withdrawForm, date: e.target.value })} className="h-9 text-xs" />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground">Amount (₹)</label>
+              <Input type="number" placeholder="0" value={withdrawForm.amount} onChange={(e) => setWithdrawForm({ ...withdrawForm, amount: e.target.value })} min={0} className="h-9" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground">Note (optional)</label>
+              <Input placeholder="e.g. Bank cash withdrawn for counter" value={withdrawForm.note} onChange={(e) => setWithdrawForm({ ...withdrawForm, note: e.target.value })} className="h-9" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowWithdrawDialog(false)}>Cancel</Button>
+            <Button onClick={handleWithdraw} disabled={withdrawSaving}>{withdrawSaving ? "Saving…" : "Record Withdrawal"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
