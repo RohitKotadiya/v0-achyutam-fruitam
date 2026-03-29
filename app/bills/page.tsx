@@ -92,6 +92,7 @@ function SortableHeader({
 }
 
 export default function BillsPage() {
+    const [showUpdatedAt, setShowUpdatedAt] = useState(false)
   const [bills, setBills] = useState<Bill[]>([])
   const [receiptPrintCopies, setReceiptPrintCopies] = useState(1)
   const [printSettings, setPrintSettings] = useState<Record<string, string>>({})
@@ -407,11 +408,40 @@ export default function BillsPage() {
     }
 
     const printHTML = generatePrintHTML(bill.billNo, printData, { copies: receiptPrintCopies })
-    const printWindow = window.open("", "_blank")
-    if (printWindow) {
-      printWindow.document.write(printHTML)
-      printWindow.document.close()
+    // Use hidden iframe to print, like POS page
+    const iframe = document.createElement("iframe")
+    iframe.style.position = "fixed"
+    iframe.style.right = "0"
+    iframe.style.bottom = "0"
+    iframe.style.width = "0"
+    iframe.style.height = "0"
+    iframe.style.border = "0"
+    iframe.setAttribute("aria-hidden", "true")
+    document.body.appendChild(iframe)
+
+    const frameWindow = iframe.contentWindow
+    if (!frameWindow) {
+      iframe.remove()
+      throw new Error("Unable to open print preview")
     }
+
+    const cleanup = () => {
+      setTimeout(() => {
+        iframe.remove()
+      }, 300)
+    }
+
+    frameWindow.addEventListener("afterprint", cleanup, { once: true })
+
+    const doc = frameWindow.document
+    doc.open()
+    doc.write(printHTML)
+    doc.close()
+
+    // Fallback cleanup in case afterprint does not fire.
+    setTimeout(() => {
+      iframe.remove()
+    }, 20000)
   }
 
   const sendWhatsApp = (bill: Bill) => {
@@ -586,6 +616,15 @@ export default function BillsPage() {
                       <span>Pagination</span>
                       {showPaginationControls ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
                     </Button>
+                    <Button
+                      variant={showUpdatedAt ? "default" : "outline"}
+                      size="sm"
+                      className="h-9 px-2 text-xs shrink-0"
+                      onClick={() => setShowUpdatedAt((prev) => !prev)}
+                      title={showUpdatedAt ? "Hide Updated Date & Time" : "Show Updated Date & Time"}
+                    >
+                      {showUpdatedAt ? "Hide Updated" : "Show Updated"}
+                    </Button>
                   </div>
                 </div>
 
@@ -725,6 +764,9 @@ export default function BillsPage() {
                         <th className="text-left p-2.5">
                           <SortableHeader label="Date & Time" sortKey="dateTime" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
                         </th>
+                        {showUpdatedAt && (
+                          <th className="text-left p-2.5 text-xs font-medium">Updated Date & Time</th>
+                        )}
                         <th className="text-left p-2.5 text-xs font-medium">Business Date</th>
                         <th className="text-left p-2.5">
                           <SortableHeader label="Customer" sortKey="customerName" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
@@ -745,6 +787,9 @@ export default function BillsPage() {
                           <tr className={`border-b hover:bg-muted/30 transition-colors ${expandedBillId === bill.id ? "bg-muted/20" : ""}`}>
                             <td className="p-2.5 font-medium text-sm">#{bill.billNo}</td>
                             <td className="p-2.5 text-sm">{formatIndianDateTime(new Date(bill.dateTime))}</td>
+                            {showUpdatedAt && (
+                              <td className="p-2.5 text-sm">{formatIndianDateTime(new Date(bill.updatedAt))}</td>
+                            )}
                             <td className="p-2.5 text-sm">{toBusinessDateString(bill.dateTime, businessCutoffHour)}</td>
                             <td className="p-2.5 text-sm">{bill.customerName}</td>
                             <td className="p-2.5 text-sm text-muted-foreground">{bill.customerNo ? `C${String(bill.customerNo).padStart(3, "0")}` : "—"}</td>
@@ -761,18 +806,16 @@ export default function BillsPage() {
                             </td>
                             <td className="p-2.5">
                               <div className="flex gap-1 justify-center">
-                                {bill.paymentMethod === "PENDING" && Number(bill.remainingDue) > 0 && (
-                                  <Button
-                                    variant="outline"
-                                    size="icon"
-                                    className="h-8 w-8"
-                                    onClick={() => openCollectDialog(bill)}
-                                    disabled={isBillActionBusy(bill.billNo) || collecting}
-                                    title="Collect Payment"
-                                  >
-                                    <HandCoins className="w-3.5 h-3.5 text-emerald-600" />
-                                  </Button>
-                                )}
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => openCollectDialog(bill)}
+                                  disabled={bill.paymentMethod !== "PENDING" || Number(bill.remainingDue) <= 0 || isBillActionBusy(bill.billNo) || collecting}
+                                  title="Collect Payment"
+                                >
+                                  <HandCoins className="w-3.5 h-3.5 text-emerald-600" />
+                                </Button>
                                 <Button
                                   variant="outline"
                                   size="icon"
@@ -898,6 +941,7 @@ export default function BillsPage() {
                           {getPaymentBadge(bill.paymentMethod)}
                         </div>
                         <span className="text-xs text-muted-foreground">{formatIndianDateTime(new Date(bill.dateTime))}</span>
+                        <span className="text-[10px] text-muted-foreground ml-2">Upd: {formatIndianDateTime(new Date(bill.updatedAt))}</span>
                       </div>
                       <div className="text-[11px] text-muted-foreground">
                         Business Date: {toBusinessDateString(bill.dateTime, businessCutoffHour)}
@@ -924,17 +968,15 @@ export default function BillsPage() {
 
                       {/* Row 3: Actions */}
                       <div className="flex gap-1 pt-1">
-                        {bill.paymentMethod === "PENDING" && Number(bill.remainingDue) > 0 && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 flex-1 text-xs bg-emerald-50"
-                            onClick={() => openCollectDialog(bill)}
-                            disabled={isBillActionBusy(bill.billNo) || collecting}
-                          >
-                            <HandCoins className="w-3 h-3 mr-1 text-emerald-600" />Collect
-                          </Button>
-                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 flex-1 text-xs bg-emerald-50"
+                          onClick={() => openCollectDialog(bill)}
+                          disabled={bill.paymentMethod !== "PENDING" || Number(bill.remainingDue) <= 0 || isBillActionBusy(bill.billNo) || collecting}
+                        >
+                          <HandCoins className="w-3 h-3 mr-1 text-emerald-600" />Collect
+                        </Button>
                         <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={() => printBill(bill)} disabled={isBillActionBusy(bill.billNo)}>
                           <Printer className="w-3 h-3 mr-1" />Print
                         </Button>

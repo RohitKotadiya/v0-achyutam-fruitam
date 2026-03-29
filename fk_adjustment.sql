@@ -1,0 +1,1 @@
+ALTER TABLE "CashAdjustment" ADD CONSTRAINT "CashAdjustment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE; ALTER TABLE "CashAdjustment" ADD CONSTRAINT "CashAdjustment_registerId_fkey" FOREIGN KEY ("registerId") REFERENCES "CashRegister"("id") ON DELETE SET NULL ON UPDATE CASCADE;

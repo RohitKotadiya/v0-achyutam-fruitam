@@ -67,10 +67,10 @@ export function generatePrintHTML(billNo: number, billData: any, options?: { cop
   <title>Bill #${billNo}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box;}
-    body{font-family:'Arial Narrow',Arial,sans-serif;font-size:11px;width:46mm;margin:0 auto;padding:0;}
+    body{font-family:'Arial Narrow',Arial,sans-serif;font-size:11px;width:48mm;margin:0;padding:0;}
     @media print{
       @page{size:48mm auto;margin:0;}
-      body{width:46mm;padding:0;margin:0 auto;}
+      body{width:48mm;padding:0;margin:0;}
       .no-print{display:none;}
     }
     .center{text-align:center;}
@@ -83,7 +83,7 @@ export function generatePrintHTML(billNo: number, billData: any, options?: { cop
     th:nth-child(2){text-align:center;white-space:nowrap;}
     th:last-child{text-align:right;}
     td{padding:1px 0;vertical-align:top;font-size:11px;}
-    .item-name{width:22mm;max-width:22mm;overflow:hidden;text-overflow:ellipsis;}
+    .item-name{width:24mm;max-width:24mm;overflow:hidden;text-overflow:ellipsis;}
     .qty-rate{text-align:center;white-space:nowrap;padding:1px 2px;}
     .amt{text-align:right;white-space:nowrap;}
     .mix{font-size:8px;color:#666;}

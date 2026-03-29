@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState, useEffect, useCallback, useMemo } from "react"
+import { CashAdjustmentDialog } from "@/components/admin/cash-adjustment-dialog"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -271,6 +272,7 @@ export function FinanceTab() {
           <TabsTrigger value="expenses" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Expenses</TabsTrigger>
           <TabsTrigger value="bank" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Bank Tracker</TabsTrigger>
           <TabsTrigger value="dues" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Customer Dues</TabsTrigger>
+          <TabsTrigger value="adjustments" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Cash Adjustments</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview"><OverviewSection /></TabsContent>
@@ -279,9 +281,279 @@ export function FinanceTab() {
         <TabsContent value="expenses"><ExpensesSection /></TabsContent>
         <TabsContent value="bank"><BankSection /></TabsContent>
         <TabsContent value="dues"><CustomerDuesSection /></TabsContent>
+        <TabsContent value="adjustments"><CashAdjustmentsSection /></TabsContent>
       </Tabs>
     </div>
   )
+
+}
+
+// ==================== CASH ADJUSTMENTS TAB ====================
+function CashAdjustmentsSection() {
+    // Sorting state
+    const [sortField, setSortField] = useState<string>("createdAt");
+    const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+    // Handle sort click
+    const handleSort = (field: string) => {
+      if (sortField === field) {
+        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      } else {
+        setSortField(field);
+        setSortDir("asc");
+      }
+      setPage(1); // Reset to first page on sort
+    };
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
+  const [showPaginationControls, setShowPaginationControls] = useState(false);
+  // Draft filter state for Apply/Reset UX
+  const [draftFilters, setDraftFilters] = useState({
+    reason: "all",
+    user: "all",
+    dateFrom: "",
+    dateTo: "",
+    rangePreset: "today"
+  });
+    // Date range presets
+    const DATE_RANGE_OPTIONS = [
+      { value: "today", label: "Today" },
+      { value: "this-week", label: "This Week" },
+      { value: "this-month", label: "This Month" },
+      { value: "last-7", label: "Last 7 Days" },
+      { value: "last-30", label: "Last 30 Days" },
+      { value: "custom", label: "Custom" },
+    ];
+    const [rangePreset, setRangePreset] = useState("today");
+
+  // Helper to set date range based on preset
+  const setDraftRangePreset = (preset: string) => {
+    const now = new Date();
+    let from = "";
+    let to = "";
+    if (preset === "today") {
+      from = to = now.toISOString().slice(0, 10);
+    } else if (preset === "this-week") {
+      const day = now.getDay();
+      const diff = day === 0 ? 6 : day - 1;
+      const startDate = new Date(now);
+      startDate.setDate(now.getDate() - diff);
+      from = startDate.toISOString().slice(0, 10);
+      to = now.toISOString().slice(0, 10);
+    } else if (preset === "this-month") {
+      const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      from = startDate.toISOString().slice(0, 10);
+      to = now.toISOString().slice(0, 10);
+    } else if (preset === "last-7") {
+      const startDate = new Date(now);
+      startDate.setDate(now.getDate() - 6);
+      from = startDate.toISOString().slice(0, 10);
+      to = now.toISOString().slice(0, 10);
+    } else if (preset === "last-30") {
+      const startDate = new Date(now);
+      startDate.setDate(now.getDate() - 29);
+      from = startDate.toISOString().slice(0, 10);
+      to = now.toISOString().slice(0, 10);
+    }
+    setDraftFilters(f => ({ ...f, dateFrom: from, dateTo: to, rangePreset: preset }));
+  };
+  // Set today as default on mount
+  useEffect(() => {
+    setDraftRangePreset("today");
+  }, []);
+  type Adjustment = {
+    id: string;
+    createdAt: string;
+    amount: number;
+    reason: string;
+    notes: string;
+    user?: { name?: string } | null;
+    userId?: string;
+  };
+  const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const fetchAdjustments = useCallback(async (filters = undefined, pageArg = undefined, pageSizeArg = undefined, sortF = undefined, sortD = undefined) => {
+    setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams();
+      const f = filters || draftFilters;
+      const pageNum = pageArg || page;
+      const size = pageSizeArg || pageSize;
+      params.append("page", String(pageNum));
+      params.append("pageSize", String(size));
+      if (f.dateFrom) params.append("from", f.dateFrom);
+      if (f.dateTo) params.append("to", f.dateTo);
+      if (f.reason && f.reason !== "all") params.append("reason", f.reason);
+      if (f.user && f.user !== "all") params.append("user", f.user);
+      params.append("sortField", sortF || sortField);
+      params.append("sortDir", sortD || sortDir);
+      const res = await fetch(`/api/finance/cash-adjustments?${params.toString()}`);
+      if (!res.ok) throw new Error("Failed to fetch adjustments");
+      const data = await res.json();
+      setAdjustments(Array.isArray(data.adjustments) ? data.adjustments : []);
+      setTotal(typeof data.total === "number" ? data.total : 0);
+    } catch (e: any) {
+      setError(e.message || "Failed to load adjustments");
+    } finally {
+      setLoading(false);
+    }
+  }, [draftFilters, page, pageSize, sortField, sortDir]);
+
+  useEffect(() => { fetchAdjustments(undefined, 1, pageSize, sortField, sortDir); }, [sortField, sortDir]);
+
+  const reasons = useMemo(() => Array.from(new Set(adjustments.map(a => a.reason))).filter(Boolean), [adjustments]);
+  const users = useMemo(() => Array.from(new Set(adjustments.map(a => a.user?.name || a.userId))).filter(Boolean), [adjustments]);
+
+  // Calculate total pages
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // Handle page change
+  const handlePage = (newPage: number) => {
+    setPage(newPage);
+    fetchAdjustments(undefined, newPage, pageSize, sortField, sortDir);
+  };
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between flex-wrap gap-2 p-4 pb-0">
+        <div>
+          <CardTitle className="flex items-center gap-2 text-base">Cash Adjustments</CardTitle>
+          <CardDescription>Manual cash corrections with filters</CardDescription>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => setShowPaginationControls((prev) => !prev)}>
+            <span>Pagination</span>
+            {showPaginationControls ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
+          </Button>
+        </div>
+      </div>
+      {/* FILTER BAR - Redesigned */}
+      <div className="w-full px-4 pt-2 pb-1">
+        <div className="flex flex-col md:flex-row md:items-end md:gap-4 gap-2">
+          {/* Range Preset */}
+          <div className="flex flex-col min-w-[140px]">
+            <label className="text-xs font-medium mb-1">Range</label>
+            <select
+              className="h-8 px-3 py-1 rounded-md border border-gray-300 bg-white text-xs focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
+              value={draftFilters.rangePreset}
+              onChange={e => setDraftRangePreset(e.target.value)}
+            >
+              {DATE_RANGE_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+          {/* Custom Date Inputs if custom selected */}
+          {draftFilters.rangePreset === "custom" && (
+            <>
+              <div className="flex flex-col min-w-[140px]">
+                <label className="text-xs font-medium mb-1">From</label>
+                <input
+                  type="date"
+                  className="h-8 px-3 py-1 rounded-md border border-gray-300 bg-white text-xs focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
+                  value={draftFilters.dateFrom}
+                  onChange={e => setDraftFilters(f => ({ ...f, dateFrom: e.target.value }))}
+                />
+              </div>
+              <div className="flex flex-col min-w-[140px]">
+                <label className="text-xs font-medium mb-1">To</label>
+                <input
+                  type="date"
+                  className="h-8 px-3 py-1 rounded-md border border-gray-300 bg-white text-xs focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
+                  value={draftFilters.dateTo}
+                  onChange={e => setDraftFilters(f => ({ ...f, dateTo: e.target.value }))}
+                />
+              </div>
+            </>
+          )}
+          {/* Reason Filter */}
+          <div className="flex flex-col min-w-[140px]">
+            <label className="text-xs font-medium mb-1">Reason</label>
+            <select
+              className="h-8 px-3 py-1 rounded-md border border-gray-300 bg-white text-xs focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
+              value={draftFilters.reason}
+              onChange={e => setDraftFilters(f => ({ ...f, reason: e.target.value }))}
+            >
+              <option value="all">All</option>
+              {reasons.map(r => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </div>
+          {/* User Filter */}
+          <div className="flex flex-col min-w-[140px]">
+            <label className="text-xs font-medium mb-1">User</label>
+            <select
+              className="h-8 px-3 py-1 rounded-md border border-gray-300 bg-white text-xs focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
+              value={draftFilters.user}
+              onChange={e => setDraftFilters(f => ({ ...f, user: e.target.value }))}
+            >
+              <option value="all">All</option>
+              {users.map(u => (
+                <option key={u} value={u}>{u}</option>
+              ))}
+            </select>
+          </div>
+          {/* Apply/Reset Buttons */}
+          <div className="flex flex-row gap-2 md:ml-auto mt-2 md:mt-0">
+            <Button type="button" size="sm" onClick={() => fetchAdjustments(undefined, 1, pageSize, sortField, sortDir)}>Apply</Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => { setDraftRangePreset("today"); setDraftFilters(f => ({ ...f, reason: "all", user: "all" })); fetchAdjustments({ reason: "all", user: "all", dateFrom: "", dateTo: "", rangePreset: "today" }, 1, pageSize, sortField, sortDir); }}>Reset</Button>
+          </div>
+        </div>
+      </div>
+      <CardContent>
+        {/* PaginationBar */}
+        {showPaginationControls && (
+          <PaginationBar
+            total={total}
+            page={page}
+            pageSize={pageSize}
+            totalPages={totalPages}
+            onPage={handlePage}
+          />
+        )}
+        {/* Table and Pagination Controls */}
+        <div className="overflow-x-auto mt-4">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>
+                  <SortableHeader label="Date" field="createdAt" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                </TableHead>
+                <TableHead className="text-right">
+                  <SortableHeader label="Amount" field="amount" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                </TableHead>
+                <TableHead>
+                  <SortableHeader label="Reason" field="reason" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                </TableHead>
+                <TableHead>
+                  <SortableHeader label="Notes" field="notes" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                </TableHead>
+                <TableHead>
+                  <SortableHeader label="User" field="userId" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {adjustments.map((adj) => (
+                <TableRow key={adj.id}>
+                  <TableCell>{formatIndianDate(new Date(adj.createdAt))}</TableCell>
+                  <TableCell className={`text-right font-semibold ${adj.amount < 0 ? "text-red-600" : "text-green-700"}`}>{formatCurrency(adj.amount)}</TableCell>
+                  <TableCell>{adj.reason}</TableCell>
+                  <TableCell className="max-w-[180px] truncate" title={adj.notes}>{adj.notes}</TableCell>
+                  <TableCell>{adj.user?.name || adj.userId || "-"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 // ==================== OVERVIEW ====================
@@ -518,6 +790,33 @@ function CashRegisterSection() {
 }
 
 function CashRegisterDailySection() {
+      // Handle adjustment dialog success
+      const handleAdjustmentSuccess = async () => {
+        setShowAdjustmentDialog(false)
+        setPendingDiff(null)
+        // After adjustment, proceed to save closing
+        await handleSaveNoAdjustment()
+      }
+
+      // Save closing without adjustment prompt
+      const handleSaveNoAdjustment = async () => {
+        const body: any = { date: selectedDate }
+        body.actualClosing = parseFloat(actualClosing || "0")
+        body.notes = notes
+        const res = await fetch("/api/finance/cash-register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+        if (res.ok) {
+          toast({ title: "Success", description: "Register closed" })
+          fetchRegister()
+        } else {
+          toast({ title: "Error", description: "Failed to save", variant: "destructive" })
+        }
+      }
+    const [showAdjustmentDialog, setShowAdjustmentDialog] = useState(false)
+    const [pendingDiff, setPendingDiff] = useState<number | null>(null)
   const { toast } = useToast()
   const [data, setData] = useState<CashRegisterData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -577,6 +876,18 @@ function CashRegisterDailySection() {
       body.notes = notes
     }
 
+    // On close, check for difference and prompt adjustment if needed
+    if (action === "close") {
+      const expected = data?.summary?.expectedClosing ?? 0
+      const actual = parseFloat(actualClosing || "0")
+      const diff = actual - expected
+      if (diff !== 0) {
+        setPendingDiff(diff)
+        setShowAdjustmentDialog(true)
+        return
+      }
+    }
+
     const res = await fetch("/api/finance/cash-register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -621,6 +932,31 @@ function CashRegisterDailySection() {
       fetchRegister()
     } else {
       toast({ title: "Error", description: "Failed to save", variant: "destructive" })
+    }
+    // Handle adjustment dialog success
+    const handleAdjustmentSuccess = async () => {
+      setShowAdjustmentDialog(false)
+      setPendingDiff(null)
+      // After adjustment, proceed to save closing
+      await handleSaveNoAdjustment()
+    }
+
+    // Save closing without adjustment prompt
+    const handleSaveNoAdjustment = async () => {
+      const body: any = { date: selectedDate }
+      body.actualClosing = parseFloat(actualClosing || "0")
+      body.notes = notes
+      const res = await fetch("/api/finance/cash-register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      if (res.ok) {
+        toast({ title: "Success", description: "Register closed" })
+        fetchRegister()
+      } else {
+        toast({ title: "Error", description: "Failed to save", variant: "destructive" })
+      }
     }
   }
 
@@ -822,6 +1158,18 @@ function CashRegisterDailySection() {
             <Button onClick={() => handleSave("close")} variant={isClosed ? "outline" : "default"}>
               {isClosed ? "Update Closing" : "Close Register"}
             </Button>
+            {/* Cash Adjustment Dialog */}
+            {pendingDiff !== null && showAdjustmentDialog && (
+              <CashAdjustmentDialog
+                open={showAdjustmentDialog}
+                onOpenChange={(open) => {
+                  setShowAdjustmentDialog(open)
+                  if (!open) setPendingDiff(null)
+                }}
+                diffAmount={pendingDiff}
+                onSuccess={handleAdjustmentSuccess}
+              />
+            )}
           </CardContent>
         </Card>
       </div>

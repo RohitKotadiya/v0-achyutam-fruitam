@@ -34,6 +34,11 @@ export function middleware(request: NextRequest) {
   const response = NextResponse.next()
   response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive")
 
+  // Skip auth for cash adjustments API
+  if (request.nextUrl.pathname.startsWith("/api/finance/cash-adjustments")) {
+    return response
+  }
+
   const username = process.env.POS_BASIC_AUTH_USER
   const password = process.env.POS_BASIC_AUTH_PASSWORD
 

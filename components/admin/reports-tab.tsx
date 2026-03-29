@@ -438,6 +438,11 @@ function ReportsOverviewSection({
   const [categoryPie, setCategoryPie] = useState<Array<{ name: string; value: number }>>([])
   const [productPie, setProductPie] = useState<Array<{ name: string; value: number }>>([])
 
+  // Cash Adjustments state
+  const [cashAdjustments, setCashAdjustments] = useState<Array<any>>([])
+  const [cashAdjLoading, setCashAdjLoading] = useState(true)
+  const [cashAdjError, setCashAdjError] = useState<string|null>(null)
+
   const now = new Date()
   const todayStr = toDateInputValue(now)
   const monthStartStr = `${todayStr.slice(0, 8)}01`
@@ -538,6 +543,24 @@ function ReportsOverviewSection({
     }
 
     void load()
+    // Fetch recent cash adjustments (last 30 days)
+    const fetchAdjustments = async () => {
+      setCashAdjLoading(true)
+      setCashAdjError(null)
+      try {
+        const since = new Date()
+        since.setDate(since.getDate() - 30)
+        const res = await fetch(`/api/finance/cash-adjustments?since=${since.toISOString()}`)
+        if (!res.ok) throw new Error("Failed to fetch adjustments")
+        const data = await res.json()
+        setCashAdjustments(Array.isArray(data.adjustments) ? data.adjustments : [])
+      } catch (e: any) {
+        setCashAdjError(e.message || "Failed to load adjustments")
+      } finally {
+        setCashAdjLoading(false)
+      }
+    }
+    fetchAdjustments()
   }, [monthStartStr, todayStr])
 
   if (loading) return <div className="text-center py-8">Loading overview...</div>
@@ -568,6 +591,47 @@ function ReportsOverviewSection({
         </Card>
       </div>
 
+      {/* Cash Adjustments Table */}
+      <Card className="border-amber-200/60 bg-gradient-to-br from-amber-50/80 to-yellow-50/70">
+        <CardHeader>
+          <CardTitle className="text-base">Recent Cash Adjustments</CardTitle>
+          <CardDescription>Manual cash corrections (last 30 days)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {cashAdjLoading ? (
+            <div className="text-center py-8">Loading adjustments...</div>
+          ) : cashAdjError ? (
+            <div className="text-center py-8 text-muted-foreground">{cashAdjError}</div>
+          ) : cashAdjustments.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">No adjustments found</div>
+          ) : (
+            <div className="overflow-x-auto max-h-[320px]">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead>Reason</TableHead>
+                    <TableHead>Notes</TableHead>
+                    <TableHead>User</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {cashAdjustments.slice(0, 15).map((adj) => (
+                    <TableRow key={adj.id}>
+                      <TableCell>{formatIndianDate(new Date(adj.createdAt))}</TableCell>
+                      <TableCell className={`text-right font-semibold ${adj.amount < 0 ? "text-red-600" : "text-green-700"}`}>{formatCurrency(adj.amount)}</TableCell>
+                      <TableCell>{adj.reason}</TableCell>
+                      <TableCell className="max-w-[180px] truncate" title={adj.notes}>{adj.notes}</TableCell>
+                      <TableCell>{adj.user?.name || adj.userId || "-"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="border-blue-200/60 bg-gradient-to-br from-blue-50/80 to-cyan-50/70">
           <CardHeader>
