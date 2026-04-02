@@ -995,6 +995,8 @@ export default function POSPage() {
     ? `Low Stock: ${lowStockProducts.map((p) => p.name).join(", ")}`
     : ""
 
+  if (!mounted) return null
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* ─── Header ─── */}
