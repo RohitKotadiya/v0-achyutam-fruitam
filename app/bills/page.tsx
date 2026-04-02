@@ -486,10 +486,11 @@ export default function BillsPage() {
 
     try {
       setCollecting(true)
-      const response = await fetch(`/api/bills/${selectedCollectBill.billNo}/collect`, {
+      const response = await fetch(`/api/finance/collections`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          billId: selectedCollectBill.billNo,
           amount: parseFloat(collectForm.amount),
           paymentMethod: collectForm.paymentMethod,
           remarks: collectForm.remarks,
@@ -502,8 +503,8 @@ export default function BillsPage() {
       setShowCollectDialog(false)
       setSelectedCollectBill(null)
       await loadBills()
-    } catch {
-      toast({ title: "Error", description: "Failed to collect payment", variant: "destructive" })
+    } catch (error) {
+      toast({ title: "Error", description: error instanceof Error ? error.message : "Failed to collect payment", variant: "destructive" })
     } finally {
       setCollecting(false)
     }
