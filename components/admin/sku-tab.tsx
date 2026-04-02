@@ -20,6 +20,7 @@ interface Product {
   sku: string
   name: string
   categoryId: string
+  category?: { displayName: string } | null
   imageUrl: string | null
   originalCost: number
   sellingPrice: number
@@ -413,6 +414,7 @@ export function SKUTab() {
                   <TableHead className="w-12">Image</TableHead>
                   <TableHead>SKU</TableHead>
                   <TableHead>Name</TableHead>
+                  <TableHead>Category</TableHead>
                   <TableHead>Master Cost</TableHead>
                   <TableHead>Weighted Cost</TableHead>
                   <TableHead>Price</TableHead>
@@ -424,7 +426,7 @@ export function SKUTab() {
               <TableBody>
                 {products.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center text-muted-foreground">
+                    <TableCell colSpan={10} className="text-center text-muted-foreground">
                       No products found
                     </TableCell>
                   </TableRow>
@@ -442,6 +444,7 @@ export function SKUTab() {
                       </TableCell>
                       <TableCell className="font-medium">{product.sku}</TableCell>
                       <TableCell>{product.name}</TableCell>
+                      <TableCell>{product.category?.displayName ?? "—"}</TableCell>
                       <TableCell>₹{product.originalCost.toFixed(2)}</TableCell>
                       <TableCell>₹{(product.currentStock?.weightedAvgCost ?? product.originalCost).toFixed(2)}</TableCell>
                       <TableCell>₹{product.sellingPrice.toFixed(2)}</TableCell>
