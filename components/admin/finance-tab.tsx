@@ -375,6 +375,7 @@ function CashAdjustmentsSection() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const [allReasons, setAllReasons] = useState<string[]>([]);
   const fetchAdjustments = useCallback(async (filters = undefined, pageArg = undefined, pageSizeArg = undefined, sortF = undefined, sortD = undefined) => {
     setLoading(true);
     setError("");
@@ -396,6 +397,7 @@ function CashAdjustmentsSection() {
       const data = await res.json();
       setAdjustments(Array.isArray(data.adjustments) ? data.adjustments : []);
       setTotal(typeof data.total === "number" ? data.total : 0);
+      if (Array.isArray(data.reasons)) setAllReasons(data.reasons);
     } catch (e: any) {
       setError(e.message || "Failed to load adjustments");
     } finally {
@@ -405,7 +407,7 @@ function CashAdjustmentsSection() {
 
   useEffect(() => { fetchAdjustments(undefined, 1, pageSize, sortField, sortDir); }, [sortField, sortDir]);
 
-  const reasons = useMemo(() => Array.from(new Set(adjustments.map(a => a.reason))).filter(Boolean), [adjustments]);
+  const reasons = allReasons;
   const users = useMemo(() => Array.from(new Set(adjustments.map(a => a.user?.name || a.userId))).filter(Boolean), [adjustments]);
 
   // Calculate total pages
@@ -437,15 +439,14 @@ function CashAdjustmentsSection() {
           {/* Range Preset */}
           <div className="flex flex-col min-w-[140px]">
             <label className="text-xs font-medium mb-1">Range</label>
-            <select
-              className="h-8 px-3 py-1 rounded-md border border-gray-300 bg-white text-xs focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
-              value={draftFilters.rangePreset}
-              onChange={e => setDraftRangePreset(e.target.value)}
-            >
-              {DATE_RANGE_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+            <Select value={draftFilters.rangePreset} onValueChange={setDraftRangePreset}>
+              <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {DATE_RANGE_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           {/* Custom Date Inputs if custom selected */}
           {draftFilters.rangePreset === "custom" && (
@@ -473,30 +474,28 @@ function CashAdjustmentsSection() {
           {/* Reason Filter */}
           <div className="flex flex-col min-w-[140px]">
             <label className="text-xs font-medium mb-1">Reason</label>
-            <select
-              className="h-8 px-3 py-1 rounded-md border border-gray-300 bg-white text-xs focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
-              value={draftFilters.reason}
-              onChange={e => setDraftFilters(f => ({ ...f, reason: e.target.value }))}
-            >
-              <option value="all">All</option>
-              {reasons.map(r => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
+            <Select value={draftFilters.reason} onValueChange={v => setDraftFilters(f => ({ ...f, reason: v }))}>
+              <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                {reasons.map(r => (
+                  <SelectItem key={r} value={r}>{r}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           {/* User Filter */}
           <div className="flex flex-col min-w-[140px]">
             <label className="text-xs font-medium mb-1">User</label>
-            <select
-              className="h-8 px-3 py-1 rounded-md border border-gray-300 bg-white text-xs focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
-              value={draftFilters.user}
-              onChange={e => setDraftFilters(f => ({ ...f, user: e.target.value }))}
-            >
-              <option value="all">All</option>
-              {users.map(u => (
-                <option key={u} value={u}>{u}</option>
-              ))}
-            </select>
+            <Select value={draftFilters.user} onValueChange={v => setDraftFilters(f => ({ ...f, user: v }))}>
+              <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                {users.map(u => (
+                  <SelectItem key={u} value={u}>{u}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           {/* Apply/Reset Buttons */}
           <div className="flex flex-row gap-2 md:ml-auto mt-2 md:mt-0">

@@ -89,7 +89,15 @@ export async function GET(request: Request) {
       include: { user: { select: { name: true, email: true } } },
     });
 
-    return NextResponse.json({ adjustments, total });
+    // Get all unique reasons for filter dropdown
+    const allReasons = await prisma.cashAdjustment.findMany({
+      select: { reason: true },
+      distinct: ['reason'],
+      orderBy: { reason: 'asc' },
+    });
+    const uniqueReasons = allReasons.map(r => r.reason).filter(Boolean);
+
+    return NextResponse.json({ adjustments, total, reasons: uniqueReasons });
   } catch (error) {
     console.error("CashAdjustment fetch error:", error);
     return NextResponse.json(

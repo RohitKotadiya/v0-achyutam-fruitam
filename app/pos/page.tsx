@@ -833,7 +833,8 @@ export default function POSPage() {
       ? customerMobile
       : null
 
-    if (!checkStockAvailability()) {
+    // Skip stock check when editing existing bill - stock is already accounted for
+    if (!editingBillNo && !checkStockAvailability()) {
       setBillActionLoading(null)
       return
     }
