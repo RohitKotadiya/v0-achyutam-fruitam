@@ -31,7 +31,7 @@ export async function GET(request: Request) {
     const returns = await prisma.returnLog.findMany({
       where,
       include: {
-        bill: { select: { billNo: true, customerName: true } },
+        bill: { select: { billNo: true, displayBillNo: true, customerName: true } },
         product: { select: { name: true, sku: true } },
       },
       orderBy: { date: "desc" },
@@ -149,7 +149,7 @@ export async function POST(request: Request) {
             data: {
               productId: item.productId,
               quantity: item.quantity,
-              remarks: `Return from Bill #${bill.billNo}: ${item.reason}`,
+              remarks: `Return from Bill #${bill.displayBillNo ?? bill.billNo}: ${item.reason}`,
             },
           })
         }

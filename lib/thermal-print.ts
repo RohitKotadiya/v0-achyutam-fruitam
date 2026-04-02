@@ -119,7 +119,7 @@ export async function printBillSilently(
       .text(`${centerText("Receipt")}\n`)
       .text(`${divider()}\n`)
       .align("left")
-      .text(`${fitLine(`Bill #${billNo}`, dateTimeStr)}\n`)
+      .text(`${fitLine(`Bill #${billData.displayBillNo ?? billNo}`, dateTimeStr)}\n`)
       .text(`${billData.customerName}${billData.customerMobile ? ` / ${billData.customerMobile}` : ""}\n`)
       .text(`${divider()}\n`)
 

@@ -39,6 +39,7 @@ export async function GET(request: Request) {
       },
       select: {
         billNo: true,
+        displayBillNo: true,
         dateTime: true,
         paymentMethod: true,
         grandTotal: true,
@@ -57,7 +58,7 @@ export async function GET(request: Request) {
           : b.grandTotal
       return {
         date: b.dateTime.toISOString(),
-        description: `Bill #${b.billNo} — ${b.customerName}`,
+        description: `Bill #${b.displayBillNo ?? b.billNo} — ${b.customerName}`,
         credit,
         debit: 0,
         category: "SALE",

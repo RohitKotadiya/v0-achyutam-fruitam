@@ -176,7 +176,7 @@ interface Collection {
   paymentMethod: string
   remarks: string | null
   customer: { name: string; mobile: string }
-  bill: { billNo: number; grandTotal: number } | null
+  bill: { billNo: number; displayBillNo: string | null; grandTotal: number } | null
 }
 
 interface Expense {
@@ -715,7 +715,7 @@ function OverviewSection() {
               <TableBody>
                 {data.outstanding.dues.map((due) => (
                   <TableRow key={due.id}>
-                    <TableCell>#{due.billNo}</TableCell>
+                    <TableCell>#{due.displayBillNo ?? due.billNo}</TableCell>
                     <TableCell>{due.customerName}</TableCell>
                     <TableCell className="text-right">{formatCurrency(due.grandTotal)}</TableCell>
                     <TableCell className="text-right text-green-600">{formatCurrency(due.collected)}</TableCell>
@@ -1725,7 +1725,7 @@ function CustomerDuesSection() {
               <TableBody>
                 {dues.map((due) => (
                   <TableRow key={due.id}>
-                    <TableCell>#{due.billNo}</TableCell>
+                    <TableCell>#{due.displayBillNo ?? due.billNo}</TableCell>
                     <TableCell>{due.customerName}</TableCell>
                     <TableCell>{formatIndianDate(new Date(due.dateTime))}</TableCell>
                     <TableCell className="text-right">{formatCurrency(due.grandTotal)}</TableCell>
@@ -1773,7 +1773,7 @@ function CustomerDuesSection() {
                   <TableRow key={col.id}>
                     <TableCell>{formatIndianDate(new Date(col.date))}</TableCell>
                     <TableCell>{col.customer.name}</TableCell>
-                    <TableCell>{col.bill ? `#${col.bill.billNo}` : "—"}</TableCell>
+                    <TableCell>{col.bill ? `#${col.bill.displayBillNo ?? col.bill.billNo}` : "—"}</TableCell>
                     <TableCell>{col.paymentMethod}</TableCell>
                     <TableCell className="text-right font-semibold text-green-600">
                       {formatCurrency(col.amount)}
@@ -1792,7 +1792,7 @@ function CustomerDuesSection() {
           <DialogHeader>
             <DialogTitle>Collect Payment</DialogTitle>
             <DialogDescription>
-              Bill #{selectedDue?.billNo} — {selectedDue?.customerName} — Remaining: {formatCurrency(selectedDue?.remaining || 0)}
+              Bill #{selectedDue?.displayBillNo ?? selectedDue?.billNo} — {selectedDue?.customerName} — Remaining: {formatCurrency(selectedDue?.remaining || 0)}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCollect} className="space-y-4">

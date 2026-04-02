@@ -68,6 +68,7 @@ export async function GET(request: Request) {
     const salesData = bills.map((bill) => ({
       subtotalBeforeDiscount: bill.lineItems.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.price) || 0), 0),
       billNo: bill.billNo,
+      displayBillNo: bill.displayBillNo,
       date: bill.dateTime,
       customerName: bill.customerName,
       mobile: bill.mobile,

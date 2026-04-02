@@ -42,7 +42,7 @@ export async function GET(request: Request) {
       where,
       include: {
         customer: { select: { name: true, mobile: true } },
-        bill: { select: { billNo: true, grandTotal: true } },
+        bill: { select: { billNo: true, displayBillNo: true, grandTotal: true } },
       },
       orderBy: { date: "desc" },
     })

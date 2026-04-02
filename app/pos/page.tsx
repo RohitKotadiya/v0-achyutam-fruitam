@@ -60,6 +60,7 @@ interface CustomerSuggestion {
 
 interface LastSavedBill {
   billNo: number
+  displayBillNo: string | null
   customerName: string
   customerMobile: string | null
   grandTotal: number
@@ -153,7 +154,7 @@ export default function POSPage() {
       localStorage.removeItem('editBill')
       toast({
         title: "Editing Bill",
-        description: `Bill #${bill.billNo} loaded for editing`,
+        description: `Bill #${bill.displayBillNo ?? bill.billNo} loaded for editing`,
         duration: 3000,
       })
     }
@@ -169,6 +170,7 @@ export default function POSPage() {
 
       return {
         billNo,
+        displayBillNo: parsed?.displayBillNo ? String(parsed.displayBillNo) : null,
         customerName: String(parsed?.customerName || "Walk-in-Cust"),
         customerMobile: parsed?.customerMobile ? String(parsed.customerMobile) : null,
         grandTotal: Number(parsed?.grandTotal) || 0,
@@ -863,15 +865,17 @@ export default function POSPage() {
         if (!Number.isFinite(savedBillNo) || savedBillNo <= 0) {
           throw new Error("Bill save response did not include a valid bill number")
         }
+        const savedDisplayBillNo: string | null = data.displayBillNo ?? null
 
         toast({
           title: "Bill saved",
-          description: `Bill #${savedBillNo} saved!`,
+          description: `Bill #${savedDisplayBillNo ?? savedBillNo} saved!`,
           duration: 1000,
         })
 
         const savedBill = {
           billNo: savedBillNo,
+          displayBillNo: savedDisplayBillNo,
           customerName: customerNameFinal,
           customerMobile: customerMobileFinal,
           grandTotal,
@@ -899,6 +903,7 @@ export default function POSPage() {
             lineItems: savedBill.lineItems,
             paymentMethod: savedBill.paymentMethod,
             remarks: savedBill.remarks,
+            displayBillNo: savedBill.displayBillNo,
           })
           openWhatsAppWithFallback(savedBill.customerMobile || "", whatsappMessage, {
             onFallback: () => {

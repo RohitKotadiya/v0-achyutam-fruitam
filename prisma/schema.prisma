@@ -219,6 +219,7 @@ model InventoryLog {
 model Bill {
   id                 String              @id @default(cuid())
   billNo             Int                 @unique @default(autoincrement())
+  displayBillNo      String?             @unique
   dateTime           DateTime            @default(now())
   customerName       String              @default("Walk-in-Cust")
   mobile             String?

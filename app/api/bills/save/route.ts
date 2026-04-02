@@ -246,6 +246,18 @@ export async function POST(request: Request) {
 
       const totalProfit = grandTotalNum - totalCost
 
+      const yy = String(new Date().getFullYear()).slice(-2)
+      const prefix = `${yy}-`
+      const lastBill = await tx.bill.findFirst({
+        where: { displayBillNo: { startsWith: prefix } },
+        orderBy: { displayBillNo: "desc" },
+        select: { displayBillNo: true },
+      })
+      const lastSeq = lastBill?.displayBillNo
+        ? parseInt(lastBill.displayBillNo.split("-")[1], 10)
+        : 0
+      const displayBillNo = `${prefix}${String(lastSeq + 1).padStart(3, "0")}`
+
       const newBill = await tx.bill.create({
         data: {
           customerName: customerNameFinal,
@@ -258,6 +270,7 @@ export async function POST(request: Request) {
           grandTotal: grandTotalNum,
           totalCost,
           totalProfit,
+          displayBillNo,
         },
       })
 
@@ -299,6 +312,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       billNo: bill.bill.billNo,
+      displayBillNo: bill.bill.displayBillNo,
       totalProfit: bill.totalProfit,
     })
   } catch (error) {

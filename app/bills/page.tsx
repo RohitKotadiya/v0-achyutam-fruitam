@@ -31,6 +31,7 @@ import { canUseSilentThermalPrint, printBillSilently } from "@/lib/thermal-print
 interface Bill {
   id: string
   billNo: number
+  displayBillNo: string | null
   dateTime: string
   updatedAt: string
   customerName: string
@@ -110,7 +111,7 @@ export default function BillsPage() {
   const [refreshingBills, setRefreshingBills] = useState(false)
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null)
   const [busyBillAction, setBusyBillAction] = useState<{ billNo: number; action: "edit" | "delete" } | null>(null)
-  const [returnBill, setReturnBill] = useState<{ id: string; billNo: number } | null>(null)
+  const [returnBill, setReturnBill] = useState<{ id: string; billNo: number; displayBillNo: string | null } | null>(null)
   const [expandedBillId, setExpandedBillId] = useState<string | null>(null)
   // Collect Payment state
   const [showCollectDialog, setShowCollectDialog] = useState(false)
@@ -329,15 +330,16 @@ export default function BillsPage() {
     setCurrentPage((prev) => Math.min(prev, totalPages))
   }, [totalPages])
 
-  const deleteBill = async (billNo: number) => {
-    if (!confirm(`Delete Bill #${billNo}? Stock will be restored.`)) return
+  const deleteBill = async (billNo: number, displayBillNo?: string | null) => {
+    const label = displayBillNo ?? String(billNo)
+    if (!confirm(`Delete Bill #${label}? Stock will be restored.`)) return
 
     try {
       setBusyBillAction({ billNo, action: "delete" })
       const response = await fetch(`/api/bills/${billNo}`, { method: "DELETE" })
       const data = await response.json()
       if (data.success) {
-        toast({ title: "Deleted", description: `Bill #${billNo} deleted, stock restored` })
+        toast({ title: "Deleted", description: `Bill #${label} deleted, stock restored` })
         await loadBills()
       } else {
         toast({ title: "Error", description: data.error || "Failed to delete bill", variant: "destructive" })
@@ -400,6 +402,7 @@ export default function BillsPage() {
       lineItems: bill.lineItems,
       paymentMethod: bill.paymentMethod,
       remarks: bill.remarks || "",
+      displayBillNo: bill.displayBillNo,
     }
 
     if (canUseSilentThermalPrint(printSettings)) {
@@ -457,6 +460,7 @@ export default function BillsPage() {
       billDate: bill.dateTime,
       paymentMethod: bill.paymentMethod,
       remarks: bill.remarks || "",
+      displayBillNo: bill.displayBillNo,
     })
     openWhatsAppWithFallback(bill.mobile, message, {
       keepPageOpen: true,
@@ -786,7 +790,7 @@ export default function BillsPage() {
                       {paginatedBills.map((bill) => (
                         <React.Fragment key={bill.id}>
                           <tr className={`border-b hover:bg-muted/30 transition-colors ${expandedBillId === bill.id ? "bg-muted/20" : ""}`}>
-                            <td className="p-2.5 font-medium text-sm">#{bill.billNo}</td>
+                            <td className="p-2.5 font-medium text-sm">#{bill.displayBillNo ?? bill.billNo}</td>
                             <td className="p-2.5 text-sm">{formatIndianDateTime(new Date(bill.dateTime))}</td>
                             {showUpdatedAt && (
                               <td className="p-2.5 text-sm">{formatIndianDateTime(new Date(bill.updatedAt))}</td>
@@ -855,7 +859,7 @@ export default function BillsPage() {
                                   variant="outline"
                                   size="icon"
                                   className="h-8 w-8"
-                                  onClick={() => setReturnBill({ id: bill.id, billNo: bill.billNo })}
+                                  onClick={() => setReturnBill({ id: bill.id, billNo: bill.billNo, displayBillNo: bill.displayBillNo })}
                                   disabled={isBillActionBusy(bill.billNo)}
                                   title="Return"
                                 >
@@ -875,7 +879,7 @@ export default function BillsPage() {
                                   variant="outline"
                                   size="icon"
                                   className="h-8 w-8"
-                                  onClick={() => deleteBill(bill.billNo)}
+                                  onClick={() => deleteBill(bill.billNo, bill.displayBillNo)}
                                   disabled={isBillActionBusy(bill.billNo)}
                                   title="Delete"
                                 >
@@ -938,7 +942,7 @@ export default function BillsPage() {
                       {/* Row 1: Bill info */}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm">#{bill.billNo}</span>
+                          <span className="font-bold text-sm">#{bill.displayBillNo ?? bill.billNo}</span>
                           {getPaymentBadge(bill.paymentMethod)}
                         </div>
                         <span className="text-xs text-muted-foreground">{formatIndianDateTime(new Date(bill.dateTime))}</span>
@@ -993,7 +997,7 @@ export default function BillsPage() {
                         <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => editBill(bill.billNo)} disabled={isBillActionBusy(bill.billNo)}>
                           {isBillActionBusy(bill.billNo, "edit") ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Edit3 className="w-3 h-3" />}
                         </Button>
-                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => setReturnBill({ id: bill.id, billNo: bill.billNo })} disabled={isBillActionBusy(bill.billNo)}>
+                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => setReturnBill({ id: bill.id, billNo: bill.billNo, displayBillNo: bill.displayBillNo })} disabled={isBillActionBusy(bill.billNo)}>
                           <RotateCcw className="w-3 h-3 text-orange-500" />
                         </Button>
                         <Button
@@ -1005,7 +1009,7 @@ export default function BillsPage() {
                         >
                           {expandedBillId === bill.id ? <ChevronUp className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                         </Button>
-                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => deleteBill(bill.billNo)} disabled={isBillActionBusy(bill.billNo)}>
+                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => deleteBill(bill.billNo, bill.displayBillNo)} disabled={isBillActionBusy(bill.billNo)}>
                           {isBillActionBusy(bill.billNo, "delete") ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3 text-red-500" />}
                         </Button>
                       </div>
@@ -1044,6 +1048,7 @@ export default function BillsPage() {
         open={returnBill !== null}
         onOpenChange={(open) => { if (!open) setReturnBill(null) }}
         billNo={returnBill?.billNo || 0}
+        displayBillNo={returnBill?.displayBillNo ?? null}
         billId={returnBill?.id || ""}
         onSuccess={loadBills}
       />
@@ -1054,7 +1059,7 @@ export default function BillsPage() {
           <DialogHeader>
             <DialogTitle>Collect Payment</DialogTitle>
             <DialogDescription>
-              Bill #{selectedCollectBill?.billNo} — {selectedCollectBill?.customerName} — Remaining: {formatCurrency(selectedCollectBill?.remainingDue || 0)}
+              Bill #{selectedCollectBill?.displayBillNo ?? selectedCollectBill?.billNo} — {selectedCollectBill?.customerName} — Remaining: {formatCurrency(selectedCollectBill?.remainingDue || 0)}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCollectPayment} className="space-y-4">

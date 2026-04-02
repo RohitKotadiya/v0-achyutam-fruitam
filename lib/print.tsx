@@ -1,5 +1,6 @@
 export function generatePrintHTML(billNo: number, billData: any, options?: { copies?: number }) {
-  const { customerName, customerMobile, grandTotal, lineItems, remarks } = billData
+  const { customerName, customerMobile, grandTotal, lineItems, remarks, displayBillNo } = billData
+  const displayNo = displayBillNo ?? billNo
   const copies = Math.max(1, Math.min(Number(options?.copies) || 1, 5))
 
   const now = new Date()
@@ -40,7 +41,7 @@ export function generatePrintHTML(billNo: number, billData: any, options?: { cop
     </div>
     <div class="dash"></div>
 
-    <div class="row"><span>Bill #${billNo}</span><span>${dateTimeStr}</span></div>
+    <div class="row"><span>Bill #${displayNo}</span><span>${dateTimeStr}</span></div>
     <div class="row"><span>${customerName}</span>${customerMobile ? `<span>${customerMobile}</span>` : ""}</div>
     <div class="dash"></div>
 
@@ -64,7 +65,7 @@ export function generatePrintHTML(billNo: number, billData: any, options?: { cop
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Bill #${billNo}</title>
+  <title>Bill #${displayNo}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box;}
     body{font-family:'Arial Narrow',Arial,sans-serif;font-size:11px;width:48mm;margin:0;padding:0 2mm;}
