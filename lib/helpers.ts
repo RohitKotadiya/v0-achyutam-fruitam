@@ -105,7 +105,7 @@ export async function calculateBillProfit(billId: string): Promise<number> {
   })
 
   return billItems.reduce((total, item) => {
-    const profit = calculateProfit(item.sellingPrice, item.product.originalCost, item.quantity)
+    const profit = calculateProfit(item.price, item.product.originalCost, item.quantity)
     return total + profit
   }, 0)
 }
@@ -119,13 +119,14 @@ export async function calculateBillProfit(billId: string): Promise<number> {
  * @returns Object with startOfDay and endOfDay
  */
 export function getIndianDayBoundaries(date: Date = new Date()) {
-  const istDate = new Date(date.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }))
+  const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
+  const istMs = date.getTime() + IST_OFFSET_MS
+  const istDate = new Date(istMs)
 
-  const startOfDay = new Date(istDate)
-  startOfDay.setHours(0, 0, 0, 0)
-
-  const endOfDay = new Date(istDate)
-  endOfDay.setHours(23, 59, 59, 999)
+  const startOfDay = new Date(
+    Date.UTC(istDate.getUTCFullYear(), istDate.getUTCMonth(), istDate.getUTCDate()) - IST_OFFSET_MS
+  )
+  const endOfDay = new Date(startOfDay.getTime() + 24 * 3600000 - 1)
 
   return { startOfDay, endOfDay }
 }
@@ -136,11 +137,16 @@ export function getIndianDayBoundaries(date: Date = new Date()) {
  * @returns Bill number in format BILL-YYYYMMDD-XXXX
  */
 export async function generateBillNumber(): Promise<string> {
-  const today = new Date()
-  const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "")
+  // IST-based date string for the bill number
+  const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
+  const istNow = new Date(Date.now() + IST_OFFSET_MS)
+  const y = istNow.getUTCFullYear()
+  const m = String(istNow.getUTCMonth() + 1).padStart(2, "0")
+  const d = String(istNow.getUTCDate()).padStart(2, "0")
+  const dateStr = `${y}${m}${d}`
 
   // Get count of bills created today
-  const { startOfDay, endOfDay } = getIndianDayBoundaries(today)
+  const { startOfDay, endOfDay } = getIndianDayBoundaries(new Date())
   const todayBillsCount = await prisma.bill.count({
     where: {
       createdAt: {

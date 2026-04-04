@@ -1,8 +1,16 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import type { PaymentMethod } from "@prisma/client"
 
-const parseLocalStart = (date: string) => new Date(`${date}T00:00:00`)
-const parseLocalEnd = (date: string) => new Date(`${date}T23:59:59.999`)
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
+
+const parseISTDate = (dateStr: string): Date => {
+  const [year, month, day] = dateStr.split("-").map(Number)
+  return new Date(Date.UTC(year, month - 1, day) - IST_OFFSET_MS)
+}
+
+const parseLocalStart = (date: string) => parseISTDate(date)
+const parseLocalEnd = (date: string) => new Date(parseISTDate(date).getTime() + 24 * 3600000 - 1)
 
 interface ReturnItem {
   billItemId: string
@@ -129,7 +137,7 @@ export async function POST(request: Request) {
             costAmount,
             reason: item.reason,
             status: item.status,
-            paymentMethod: paymentMethod || "CASH",
+            paymentMethod: (paymentMethod || "CASH") as PaymentMethod,
           },
         })
         returnLogs.push(returnLog)

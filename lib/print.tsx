@@ -46,7 +46,7 @@ export function generatePrintHTML(billNo: number, billData: any, options?: { cop
     <div class="dash"></div>
 
     <table>
-      <thead><tr><th>Item</th><th>Qty×Rate</th><th>Amt</th></tr></thead>
+      <thead><tr><th style="width:40%">Item</th><th style="width:35%;text-align:center;white-space:nowrap">Qty×Rate</th><th style="width:25%;text-align:right">Amt</th></tr></thead>
       <tbody>${itemsHtml}</tbody>
     </table>
 
@@ -68,10 +68,10 @@ export function generatePrintHTML(billNo: number, billData: any, options?: { cop
   <title>Bill #${displayNo}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box;}
-    body{font-family:'Arial Narrow',Arial,sans-serif;font-size:11px;width:48mm;margin:0;padding:0 2mm;}
+    body{font-family:Arial,sans-serif;font-size:10px;width:45mm;margin:0;padding:1.5mm;box-sizing:border-box;line-height:1.2;}
     @media print{
       @page{size:48mm auto;margin:0;}
-      body{width:48mm;padding:0 2mm;margin:0;}
+      body{font-size:10px;width:45mm;padding:1.5mm;margin:0;box-sizing:border-box;line-height:1.2;}
       .no-print{display:none;}
     }
     .center{text-align:center;}
@@ -79,14 +79,14 @@ export function generatePrintHTML(billNo: number, billData: any, options?: { cop
     .tagline{font-size:8px;color:#555;margin-top:1px;}
     .dash{border-top:1px dashed #000;margin:3px 0;}
     .row{display:flex;justify-content:space-between;line-height:1.4;}
-    table{width:100%;border-collapse:collapse;margin:2px 0;table-layout:fixed;}
-    th{font-size:10px;border-bottom:1px solid #000;padding:2px 0;text-align:left;}
+    table{width:100%;border-collapse:collapse;margin:3px 0;font-size:10px;}
+    th{border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;text-align:left;}
     th:nth-child(2){text-align:center;white-space:nowrap;}
     th:last-child{text-align:right;}
-    td{padding:1px 0;vertical-align:top;font-size:11px;}
-    .item-name{width:22mm;max-width:22mm;overflow:hidden;text-overflow:ellipsis;}
-    .qty-rate{text-align:center;white-space:nowrap;padding:1px 2px;}
-    .amt{text-align:right;white-space:nowrap;}
+    td{padding:2px 0;vertical-align:top;font-size:10px;}
+    .item-name{width:40%;overflow:hidden;text-overflow:ellipsis;}
+    .qty-rate{width:35%;text-align:center;white-space:nowrap;}
+    .amt{width:25%;text-align:right;white-space:nowrap;}
     .mix{font-size:8px;color:#666;}
     .total-line{border-top:1px solid #000;margin-top:3px;padding-top:3px;}
     .grand{font-size:15px;font-weight:bold;}

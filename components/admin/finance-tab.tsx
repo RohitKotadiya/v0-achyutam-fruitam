@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { CashAdjustmentDialog } from "@/components/admin/cash-adjustment-dialog"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -114,6 +114,50 @@ interface DashboardData {
     expenses: number
     netProfit: number
     billCount: number
+    difference: number | null
+  }
+  month: {
+    sales: number
+    cost: number
+    grossProfit: number
+    expenses: number
+    netProfit: number
+    billCount: number
+    safeWithdrawals: number
+    safeDeposits: number
+  }
+  outstanding: {
+    total: number
+    count: number
+    dues: Array<{
+      id: string
+      billNo: number
+      displayBillNo: string | null
+      customerName: string
+      grandTotal: number
+      collected: number
+      remaining: number
+      customerId?: string | null
+      dateTime?: string | null
+    }>
+  }
+}
+
+interface CashRegisterData {
+  businessDate?: string
+  register?: {
+    openingBalance: number
+    actualClosing: number | null
+    notes: string | null
+    closedAt: string | null
+    [key: string]: unknown
+  } | null
+  summary: {
+    openingBalance: number
+    cashIn: { sales: number; collections: number; transfersIn: number; total: number }
+    cashOut: { expenses: number; transfersOut: number; total: number }
+    expectedClosing: number
+    actualClosing: number | null
     difference: number | null
   }
 }
@@ -376,7 +420,13 @@ function CashAdjustmentsSection() {
   const [error, setError] = useState("");
 
   const [allReasons, setAllReasons] = useState<string[]>([]);
-  const fetchAdjustments = useCallback(async (filters = undefined, pageArg = undefined, pageSizeArg = undefined, sortF = undefined, sortD = undefined) => {
+  const fetchAdjustments = useCallback(async (
+    filters?: { reason: string; user: string; dateFrom: string; dateTo: string; rangePreset: string },
+    pageArg?: number,
+    pageSizeArg?: number,
+    sortF?: string,
+    sortD?: string,
+  ) => {
     setLoading(true);
     setError("");
     try {
@@ -408,7 +458,7 @@ function CashAdjustmentsSection() {
   useEffect(() => { fetchAdjustments(undefined, 1, pageSize, sortField, sortDir); }, [sortField, sortDir]);
 
   const reasons = allReasons;
-  const users = useMemo(() => Array.from(new Set(adjustments.map(a => a.user?.name || a.userId))).filter(Boolean), [adjustments]);
+  const users = useMemo(() => Array.from(new Set(adjustments.map(a => a.user?.name || a.userId))).filter((u): u is string => !!u), [adjustments]);
 
   // Calculate total pages
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -595,7 +645,7 @@ function OverviewSection() {
       .then((json) => {
         const outstanding = json?.outstanding
         if (!outstanding) return
-        setData((prev) => {
+        setData((prev: DashboardData | null) => {
           if (!prev) return prev
           return {
             ...prev,
@@ -819,7 +869,9 @@ function CashRegisterDailySection() {
   const { toast } = useToast()
   const [data, setData] = useState<CashRegisterData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [selectedDate, setSelectedDate] = useState(toLocalDateInputValue(new Date()))
+  const [selectedDate, setSelectedDate] = useState("")
+  const [initialLoadDone, setInitialLoadDone] = useState(false)
+  const skipNextDateEffect = useRef(false)
   const [openingBalance, setOpeningBalance] = useState("")
   const [actualClosing, setActualClosing] = useState("")
   const [notes, setNotes] = useState("")
@@ -831,10 +883,16 @@ function CashRegisterDailySection() {
   const [transferNote, setTransferNote] = useState("")
   const [transferSaving, setTransferSaving] = useState(false)
 
-  const fetchRegister = useCallback(async () => {
+  const fetchRegister = useCallback(async (dateOverride?: string) => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/finance/cash-register?date=${selectedDate}`, { cache: "no-store" })
+      // On initial load (no dateOverride, no selectedDate), omit date param
+      // so the API can smart-default to an unclosed register if one exists.
+      const dateParam = dateOverride || selectedDate
+      const url = dateParam
+        ? `/api/finance/cash-register?date=${dateParam}`
+        : `/api/finance/cash-register`
+      const res = await fetch(url, { cache: "no-store" })
       const json = await res.json()
       if (!res.ok) {
         throw new Error(json?.error || "Failed to load cash register")
@@ -843,6 +901,12 @@ function CashRegisterDailySection() {
         throw new Error("Cash register summary is unavailable")
       }
       setData(json)
+      // Sync selectedDate from API's smart-defaulted businessDate
+      if (json.businessDate && !dateOverride && !selectedDate) {
+        const bd = new Date(json.businessDate)
+        skipNextDateEffect.current = true
+        setSelectedDate(toLocalDateInputValue(bd))
+      }
       if (json.register) {
         setOpeningBalance(json.register.openingBalance.toString())
         setNotes(json.register.notes || "")
@@ -854,6 +918,7 @@ function CashRegisterDailySection() {
         setActualClosing("")
         setNotes("")
       }
+      setInitialLoadDone(true)
     } catch (e) {
       console.error(e)
       const message = e instanceof Error ? e.message : "Failed to load cash register"
@@ -863,7 +928,19 @@ function CashRegisterDailySection() {
     }
   }, [selectedDate, toast])
 
-  useEffect(() => { fetchRegister() }, [fetchRegister])
+  // Initial load — let API smart-default
+  useEffect(() => {
+    if (!initialLoadDone) fetchRegister()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Subsequent loads when user changes date
+  useEffect(() => {
+    if (skipNextDateEffect.current) {
+      skipNextDateEffect.current = false
+      return
+    }
+    if (initialLoadDone && selectedDate) fetchRegister(selectedDate)
+  }, [selectedDate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = async (action: "open" | "close") => {
     const body: any = { date: selectedDate }
@@ -897,7 +974,7 @@ function CashRegisterDailySection() {
       const savedRegister = await res.json()
       if (action === "open") {
         const nextOpening = parseFloat(openingBalance || "0")
-        setData((prev) => {
+        setData((prev: CashRegisterData | null) => {
           const fallbackSummary = {
             openingBalance: nextOpening,
             cashIn: { sales: 0, collections: 0, transfersIn: 0, total: 0 },
@@ -1727,7 +1804,7 @@ function CustomerDuesSection() {
                   <TableRow key={due.id}>
                     <TableCell>#{due.displayBillNo ?? due.billNo}</TableCell>
                     <TableCell>{due.customerName}</TableCell>
-                    <TableCell>{formatIndianDate(new Date(due.dateTime))}</TableCell>
+                    <TableCell>{due.dateTime ? formatIndianDate(new Date(due.dateTime)) : "-"}</TableCell>
                     <TableCell className="text-right">{formatCurrency(due.grandTotal)}</TableCell>
                     <TableCell className="text-right text-green-600">{formatCurrency(due.collected)}</TableCell>
                     <TableCell className="text-right font-semibold text-red-600">{formatCurrency(due.remaining)}</TableCell>

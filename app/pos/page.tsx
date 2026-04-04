@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo } from "react"
-import { Search, RefreshCw, FileText, Settings, Trash2, Save, Printer, Plus, Minus, MessageCircle, X, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react"
+import { Search, RefreshCw, FileText, Settings, Trash2, Save, Printer, Plus, Minus, MessageCircle, X, AlertTriangle, ChevronDown, ChevronUp, LogOut } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast"
 import { generateWhatsAppMessage, openWhatsAppWithFallback } from "@/lib/whatsapp"
 import { generatePrintHTML } from "@/lib/print"
 import { canUseSilentThermalPrint, printBillSilently } from "@/lib/thermal-print"
-import { AdminLoginModal } from "@/components/pos/admin-login-modal"
+import { useSession, signOut } from "next-auth/react"
 
 interface Category {
   id: string
@@ -73,7 +73,8 @@ export default function POSPage() {
   const [mounted, setMounted] = useState(false)
 
   const { toast } = useToast()
-  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false)
+  const { data: session } = useSession()
+  const isAdmin = session?.user?.role === "ADMIN"
 
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeCategoryId, setActiveCategoryId] = useState<string>("all")
@@ -1042,17 +1043,17 @@ export default function POSPage() {
                 <FileText className="w-4 h-4 md:mr-1.5" />
                 <span className="hidden md:inline text-xs">Bills</span>
               </Button>
+              {isAdmin && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  setIsAdminModalOpen(true)
-                }}
+                onClick={() => window.open("/admin", "_blank", "noopener,noreferrer")}
                 className="h-7 px-2 md:px-2.5"
               >
                 <Settings className="w-4 h-4 md:mr-1.5" />
                 <span className="hidden md:inline text-xs">Admin</span>
               </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -1062,6 +1063,22 @@ export default function POSPage() {
                 className="h-7 px-2"
               >
                 <RefreshCw className={`w-4 h-4 ${refreshingProducts ? "animate-spin" : ""}`} />
+              </Button>
+              {session && (
+                <span className="hidden md:flex items-center text-xs">
+                  <span className={`px-1.5 py-0.5 rounded font-medium ${isAdmin ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-600"}`}>
+                    {isAdmin ? "Admin" : "Staff"}
+                  </span>
+                </span>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => signOut({ callbackUrl: "/login" })}
+                aria-label="Logout"
+                className="h-7 px-2"
+              >
+                <LogOut className="w-4 h-4" />
               </Button>
             </div>
           </div>
@@ -1661,14 +1678,6 @@ export default function POSPage() {
           />
         </>
       )}
-      <AdminLoginModal
-        isOpen={isAdminModalOpen}
-        onClose={() => setIsAdminModalOpen(false)}
-        onLoginSuccess={() => {
-          setIsAdminModalOpen(false)
-          window.open("/admin?from=/pos", "_blank", "noopener,noreferrer")
-        }}
-      />
     </div>
   )
 }

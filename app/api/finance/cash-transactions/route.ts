@@ -30,9 +30,16 @@ export async function GET(request: Request) {
     if (expenseId) where.expenseId = expenseId
 
     if (startDate || endDate) {
+      const IST = (5 * 60 + 30) * 60 * 1000
       where.date = {} as any
-      if (startDate) where.date.gte = new Date(`${startDate}T00:00:00`)
-      if (endDate) where.date.lte = new Date(`${endDate}T23:59:59.999`)
+      if (startDate) {
+        const [sy, sm, sd] = startDate.split("-").map(Number)
+        where.date.gte = new Date(Date.UTC(sy, sm - 1, sd) - IST)
+      }
+      if (endDate) {
+        const [ey, em, ed] = endDate.split("-").map(Number)
+        where.date.lte = new Date(Date.UTC(ey, em - 1, ed) - IST + 24 * 3600000 - 1)
+      }
     }
 
     const transactions = await cashTransaction.findMany({

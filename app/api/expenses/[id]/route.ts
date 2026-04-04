@@ -1,12 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server"
 import prisma from "@/lib/prisma"
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params
     const body = await request.json()
     const { date, category, description, amount, paidFrom, remarks } = body
 
-    const existing = await prisma.expense.findUnique({ where: { id: params.id } })
+    const existing = await prisma.expense.findUnique({ where: { id } })
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
     const parsedAmount = amount ? parseFloat(amount) : existing.amount
@@ -15,7 +16,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     const paymentMethod = location === "BANK" ? "ONLINE" : "CASH"
 
     const expense = await prisma.expense.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         date: expenseDate,
         category,
@@ -30,7 +31,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     // Reconcile CashTransaction: delete old one (if existed), create new if SAFE/BANK
     const oldLocation = existing.paidFrom.toUpperCase()
     if (oldLocation === "SAFE" || oldLocation === "BANK") {
-      await prisma.cashTransaction.deleteMany({ where: { expenseId: params.id } })
+      await prisma.cashTransaction.deleteMany({ where: { expenseId: id } })
     }
     if (location === "SAFE" || location === "BANK") {
       await prisma.cashTransaction.create({
@@ -53,11 +54,12 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params
     // Remove linked CashTransaction if SAFE/BANK expense
-    await prisma.cashTransaction.deleteMany({ where: { expenseId: params.id } })
-    await prisma.expense.delete({ where: { id: params.id } })
+    await prisma.cashTransaction.deleteMany({ where: { expenseId: id } })
+    await prisma.expense.delete({ where: { id } })
 
     return NextResponse.json({ success: true })
   } catch (error) {

@@ -21,8 +21,9 @@ import {
   Search, Eye, Trash2, RefreshCw, Edit3, RotateCcw,
   Printer, MessageCircle, ArrowUp, ArrowDown, ArrowUpDown,
   ChevronDown, ChevronUp, ShoppingCart, Settings, X,
-  HandCoins,
+  HandCoins, LogOut,
 } from "lucide-react"
+import { useSession, signOut } from "next-auth/react"
 import { ReturnDialog } from "@/components/bills/return-dialog"
 import { generateWhatsAppMessage, openWhatsAppWithFallback } from "@/lib/whatsapp"
 import { generatePrintHTML } from "@/lib/print"
@@ -93,6 +94,8 @@ function SortableHeader({
 }
 
 export default function BillsPage() {
+  const { data: session } = useSession()
+  const isAdmin = session?.user?.role === "ADMIN"
     const [showUpdatedAt, setShowUpdatedAt] = useState(false)
   const [bills, setBills] = useState<Bill[]>([])
   const [receiptPrintCopies, setReceiptPrintCopies] = useState(1)
@@ -173,19 +176,20 @@ export default function BillsPage() {
       if (!parsed || typeof parsed !== "object") return
 
       setSearchTerm(typeof parsed.searchTerm === "string" ? parsed.searchTerm : "")
-      setStartDate(typeof parsed.startDate === "string" ? parsed.startDate : getTodayDateString())
-      setEndDate(typeof parsed.endDate === "string" ? parsed.endDate : getTodayDateString())
       setPaymentFilter(typeof parsed.paymentFilter === "string" ? parsed.paymentFilter : "ALL")
       setSortKey(parsed.sortKey === "dateTime" || parsed.sortKey === "customerName" || parsed.sortKey === "grandTotal" ? parsed.sortKey : "billNo")
       setSortDir(parsed.sortDir === "asc" ? "asc" : "desc")
-      setDatePreset(typeof parsed.datePreset === "string" ? parsed.datePreset : "today")
       setPageSize([10, 20, 50, 100].includes(Number(parsed.pageSize)) ? Number(parsed.pageSize) : 20)
       setCurrentPage(Number(parsed.currentPage) > 0 ? Number(parsed.currentPage) : 1)
       setShowPaginationControls(Boolean(parsed.showPaginationControls))
+      // Recompute date range from the preset so "Today" always means the current day,
+      // not a stale date string from a previous session.
+      const savedPreset = typeof parsed.datePreset === "string" ? parsed.datePreset : "today"
+      applyDatePreset(savedPreset)
     } catch {
       // Ignore invalid saved filters
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     localStorage.setItem(
@@ -557,6 +561,7 @@ export default function BillsPage() {
                   <ShoppingCart className="w-4 h-4 md:mr-1" />
                   <span className="hidden md:inline">POS</span>
                 </Button>
+                {isAdmin && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -565,6 +570,23 @@ export default function BillsPage() {
                 >
                   <Settings className="w-4 h-4 md:mr-1" />
                   <span className="hidden md:inline">Admin</span>
+                </Button>
+                )}
+                {session && (
+                  <span className="hidden md:flex items-center text-xs">
+                    <span className={`px-1.5 py-0.5 rounded font-medium ${isAdmin ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-600"}`}>
+                      {isAdmin ? "Admin" : "Staff"}
+                    </span>
+                  </span>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => signOut({ callbackUrl: "/login" })}
+                  aria-label="Logout"
+                  className="h-7 px-2"
+                >
+                  <LogOut className="w-4 h-4" />
                 </Button>
               </div>
             </div>

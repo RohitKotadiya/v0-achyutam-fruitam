@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { startOfMonth, startOfYear, startOfWeek, subWeeks, startOfDay, subMonths, subYears, addMonths, addYears } from "date-fns"
+
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
 
 const clampCutoffHour = (value: unknown) => {
   const parsed = Number(value)
@@ -8,38 +9,29 @@ const clampCutoffHour = (value: unknown) => {
   return Math.min(23, Math.max(0, Math.floor(parsed)))
 }
 
-const addDays = (date: Date, days: number) => {
-  const next = new Date(date)
-  next.setDate(next.getDate() + days)
-  return next
+const parseISTDate = (dateStr: string): Date => {
+  const [year, month, day] = dateStr.split("-").map(Number)
+  return new Date(Date.UTC(year, month - 1, day) - IST_OFFSET_MS)
 }
 
-const parseBusinessStart = (date: string, cutoffHour: number) => {
-  const parsed = new Date(`${date}T00:00:00`)
-  parsed.setHours(cutoffHour, 0, 0, 0)
-  return parsed
-}
+const parseBusinessStart = (date: string, cutoffHour: number) =>
+  new Date(parseISTDate(date).getTime() + cutoffHour * 3600000)
 
-const parseBusinessEnd = (date: string, cutoffHour: number) => {
-  const nextDay = new Date(`${date}T00:00:00`)
-  nextDay.setDate(nextDay.getDate() + 1)
-  nextDay.setHours(cutoffHour, 0, 0, 0)
-  return new Date(nextDay.getTime() - 1)
-}
+const parseBusinessEnd = (date: string, cutoffHour: number) =>
+  new Date(parseISTDate(date).getTime() + 24 * 3600000 + cutoffHour * 3600000 - 1)
 
-const setCutoffTime = (date: Date, cutoffHour: number) => {
-  const next = new Date(date)
-  next.setHours(cutoffHour, 0, 0, 0)
-  return next
-}
+// IST midnight for a given IST date + cutoff offset
+const istMidnight = (y: number, m: number, d: number, cutoffHour: number) =>
+  new Date(Date.UTC(y, m, d) - IST_OFFSET_MS + cutoffHour * 3600000)
 
 const toBusinessDateKey = (date: Date, cutoffHour: number) => {
-  const shifted = new Date(date)
-  shifted.setHours(shifted.getHours() - cutoffHour)
-  const y = shifted.getFullYear()
-  const m = String(shifted.getMonth() + 1).padStart(2, "0")
-  const d = String(shifted.getDate()).padStart(2, "0")
-  return `${y}-${m}-${d}`
+  // Shift to IST wall-clock, then subtract cutoff to find business day
+  const istMs = date.getTime() + IST_OFFSET_MS - cutoffHour * 3600000
+  const d = new Date(istMs)
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0")
+  const dd = String(d.getUTCDate()).padStart(2, "0")
+  return `${y}-${m}-${dd}`
 }
 
 export async function GET(request: Request) {
@@ -52,53 +44,65 @@ export async function GET(request: Request) {
     const cutoffHour = clampCutoffHour(cutoffConfig?.value)
 
     let dateFilter: any = {}
-    const shiftedNow = new Date()
-    shiftedNow.setHours(shiftedNow.getHours() - cutoffHour)
+    // Current IST time shifted by cutoff to find business day
+    const istMs = Date.now() + IST_OFFSET_MS
+    const businessMs = istMs - cutoffHour * 3600000
+    const bd = new Date(businessMs)
+    const Y = bd.getUTCFullYear()
+    const M = bd.getUTCMonth()
+    const D = bd.getUTCDate()
+    // Day of week (0=Sun, 1=Mon, ...) in IST business time
+    const dow = bd.getUTCDay()
 
     if (period === "today") {
-      const businessStart = setCutoffTime(startOfDay(shiftedNow), cutoffHour)
+      const todayStart = istMidnight(Y, M, D, cutoffHour)
       dateFilter = {
-        gte: businessStart,
-        lte: new Date(addDays(businessStart, 1).getTime() - 1),
+        gte: todayStart,
+        lte: new Date(todayStart.getTime() + 24 * 3600000 - 1),
       }
     } else if (period === "this-week") {
-      const weekStart = setCutoffTime(startOfWeek(shiftedNow, { weekStartsOn: 1 }), cutoffHour)
+      // Monday-based week
+      const daysBack = dow === 0 ? 6 : dow - 1
+      const weekStart = istMidnight(Y, M, D - daysBack, cutoffHour)
       dateFilter = {
         gte: weekStart,
-        lte: new Date(addDays(weekStart, 7).getTime() - 1),
+        lte: new Date(weekStart.getTime() + 7 * 24 * 3600000 - 1),
       }
     } else if (period === "last-week") {
-      const prevWeek = subWeeks(shiftedNow, 1)
-      const weekStart = setCutoffTime(startOfWeek(prevWeek, { weekStartsOn: 1 }), cutoffHour)
+      const daysBack = dow === 0 ? 6 : dow - 1
+      const thisWeekStart = istMidnight(Y, M, D - daysBack, cutoffHour)
+      const lastWeekStart = new Date(thisWeekStart.getTime() - 7 * 24 * 3600000)
       dateFilter = {
-        gte: weekStart,
-        lte: new Date(addDays(weekStart, 7).getTime() - 1),
+        gte: lastWeekStart,
+        lte: new Date(lastWeekStart.getTime() + 7 * 24 * 3600000 - 1),
       }
     } else if (period === "this-month" || period === "month") {
-      const monthStart = setCutoffTime(startOfMonth(shiftedNow), cutoffHour)
+      const monthStart = istMidnight(Y, M, 1, cutoffHour)
+      const nextMonthStart = istMidnight(Y, M + 1, 1, cutoffHour)
       dateFilter = {
         gte: monthStart,
-        lte: new Date(setCutoffTime(startOfMonth(addMonths(shiftedNow, 1)), cutoffHour).getTime() - 1),
+        lte: new Date(nextMonthStart.getTime() - 1),
       }
     } else if (period === "last-month") {
-      const lastMonth = subMonths(shiftedNow, 1)
-      const monthStart = setCutoffTime(startOfMonth(lastMonth), cutoffHour)
+      const lastMonthStart = istMidnight(Y, M - 1, 1, cutoffHour)
+      const thisMonthStart = istMidnight(Y, M, 1, cutoffHour)
       dateFilter = {
-        gte: monthStart,
-        lte: new Date(setCutoffTime(startOfMonth(addMonths(lastMonth, 1)), cutoffHour).getTime() - 1),
+        gte: lastMonthStart,
+        lte: new Date(thisMonthStart.getTime() - 1),
       }
     } else if (period === "this-year" || period === "year") {
-      const yearStart = setCutoffTime(startOfYear(shiftedNow), cutoffHour)
+      const yearStart = istMidnight(Y, 0, 1, cutoffHour)
+      const nextYearStart = istMidnight(Y + 1, 0, 1, cutoffHour)
       dateFilter = {
         gte: yearStart,
-        lte: new Date(setCutoffTime(startOfYear(addYears(shiftedNow, 1)), cutoffHour).getTime() - 1),
+        lte: new Date(nextYearStart.getTime() - 1),
       }
     } else if (period === "last-year") {
-      const lastYear = subYears(shiftedNow, 1)
-      const yearStart = setCutoffTime(startOfYear(lastYear), cutoffHour)
+      const lastYearStart = istMidnight(Y - 1, 0, 1, cutoffHour)
+      const thisYearStart = istMidnight(Y, 0, 1, cutoffHour)
       dateFilter = {
-        gte: yearStart,
-        lte: new Date(setCutoffTime(startOfYear(addYears(lastYear, 1)), cutoffHour).getTime() - 1),
+        gte: lastYearStart,
+        lte: new Date(thisYearStart.getTime() - 1),
       }
     } else if (startDate && endDate) {
       dateFilter = {

@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { startOfMonth } from "date-fns"
+
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
+
+const parseISTDate = (dateStr: string): Date => {
+  const [year, month, day] = dateStr.split("-").map(Number)
+  return new Date(Date.UTC(year, month - 1, day) - IST_OFFSET_MS)
+}
 
 const getCashTransactionModel = () => (prisma as any).cashTransaction
 
@@ -23,13 +29,14 @@ export async function GET(request: Request) {
     const startDate = searchParams.get("startDate")
     const endDate = searchParams.get("endDate")
 
-    const now = new Date()
+    // IST-based current month boundaries
+    const istNow = new Date(Date.now() + IST_OFFSET_MS)
     const from = startDate
-      ? new Date(`${startDate}T00:00:00`)
-      : startOfMonth(now)
+      ? parseISTDate(startDate)
+      : new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1) - IST_OFFSET_MS)
     const to = endDate
-      ? new Date(`${endDate}T23:59:59.999`)
-      : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+      ? new Date(parseISTDate(endDate).getTime() + 24 * 3600000 - 1)
+      : new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 1) - IST_OFFSET_MS - 1)
 
     // ── Online sales from bills (credit to bank) ──────────────────────────
     const onlineBills = await prisma.bill.findMany({

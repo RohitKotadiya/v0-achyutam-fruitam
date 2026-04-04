@@ -14,6 +14,7 @@ type PrintableBillData = {
   grandTotal: number
   lineItems: PrintableLineItem[]
   remarks?: string | null
+  displayBillNo?: string | null
 }
 
 const RECEIPT_WIDTH = 32

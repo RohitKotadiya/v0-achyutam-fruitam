@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { startOfMonth } from "date-fns"
 
 const getCashTransactionModel = () => (prisma as any).cashTransaction
 
@@ -10,35 +9,32 @@ const clampCutoffHour = (value: unknown) => {
   return Math.min(23, Math.max(0, Math.floor(parsed)))
 }
 
-const addDays = (date: Date, days: number) => {
-  const next = new Date(date)
-  next.setDate(next.getDate() + days)
-  return next
-}
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
 
 // GET - Finance dashboard overview
 export async function GET() {
   try {
     const cashTransaction = getCashTransactionModel()
-    const now = new Date()
     const cutoffConfig = await prisma.systemConfig.findUnique({ where: { key: "businessDayCutoffHour" } })
     const cutoffHour = clampCutoffHour(cutoffConfig?.value)
 
-    const businessNow = new Date(now)
-    businessNow.setHours(businessNow.getHours() - cutoffHour)
+    // All date math in IST (UTC+5:30) using explicit UTC offsets so the
+    // result is identical on UTC (Vercel) and IST (local) servers.
+    const istMs = Date.now() + IST_OFFSET_MS
+    const businessISTMs = istMs - cutoffHour * 3600000
+    const bd = new Date(businessISTMs)
 
-    const businessDateStart = new Date(businessNow)
-    businessDateStart.setHours(0, 0, 0, 0)
+    // Midnight IST of the current business date
+    const businessMidnightIST = new Date(Date.UTC(bd.getUTCFullYear(), bd.getUTCMonth(), bd.getUTCDate()) - IST_OFFSET_MS)
 
-    const todayStart = new Date(businessDateStart)
-    todayStart.setHours(cutoffHour, 0, 0, 0)
-    const todayEnd = new Date(addDays(todayStart, 1).getTime() - 1)
+    const todayStart = new Date(businessMidnightIST.getTime() + cutoffHour * 3600000)
+    const todayEnd   = new Date(todayStart.getTime() + 24 * 3600000 - 1)
 
-    const monthBusinessStart = startOfMonth(businessNow)
-    const monthStart = new Date(monthBusinessStart)
-    monthStart.setHours(cutoffHour, 0, 0, 0)
-    const nextMonthBusinessStart = startOfMonth(addDays(new Date(monthBusinessStart.getFullYear(), monthBusinessStart.getMonth() + 1, 1), 0))
-    const monthEnd = new Date(new Date(nextMonthBusinessStart).setHours(cutoffHour, 0, 0, 0) - 1)
+    // Midnight IST of the first day of the current business month
+    const monthMidnightIST     = new Date(Date.UTC(bd.getUTCFullYear(), bd.getUTCMonth(), 1) - IST_OFFSET_MS)
+    const nextMonthMidnightIST = new Date(Date.UTC(bd.getUTCFullYear(), bd.getUTCMonth() + 1, 1) - IST_OFFSET_MS)
+    const monthStart = new Date(monthMidnightIST.getTime() + cutoffHour * 3600000)
+    const monthEnd   = new Date(nextMonthMidnightIST.getTime() + cutoffHour * 3600000 - 1)
 
     const [
       todayBills,

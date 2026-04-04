@@ -12,14 +12,19 @@ export function setupPrismaMiddleware(prisma: PrismaClient) {
 
     if (params.model === "Bill") {
       if (params.action === "create" || params.action === "update") {
-        const billDate = new Date()
-        const dateStr = billDate.toISOString().split("T")[0]
+        // IST-explicit: find today's IST midnight as a UTC Date
+        const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
+        const istNow = new Date(Date.now() + IST_OFFSET_MS)
+        const todayIST = new Date(
+          Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate()) - IST_OFFSET_MS
+        )
+        const tomorrowIST = new Date(todayIST.getTime() + 24 * 60 * 60 * 1000)
 
         const todaySales = await prisma.bill.aggregate({
           where: {
             createdAt: {
-              gte: new Date(dateStr),
-              lt: new Date(new Date(dateStr).getTime() + 24 * 60 * 60 * 1000),
+              gte: todayIST,
+              lt: tomorrowIST,
             },
           },
           _sum: {
@@ -31,7 +36,7 @@ export function setupPrismaMiddleware(prisma: PrismaClient) {
         })
 
         await prisma.dailySalesSummary.upsert({
-          where: { date: new Date(dateStr) },
+          where: { date: todayIST },
           update: {
             totalBills: todaySales._count,
             totalSales: todaySales._sum.grandTotal || 0,
@@ -39,7 +44,7 @@ export function setupPrismaMiddleware(prisma: PrismaClient) {
             totalProfit: todaySales._sum.totalProfit || 0,
           },
           create: {
-            date: new Date(dateStr),
+            date: todayIST,
             totalBills: todaySales._count,
             totalSales: todaySales._sum.grandTotal || 0,
             totalCost: todaySales._sum.totalCost || 0,

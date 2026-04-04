@@ -11,15 +11,16 @@ import { SuppliersTab } from "@/components/admin/suppliers-tab"
 import { SettingsTab } from "@/components/admin/settings-tab"
 import { FinanceTab } from "@/components/admin/finance-tab"
 import { StockTransferTab } from "@/components/admin/stock-transfer-tab"
-import { Package, ShoppingCart, FolderKanban, BarChart3, Users, Truck, Settings, Wallet, FlaskConical } from "lucide-react"
+import { Package, ShoppingCart, FolderKanban, BarChart3, Users, Truck, Settings, Wallet, FlaskConical, LogOut, FileText } from "lucide-react"
 import { BackButton } from "@/components/ui/back-button"
 import { useRouter } from "next/navigation"
-import { FileText } from "lucide-react"
+import { signOut, useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 
 const ADMIN_ACTIVE_TAB_KEY = "admin-active-tab-v1"
 
 export default function AdminPage() {
+  const { data: session } = useSession()
   const [activeTab, setActiveTab] = useState("inventory")
   const [isActiveTabRestored, setIsActiveTabRestored] = useState(false)
   const [settings, setSettings] = useState<Record<string,string>>({ enableStockTransfer: "true" })
@@ -80,7 +81,7 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Right: Bills + POS buttons */}
+            {/* Right: Bills + POS + Logout buttons */}
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -99,6 +100,19 @@ export default function AdminPage() {
               >
                 <ShoppingCart className="w-4 h-4 mr-2" />
                 POS
+              </Button>
+
+              {session && (
+                <span className="hidden md:flex items-center text-xs">
+                  <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-medium">Admin</span>
+                </span>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => signOut({ callbackUrl: "/login" })}
+              >
+                <LogOut className="w-4 h-4" />
               </Button>
             </div>
           </div>

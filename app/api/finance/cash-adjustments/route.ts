@@ -62,14 +62,15 @@ export async function GET(request: Request) {
     const where: any = sinceDate ? { createdAt: { gte: sinceDate } } : {};
     if (searchParams.get("from")) {
       where.createdAt = where.createdAt || {};
-      where.createdAt.gte = new Date(searchParams.get("from")!);
+      const fromStr = searchParams.get("from")!;
+      const [fy, fm, fd] = fromStr.split("-").map(Number);
+      where.createdAt.gte = new Date(Date.UTC(fy, fm - 1, fd) - (5 * 60 + 30) * 60 * 1000);
     }
     if (searchParams.get("to")) {
       where.createdAt = where.createdAt || {};
-      // Set to end of day
-      const toDate = new Date(searchParams.get("to")!);
-      toDate.setHours(23, 59, 59, 999);
-      where.createdAt.lte = toDate;
+      const toStr = searchParams.get("to")!;
+      const [ty, tm, td] = toStr.split("-").map(Number);
+      where.createdAt.lte = new Date(Date.UTC(ty, tm - 1, td) - (5 * 60 + 30) * 60 * 1000 + 24 * 3600000 - 1);
     }
     if (searchParams.get("reason") && searchParams.get("reason") !== "all") {
       where.reason = searchParams.get("reason");

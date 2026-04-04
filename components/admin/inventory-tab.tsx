@@ -76,6 +76,7 @@ interface StockHistoryRow {
   type: "ADD" | "DAMAGE"
   sku: string
   name: string
+  category: string
   quantity: number
   costPrice: number | null
   originalCost: number | null
@@ -93,7 +94,7 @@ const toLocalDateInputValue = (date: Date) => {
   return `${year}-${month}-${day}`
 }
 
-type HistorySortKey = "date" | "type" | "sku" | "quantity" | "weightedCostBefore" | "weightedCostAfter" | "costPrice"
+type HistorySortKey = "date" | "type" | "sku" | "category" | "quantity" | "weightedCostBefore" | "weightedCostAfter" | "costPrice"
 
 const UNDO_WINDOW_MS = 120000
 const INVENTORY_ACTIVE_SUB_TAB_KEY = "inventory-active-sub-tab-v1"
@@ -171,11 +172,16 @@ export function InventoryTab({
   const [draftHistoryQuery, setDraftHistoryQuery] = useState("")
   const [draftHistoryType, setDraftHistoryType] = useState<"all" | "ADD" | "DAMAGE">("all")
   const [draftHistoryStatus, setDraftHistoryStatus] = useState<"all" | "active" | "undone">("all")
+  const [draftHistoryCategory, setDraftHistoryCategory] = useState("all")
+  const [draftHistoryBatchId, setDraftHistoryBatchId] = useState("")
+  const [historyDatePreset, setHistoryDatePreset] = useState("30days")
   const [historyStartDate, setHistoryStartDate] = useState(historyStartDefault)
   const [historyEndDate, setHistoryEndDate] = useState(historyToday)
   const [historyQuery, setHistoryQuery] = useState("")
   const [historyType, setHistoryType] = useState<"all" | "ADD" | "DAMAGE">("all")
   const [historyStatus, setHistoryStatus] = useState<"all" | "active" | "undone">("all")
+  const [historyCategory, setHistoryCategory] = useState("all")
+  const [historyBatchId, setHistoryBatchId] = useState("")
   const [historyRows, setHistoryRows] = useState<StockHistoryRow[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historySortBy, setHistorySortBy] = useState<HistorySortKey>("date")
@@ -254,10 +260,18 @@ export function InventoryTab({
     draftHistoryEndDate !== historyEndDate ||
     draftHistoryQuery !== historyQuery ||
     draftHistoryType !== historyType ||
-    draftHistoryStatus !== historyStatus
+    draftHistoryStatus !== historyStatus ||
+    draftHistoryCategory !== historyCategory ||
+    draftHistoryBatchId !== historyBatchId
 
   const sortedHistoryRows = useMemo(() => {
-    const rows = [...historyRows]
+    let rows = [...historyRows]
+    if (historyCategory !== "all") {
+      rows = rows.filter((r) => r.category === historyCategory)
+    }
+    if (historyBatchId.trim()) {
+      rows = rows.filter((r) => r.batchId === historyBatchId.trim())
+    }
     rows.sort((a, b) => {
       let diff = 0
       if (historySortBy === "date") {
@@ -266,6 +280,8 @@ export function InventoryTab({
         diff = a.type.localeCompare(b.type)
       } else if (historySortBy === "sku") {
         diff = a.sku.localeCompare(b.sku)
+      } else if (historySortBy === "category") {
+        diff = (a.category || "").localeCompare(b.category || "")
       } else if (historySortBy === "quantity") {
         diff = (a.quantity || 0) - (b.quantity || 0)
       } else if (historySortBy === "weightedCostBefore") {
@@ -278,7 +294,7 @@ export function InventoryTab({
       return historySortDir === "asc" ? diff : -diff
     })
     return rows
-  }, [historyRows, historySortBy, historySortDir])
+  }, [historyRows, historySortBy, historySortDir, historyCategory, historyBatchId])
 
   const historyTotalPages = Math.max(1, Math.ceil(sortedHistoryRows.length / historyPageSize))
 
@@ -700,6 +716,8 @@ export function InventoryTab({
     setHistoryQuery(draftHistoryQuery)
     setHistoryType(draftHistoryType)
     setHistoryStatus(draftHistoryStatus)
+    setHistoryCategory(draftHistoryCategory)
+    setHistoryBatchId(draftHistoryBatchId)
   }
 
   const resetHistoryFilters = () => {
@@ -708,11 +726,52 @@ export function InventoryTab({
     setDraftHistoryQuery("")
     setDraftHistoryType("all")
     setDraftHistoryStatus("all")
+    setDraftHistoryCategory("all")
+    setDraftHistoryBatchId("")
+    setHistoryDatePreset("30days")
     setHistoryStartDate(historyStartDefault)
     setHistoryEndDate(historyToday)
     setHistoryQuery("")
     setHistoryType("all")
     setHistoryStatus("all")
+    setHistoryCategory("all")
+    setHistoryBatchId("")
+  }
+
+  const applyHistoryDatePreset = (preset: string) => {
+    setHistoryDatePreset(preset)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const todayStr = toLocalDateInputValue(today)
+    const mondayOffset = (today.getDay() + 6) % 7
+
+    let start = ""
+    let end = todayStr
+
+    if (preset === "today") {
+      start = todayStr
+    } else if (preset === "yesterday") {
+      const y = new Date(today)
+      y.setDate(y.getDate() - 1)
+      start = toLocalDateInputValue(y)
+      end = start
+    } else if (preset === "week") {
+      const w = new Date(today)
+      w.setDate(w.getDate() - mondayOffset)
+      start = toLocalDateInputValue(w)
+    } else if (preset === "month") {
+      start = toLocalDateInputValue(new Date(today.getFullYear(), today.getMonth(), 1))
+    } else if (preset === "30days") {
+      start = toLocalDateInputValue(new Date(Date.now() - 29 * 86400000))
+    } else if (preset === "all") {
+      start = ""
+      end = ""
+    }
+
+    setDraftHistoryStartDate(start)
+    setDraftHistoryEndDate(end)
+    setHistoryStartDate(start)
+    setHistoryEndDate(end)
   }
 
   const handleAddInventory = async (e: React.FormEvent) => {
@@ -1499,17 +1558,35 @@ export function InventoryTab({
           <CardContent>
             <div className="space-y-3">
               <div className="flex flex-wrap gap-3">
+                <Select
+                  value={historyDatePreset}
+                  onValueChange={(v) => {
+                    if (v === "custom") return
+                    applyHistoryDatePreset(v)
+                  }}
+                >
+                  <SelectTrigger className="w-full md:w-[170px]"><SelectValue placeholder="Date Range" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="today">Today</SelectItem>
+                    <SelectItem value="yesterday">Yesterday</SelectItem>
+                    <SelectItem value="week">This Week</SelectItem>
+                    <SelectItem value="month">This Month</SelectItem>
+                    <SelectItem value="30days">Last 30 Days</SelectItem>
+                    <SelectItem value="all">All Time</SelectItem>
+                    <SelectItem value="custom">Custom Range</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Input
                   type="date"
                   value={draftHistoryStartDate}
-                  onChange={(e) => setDraftHistoryStartDate(e.target.value)}
-                  className="w-full md:w-[170px]"
+                  onChange={(e) => { setDraftHistoryStartDate(e.target.value); setHistoryDatePreset("custom") }}
+                  className="w-full md:w-[150px]"
                 />
                 <Input
                   type="date"
                   value={draftHistoryEndDate}
-                  onChange={(e) => setDraftHistoryEndDate(e.target.value)}
-                  className="w-full md:w-[170px]"
+                  onChange={(e) => { setDraftHistoryEndDate(e.target.value); setHistoryDatePreset("custom") }}
+                  className="w-full md:w-[150px]"
                 />
                 <Input
                   placeholder="Search SKU, product, or batch ID"
@@ -1537,6 +1614,23 @@ export function InventoryTab({
                     <SelectItem value="undone">Undone</SelectItem>
                   </SelectContent>
                 </Select>
+                <Select value={draftHistoryCategory} onValueChange={(value) => setDraftHistoryCategory(value)}>
+                  <SelectTrigger className="w-full md:w-[170px]">
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {categories.map((cat) => (
+                      <SelectItem key={cat.id} value={cat.displayName || cat.name}>{cat.displayName || cat.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  placeholder="Batch ID"
+                  value={draftHistoryBatchId}
+                  onChange={(e) => setDraftHistoryBatchId(e.target.value)}
+                  className="w-full md:w-[120px]"
+                />
                 <Button type="button" variant="outline" size="sm" onClick={resetHistoryFilters}>
                   Reset Filters
                 </Button>
@@ -1576,11 +1670,12 @@ export function InventoryTab({
               ) : null}
 
               <div className="rounded border max-h-[520px] overflow-auto">
-                <div className="sticky top-0 z-20 grid grid-cols-[170px_90px_100px_1.6fr_100px_100px_100px_110px_1.25fr] gap-2 border-b bg-muted/95 px-3 py-2 text-xs font-medium">
+                <div className="sticky top-0 z-20 grid grid-cols-[170px_90px_100px_1.2fr_1fr_100px_100px_100px_110px_1.5fr] gap-2 border-b bg-muted/95 px-3 py-2 text-xs font-medium">
                   <button type="button" className="text-left" onClick={() => toggleHistorySort("date")}>Date/Time{sortIndicator("date")}</button>
                   <button type="button" className="text-left" onClick={() => toggleHistorySort("type")}>Type{sortIndicator("type")}</button>
                   <span>Batch ID</span>
                   <button type="button" className="text-left" onClick={() => toggleHistorySort("sku")}>SKU / Product{sortIndicator("sku")}</button>
+                  <button type="button" className="text-left" onClick={() => toggleHistorySort("category")}>Category{sortIndicator("category")}</button>
                   <button type="button" className="text-right" onClick={() => toggleHistorySort("quantity")}>Qty{sortIndicator("quantity")}</button>
                   <button
                     type="button"
@@ -1610,17 +1705,18 @@ export function InventoryTab({
                   paginatedHistoryRows.map((row) => (
                     <div
                       key={row.id}
-                      className={`grid grid-cols-[170px_90px_100px_1.6fr_100px_100px_100px_110px_1.25fr] gap-2 border-b px-3 py-2 text-sm ${row.isUndone ? "bg-amber-50/50" : ""}`}
+                      className={`grid grid-cols-[170px_90px_100px_1.2fr_1fr_100px_100px_100px_110px_1.5fr] gap-2 border-b px-3 py-2 text-sm ${row.isUndone ? "bg-amber-50/50" : ""}`}
                     >
                       <span className="text-xs text-muted-foreground">{new Date(row.date).toLocaleString()}</span>
                       <span className="text-xs font-medium">{row.type}{row.isUndone ? " (UNDONE)" : ""}</span>
                       <span className="truncate font-mono text-xs text-muted-foreground">{row.batchId || "-"}</span>
                       <span className="truncate">{row.name}</span>
+                      <span className="truncate text-xs text-muted-foreground">{row.category || "-"}</span>
                       <span className="text-right">{Number(row.quantity || 0).toFixed(2)}</span>
                       <span className="text-right">{row.weightedCostBefore == null ? "-" : Number(row.weightedCostBefore).toFixed(2)}</span>
                       <span className="text-right">{row.weightedCostAfter == null ? "-" : Number(row.weightedCostAfter).toFixed(2)}</span>
                       <span className="text-right">{row.costPrice == null ? "-" : Number(row.costPrice).toFixed(2)}</span>
-                      <span className="truncate text-muted-foreground">{row.remarks || "-"}</span>
+                      <span className="text-xs text-muted-foreground whitespace-normal break-words">{row.remarks || "-"}</span>
                     </div>
                   ))
                 )}

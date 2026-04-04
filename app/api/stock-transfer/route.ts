@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
-const parseLocalStart = (date: string) => new Date(`${date}T00:00:00`)
-const parseLocalEnd = (date: string) => new Date(`${date}T23:59:59.999`)
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
+
+const parseISTDate = (dateStr: string): Date => {
+  const [year, month, day] = dateStr.split("-").map(Number)
+  return new Date(Date.UTC(year, month - 1, day) - IST_OFFSET_MS)
+}
+
+const parseLocalStart = (date: string) => parseISTDate(date)
+const parseLocalEnd = (date: string) => new Date(parseISTDate(date).getTime() + 24 * 3600000 - 1)
 
 // GET list of transfers with optional filters
 export async function GET(request: Request) {
@@ -82,28 +89,16 @@ export async function POST(request: Request) {
 
     // validate products exist and get stock
     for (const it of items) {
-      let prod
-      if (transferType === "OUTGOING") {
-        // For outgoing, validate by SKU
-        prod = await prisma.product.findUnique({ where: { sku: String(it.sku) }, include: { currentStock: true } })
-        if (!prod) {
-          return NextResponse.json({ error: `Product not found for SKU ${it.sku}` }, { status: 404 })
-        }
-        // check if productId matches
-        if (prod.id !== it.productId) {
-          return NextResponse.json({ error: `Product ID mismatch for SKU ${it.sku}: expected ${prod.id}, got ${it.productId}` }, { status: 400 })
-        }
-      } else {
-        // For incoming, validate by productId
-        prod = await prisma.product.findUnique({ where: { id: it.productId }, include: { currentStock: true } })
-        if (!prod) {
-          return NextResponse.json({ error: `Product not found for ID ${it.productId}` }, { status: 404 })
-        }
+      const prod = await prisma.product.findUnique({ where: { id: it.productId }, include: { currentStock: true } })
+      if (!prod) {
+        return NextResponse.json({ error: `Product not found (ID: ${it.productId})` }, { status: 404 })
       }
 
-      const current = prod.currentStock?.currentStock || 0
-      if (transferType === "OUTGOING" && Number(it.quantity) > current) {
-        return NextResponse.json({ error: `Insufficient stock for ${prod.name} (${current} available, requested ${it.quantity})` }, { status: 400 })
+      if (transferType === "OUTGOING") {
+        const current = prod.currentStock?.currentStock || 0
+        if (Number(it.quantity) > current) {
+          return NextResponse.json({ error: `Insufficient stock for ${prod.name} (${current} available, ${it.quantity} requested)` }, { status: 400 })
+        }
       }
     }
 

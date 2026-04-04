@@ -246,7 +246,9 @@ export async function POST(request: Request) {
 
       const totalProfit = grandTotalNum - totalCost
 
-      const yy = String(new Date().getFullYear()).slice(-2)
+      const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
+      const istNow = new Date(Date.now() + IST_OFFSET_MS)
+      const yy = String(istNow.getUTCFullYear()).slice(-2)
       const prefix = `${yy}-`
       const lastBill = await tx.bill.findFirst({
         where: { displayBillNo: { startsWith: prefix } },
