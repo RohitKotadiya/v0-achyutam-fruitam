@@ -58,6 +58,8 @@ export function SettingsTab() {
   const [showAddUser, setShowAddUser] = useState(false)
   const [newUser, setNewUser] = useState({ name: "", email: "", password: "", role: "STAFF" })
   const [userLoading, setUserLoading] = useState(false)
+  const [seedLoading, setSeedLoading] = useState(false)
+  const [seedResults, setSeedResults] = useState<string[] | null>(null)
 
   useEffect(() => {
     fetchSettings()
@@ -172,6 +174,27 @@ export function SettingsTab() {
     } catch {
       toast({ title: "Error", variant: "destructive" })
     } finally { setUserLoading(false) }
+  }
+
+  const handleSeed = async () => {
+    setSeedLoading(true)
+    setSeedResults(null)
+    try {
+      const res = await fetch("/api/settings/seed", { method: "POST" })
+      const data = await res.json()
+      if (data.success) {
+        setSeedResults(data.results)
+        toast({ title: "Seed complete", description: `${data.results.length} steps done` })
+        fetchCategories()
+        fetchUsers()
+      } else {
+        throw new Error(data.error)
+      }
+    } catch (e: unknown) {
+      toast({ title: "Seed failed", description: e instanceof Error ? e.message : "Unknown error", variant: "destructive" })
+    } finally {
+      setSeedLoading(false)
+    }
   }
 
   const handleSave = async (e: React.FormEvent) => {
@@ -547,6 +570,32 @@ export function SettingsTab() {
           ))}
 
           {users.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No users found</p>}
+        </CardContent>
+      </Card>
+
+      {/* Database Seed */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Database Seed</CardTitle>
+          <CardDescription>
+            Populate this database with default categories, products, and user accounts. Safe to run on a fresh deployment — skips anything that already exists.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p>Seeds: 4 categories · 42 products · 2 users (admin / staff)</p>
+            <p className="text-xs">Default logins: <code>admin@achyutamfruitam.com</code> / <code>admin123</code> and <code>staff@achyutamfruitam.com</code> / <code>staff123</code></p>
+          </div>
+          <Button onClick={handleSeed} disabled={seedLoading} variant="outline">
+            {seedLoading ? "Seeding..." : "Seed Database"}
+          </Button>
+          {seedResults && (
+            <ul className="text-sm space-y-1 mt-2">
+              {seedResults.map((r, i) => (
+                <li key={i} className="text-green-700 dark:text-green-400">✓ {r}</li>
+              ))}
+            </ul>
+          )}
         </CardContent>
       </Card>
     </div>
