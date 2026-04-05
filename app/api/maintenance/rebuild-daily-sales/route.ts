@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server"
 import { prismaFast as prisma } from "@/lib/prisma-fast"
-import { addDays, startOfDay, endOfDay } from "date-fns"
 import { isMaintenanceKeyValid } from "@/lib/api-security"
+
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
+
+// IST midnight for a given day as UTC Date
+const istDayStart = (y: number, m: number, d: number) =>
+  new Date(Date.UTC(y, m, d) - IST_OFFSET_MS)
 
 export async function POST(request: Request) {
   try {
@@ -12,15 +17,19 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}))
     const days = Math.max(1, Math.min(365, Number(body?.days) || 60))
 
-    const today = startOfDay(new Date())
-    const startDate = addDays(today, -(days - 1))
+    // Today in IST
+    const istNow = new Date(Date.now() + IST_OFFSET_MS)
+    const todayY = istNow.getUTCFullYear()
+    const todayM = istNow.getUTCMonth()
+    const todayD = istNow.getUTCDate()
+    const today = istDayStart(todayY, todayM, todayD)
 
     let updatedDays = 0
 
     for (let i = 0; i < days; i++) {
-      const day = addDays(startDate, i)
-      const dayStart = startOfDay(day)
-      const dayEnd = endOfDay(day)
+      const dayOffset = -(days - 1) + i
+      const dayStart = new Date(today.getTime() + dayOffset * 24 * 3600000)
+      const dayEnd = new Date(dayStart.getTime() + 24 * 3600000 - 1)
 
       const daily = await prisma.bill.aggregate({
         where: {
@@ -60,7 +69,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       updatedDays,
-      rangeStart: startDate,
+      rangeStart: new Date(today.getTime() - (days - 1) * 24 * 3600000),
       rangeEnd: today,
     })
   } catch (error) {

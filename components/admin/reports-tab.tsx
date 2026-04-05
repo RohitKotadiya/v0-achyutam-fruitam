@@ -204,6 +204,8 @@ const QUICK_RANGE_OPTIONS: Array<{ preset: QuickRangePreset; label: string }> = 
   { preset: "this-financial-year", label: "This Financial Year" },
 ]
 
+const REPORTS_ACTIVE_SUB_TAB_KEY = "reports-active-sub-tab-v1"
+
 const FINANCE_CHART_COLORS = [
   "#16a34a", // green
   "#0284c7", // blue
@@ -314,9 +316,26 @@ function QuickRangeDropdown({
 
 export function ReportsTab() {
   const [subTab, setSubTab] = useState("overview")
+  const [isSubTabRestored, setIsSubTabRestored] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const savedSubTab = window.localStorage.getItem(REPORTS_ACTIVE_SUB_TAB_KEY)
+    const allowedSubTabs = ["overview", "pl", "sales-charts", "sales-grid", "sales-products"]
+    if (savedSubTab && allowedSubTabs.includes(savedSubTab)) {
+      setSubTab(savedSubTab)
+    }
+    setIsSubTabRestored(true)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (!isSubTabRestored) return
+    window.localStorage.setItem(REPORTS_ACTIVE_SUB_TAB_KEY, subTab)
+  }, [subTab, isSubTabRestored])
 
   const navigateToSubReport = (
-    tab: "overview" | "pl" | "expenses" | "sales" | "inventory" | "customers",
+    tab: "overview" | "pl" | "sales" | "sales-charts" | "sales-grid" | "sales-products",
     options?: {
       salesView?: "charts" | "bills" | "products"
       gridStart?: string
@@ -329,6 +348,15 @@ export function ReportsTab() {
       prodQuery?: string
     }
   ) => {
+    const resolvedTab =
+      tab === "sales"
+        ? options?.salesView === "products"
+          ? "sales-products"
+          : options?.salesView === "bills"
+            ? "sales-grid"
+            : "sales-charts"
+        : tab
+
     if (typeof window !== "undefined") {
       const sp = new URLSearchParams(window.location.search)
       if (options?.salesView) sp.set("salesView", options.salesView)
@@ -354,25 +382,25 @@ export function ReportsTab() {
       window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`)
     }
 
-    setSubTab(tab)
+    setSubTab(resolvedTab)
   }
 
   return (
     <div className="space-y-4">
       <Tabs value={subTab} onValueChange={setSubTab}>
         <TabsList className="grid w-full grid-cols-5 lg:w-auto">
-          <TabsTrigger value="overview" className="text-xs sm:text-sm">Overview</TabsTrigger>
-          <TabsTrigger value="pl" className="text-xs sm:text-sm">P&L</TabsTrigger>
-          <TabsTrigger value="expenses" className="text-xs sm:text-sm">Expenses</TabsTrigger>
-          <TabsTrigger value="sales" className="text-xs sm:text-sm">Sales</TabsTrigger>
-          <TabsTrigger value="inventory" className="text-xs sm:text-sm">Inventory</TabsTrigger>
+          <TabsTrigger value="overview" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Overview</TabsTrigger>
+          <TabsTrigger value="pl" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">P&L</TabsTrigger>
+          <TabsTrigger value="sales-charts" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Charts</TabsTrigger>
+          <TabsTrigger value="sales-grid" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Sales Grid</TabsTrigger>
+          <TabsTrigger value="sales-products" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Product Analytics</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview"><ReportsOverviewSection onNavigate={navigateToSubReport} /></TabsContent>
         <TabsContent value="pl"><PLSection /></TabsContent>
-        <TabsContent value="expenses"><ExpenseReportsSection /></TabsContent>
-        <TabsContent value="sales"><SalesSection /></TabsContent>
-        <TabsContent value="inventory"><InventorySection /></TabsContent>
+        <TabsContent value="sales-charts"><SalesSection forcedView="charts" hideViewTabs /></TabsContent>
+        <TabsContent value="sales-grid"><SalesSection forcedView="bills" hideViewTabs /></TabsContent>
+        <TabsContent value="sales-products"><SalesSection forcedView="products" hideViewTabs /></TabsContent>
       </Tabs>
     </div>
   )
@@ -382,7 +410,7 @@ function ReportsOverviewSection({
   onNavigate,
 }: {
   onNavigate: (
-    tab: "overview" | "pl" | "expenses" | "sales" | "inventory" | "customers",
+    tab: "overview" | "pl" | "sales" | "sales-charts" | "sales-grid" | "sales-products",
     options?: {
       salesView?: "charts" | "bills" | "products"
       gridStart?: string
@@ -409,6 +437,11 @@ function ReportsOverviewSection({
   const [monthlySalesGraph, setMonthlySalesGraph] = useState<Array<{ label: string; value: number }>>([])
   const [categoryPie, setCategoryPie] = useState<Array<{ name: string; value: number }>>([])
   const [productPie, setProductPie] = useState<Array<{ name: string; value: number }>>([])
+
+  // Cash Adjustments state
+  const [cashAdjustments, setCashAdjustments] = useState<Array<any>>([])
+  const [cashAdjLoading, setCashAdjLoading] = useState(true)
+  const [cashAdjError, setCashAdjError] = useState<string|null>(null)
 
   const now = new Date()
   const todayStr = toDateInputValue(now)
@@ -510,6 +543,24 @@ function ReportsOverviewSection({
     }
 
     void load()
+    // Fetch recent cash adjustments (last 30 days)
+    const fetchAdjustments = async () => {
+      setCashAdjLoading(true)
+      setCashAdjError(null)
+      try {
+        const since = new Date()
+        since.setDate(since.getDate() - 30)
+        const res = await fetch(`/api/finance/cash-adjustments?since=${since.toISOString()}`)
+        if (!res.ok) throw new Error("Failed to fetch adjustments")
+        const data = await res.json()
+        setCashAdjustments(Array.isArray(data.adjustments) ? data.adjustments : [])
+      } catch (e: any) {
+        setCashAdjError(e.message || "Failed to load adjustments")
+      } finally {
+        setCashAdjLoading(false)
+      }
+    }
+    fetchAdjustments()
   }, [monthStartStr, todayStr])
 
   if (loading) return <div className="text-center py-8">Loading overview...</div>
@@ -529,17 +580,58 @@ function ReportsOverviewSection({
         <Card className="cursor-pointer border-fuchsia-200/70 bg-gradient-to-br from-fuchsia-100/60 to-pink-50/70 hover:from-fuchsia-100 hover:to-pink-100/80" onClick={() => onNavigate("sales", { salesView: "products", prodPeriod: "month", prodStart: monthStartStr, prodEnd: todayStr, prodQuery: topProduct?.name || "" })}>
           <CardContent className="pt-4"><p className="text-xs text-muted-foreground">Top Product</p><p className="text-sm font-semibold truncate">{topProduct?.name || "N/A"}</p><p className="text-[11px] text-muted-foreground">Qty {topProduct?.qty.toFixed(2) || "0.00"}</p></CardContent>
         </Card>
-        <Card className="cursor-pointer border-amber-200/70 bg-gradient-to-br from-amber-100/60 to-orange-50/70 hover:from-amber-100 hover:to-orange-100/80" onClick={() => onNavigate("inventory")}>
+        <Card className="cursor-pointer border-amber-200/70 bg-gradient-to-br from-amber-100/60 to-orange-50/70 hover:from-amber-100 hover:to-orange-100/80" onClick={() => onNavigate("sales")}>
           <CardContent className="pt-4"><p className="text-xs text-muted-foreground">Low Stock Alert</p><p className="text-xl font-bold">{lowStock.length}</p><p className="text-[11px] text-muted-foreground truncate">{lowStock[0]?.name || "All good"}</p></CardContent>
         </Card>
         <Card className="cursor-pointer border-orange-200/70 bg-gradient-to-br from-orange-100/60 to-amber-50/70 hover:from-orange-100 hover:to-amber-100/80" onClick={() => onNavigate("sales", { salesView: "bills", gridStart: monthStartStr, gridEnd: todayStr, gridPay: "PENDING", gridQuery: "" })}>
           <CardContent className="pt-4"><p className="text-xs text-muted-foreground">Pending Credit</p><p className="text-xl font-bold">{formatCurrency(pendingCredit)}</p><p className="text-[11px] text-muted-foreground">Open credit bills</p></CardContent>
         </Card>
         <Card className="cursor-pointer border-violet-200/70 bg-gradient-to-br from-violet-100/60 to-indigo-50/70 hover:from-violet-100 hover:to-indigo-100/80" onClick={() => onNavigate("pl")}>
-          <CardContent className="pt-4"><p className="text-xs text-muted-foreground">Total Profit</p><p className="text-xl font-bold">{formatCurrency(totalProfit)}</p><p className="text-[11px] text-muted-foreground">Open P&L report</p></CardContent>
+          <CardContent className="pt-4"><p className="text-xs text-muted-foreground">Total Profit</p><p className="text-xl font-bold">{formatCurrency(totalProfit)}</p><p className="text-[11px] text-muted-foreground">This month&apos;s net profit</p></CardContent>
         </Card>
       </div>
 
+      {/* Cash Adjustments Table */}
+      <Card className="border-amber-200/60 bg-gradient-to-br from-amber-50/80 to-yellow-50/70">
+        <CardHeader>
+          <CardTitle className="text-base">Recent Cash Adjustments</CardTitle>
+          <CardDescription>Manual cash corrections (last 30 days)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {cashAdjLoading ? (
+            <div className="text-center py-8">Loading adjustments...</div>
+          ) : cashAdjError ? (
+            <div className="text-center py-8 text-muted-foreground">{cashAdjError}</div>
+          ) : cashAdjustments.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">No adjustments found</div>
+          ) : (
+            <div className="overflow-x-auto max-h-[320px]">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead>Reason</TableHead>
+                    <TableHead>Notes</TableHead>
+                    <TableHead>User</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {cashAdjustments.slice(0, 15).map((adj) => (
+                    <TableRow key={adj.id}>
+                      <TableCell>{formatIndianDate(new Date(adj.createdAt))}</TableCell>
+                      <TableCell className={`text-right font-semibold ${adj.amount < 0 ? "text-red-600" : "text-green-700"}`}>{formatCurrency(adj.amount)}</TableCell>
+                      <TableCell>{adj.reason}</TableCell>
+                      <TableCell className="max-w-[180px] truncate" title={adj.notes}>{adj.notes}</TableCell>
+                      <TableCell>{adj.user?.name || adj.userId || "-"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="border-blue-200/60 bg-gradient-to-br from-blue-50/80 to-cyan-50/70">
           <CardHeader>
@@ -550,8 +642,8 @@ function ReportsOverviewSection({
               </div>
               <Tabs value={graphMode} onValueChange={(v) => setGraphMode(v as "daily" | "monthly")}> 
                 <TabsList className="grid grid-cols-2 w-40">
-                  <TabsTrigger value="daily" className="text-xs">Daily</TabsTrigger>
-                  <TabsTrigger value="monthly" className="text-xs">Monthly</TabsTrigger>
+                  <TabsTrigger value="daily" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Daily</TabsTrigger>
+                  <TabsTrigger value="monthly" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Monthly</TabsTrigger>
                 </TabsList>
               </Tabs>
             </div>
@@ -695,21 +787,13 @@ function PLSection() {
         <SummaryCard label="Expenses" value={plReport.costs.totalExpenses} sub="Operating costs" icon={<TrendingDown className="h-4 w-4 text-red-600" />} gradient="from-red-500/10 to-orange-500/10" />
         <SummaryCard label="Net Profit" value={plReport.profit.net} sub={`${plReport.profit.margin.toFixed(1)}% margin`} icon={<TrendingUp className="h-4 w-4 text-purple-600" />} gradient="from-purple-500/10 to-pink-500/10" />
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4">
         <Card>
           <CardHeader><CardTitle className="text-base">Revenue Breakdown</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             <div className="flex justify-between"><span className="text-sm text-muted-foreground">Cash:</span><span className="font-semibold">{formatCurrency(plReport.revenue.cash)}</span></div>
             <div className="flex justify-between"><span className="text-sm text-muted-foreground">Online:</span><span className="font-semibold">{formatCurrency(plReport.revenue.online)}</span></div>
             <div className="border-t pt-2 flex justify-between"><span className="font-medium">Total:</span><span className="font-bold">{formatCurrency(plReport.revenue.total)}</span></div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-base">Profit Summary</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Gross Profit:</span><span className="font-semibold">{formatCurrency(plReport.profit.gross)}</span></div>
-            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Expenses:</span><span className="font-semibold">{formatCurrency(plReport.costs.totalExpenses)}</span></div>
-            <div className="border-t pt-2 flex justify-between"><span className="font-medium">Net Profit:</span><span className="font-bold">{formatCurrency(plReport.profit.net)}</span></div>
           </CardContent>
         </Card>
       </div>
@@ -944,7 +1028,7 @@ function SummaryCard({ label, value, sub, icon, gradient }: { label: string; val
 
 // ==================== SALES REPORT ====================
 
-function SalesSection() {
+function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "charts" | "bills" | "products"; hideViewTabs?: boolean }) {
   const [data, setData] = useState<SaleRow[]>([])
   const [gridSummary, setGridSummary] = useState<SalesSummary | null>(null)
   const [gridAnalytics, setGridAnalytics] = useState<SalesAnalytics | null>(null)
@@ -990,7 +1074,11 @@ function SalesSection() {
 
   const [productReport, setProductReport] = useState<ProductSalesReport | null>(null)
   const [productLoading, setProductLoading] = useState(false)
-  const [salesViewTab, setSalesViewTab] = useState("charts")
+  const [salesViewTab, setSalesViewTab] = useState<"charts" | "bills" | "products">(forcedView || "charts")
+
+  useEffect(() => {
+    if (forcedView) setSalesViewTab(forcedView)
+  }, [forcedView])
 
   const applyGridRange = (preset: QuickRangePreset) => {
     const range = getQuickRange(preset)
@@ -1115,7 +1203,7 @@ function SalesSection() {
 
     const hasUrl = urlTab || urlGridStart || urlGridEnd || urlGridPay || urlGridQuery || urlStart || urlEnd || urlPay || urlProdPeriod || urlProdStart || urlProdEnd || urlProdQuery
     if (hasUrl) {
-      if (urlTab) setSalesViewTab(urlTab)
+      if (urlTab === "charts" || urlTab === "bills" || urlTab === "products") setSalesViewTab(urlTab)
       const gridStart = urlGridStart || today
       const gridEnd = urlGridEnd || today
       const gridPay = urlGridPay || "all"
@@ -1172,7 +1260,9 @@ function SalesSection() {
           prodEnd?: string
           prodQuery?: string
         }
-        if (saved.salesView) setSalesViewTab(saved.salesView)
+        if (saved.salesView === "charts" || saved.salesView === "bills" || saved.salesView === "products") {
+          setSalesViewTab(saved.salesView)
+        }
         const gridStart = saved.gridStart || today
         const gridEnd = saved.gridEnd || today
         const gridPay = saved.gridPay || "all"
@@ -1521,9 +1611,10 @@ function SalesSection() {
     <Tabs
       value={salesViewTab}
       onValueChange={(value) => {
-        setSalesViewTab(value)
+        const nextView = value as "charts" | "bills" | "products"
+        setSalesViewTab(nextView)
         persistSalesState({
-          salesView: value,
+          salesView: nextView,
           chartStart: chartAppliedStartDate,
           chartEnd: chartAppliedEndDate,
           chartPay: chartAppliedPaymentFilter,
@@ -1535,28 +1626,15 @@ function SalesSection() {
       }}
       className="space-y-4"
     >
-      <TabsList className="grid w-full grid-cols-3 lg:w-auto">
-        <TabsTrigger value="charts" className="text-xs sm:text-sm">Charts</TabsTrigger>
-        <TabsTrigger value="bills" className="text-xs sm:text-sm">Sales Grid</TabsTrigger>
-        <TabsTrigger value="products" className="text-xs sm:text-sm">Product-wise Analytics</TabsTrigger>
-      </TabsList>
+      {!hideViewTabs ? (
+        <TabsList className="grid w-full grid-cols-3 lg:w-auto">
+          <TabsTrigger value="charts" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Charts</TabsTrigger>
+          <TabsTrigger value="bills" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Sales Grid</TabsTrigger>
+          <TabsTrigger value="products" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Product-wise Analytics</TabsTrigger>
+        </TabsList>
+      ) : null}
 
-      <Card>
-        <CardHeader className="pb-2">
-          <div>
-            <CardTitle className="text-base">
-              {salesViewTab === "charts" ? "Chart Filters" : salesViewTab === "bills" ? "Sales Grid Filters" : "Product Analytics Filters"}
-            </CardTitle>
-            <CardDescription>
-              {salesViewTab === "charts"
-                ? "Apply date and payment filters for chart summaries and trend visuals"
-                : salesViewTab === "bills"
-                  ? "Filter bill-level sales records by date, payment, and search"
-                  : "Filter product sales analysis by period, date range, and search"}
-            </CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      <div className="space-y-3 rounded-md border bg-muted/20 px-4 py-3">
           {salesViewTab === "charts" ? (
             <>
               <div className="flex flex-wrap gap-3 mb-1">
@@ -1577,12 +1655,6 @@ function SalesSection() {
                 <Button type="button" size="sm" onClick={applyChartFilters} disabled={chartLoading || !hasChartDraftChanges}>
                   {chartLoading ? "Applying..." : "Apply"}
                 </Button>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                {hasChartDraftChanges ? <Badge variant="secondary" className="border bg-muted text-foreground">Unsaved changes</Badge> : null}
-                <Badge variant="secondary" className="border bg-background text-foreground">Range: {chartAppliedStartDate || "All"} to {chartAppliedEndDate || "All"}</Badge>
-                <Badge variant="secondary" className="border bg-background text-foreground">Payment: {chartAppliedPaymentFilter}</Badge>
-                {chartLastUpdatedAt ? <Badge variant="secondary" className="border bg-background text-muted-foreground">Updated: {new Date(chartLastUpdatedAt).toLocaleString()}</Badge> : null}
               </div>
             </>
           ) : salesViewTab === "bills" ? (
@@ -1621,13 +1693,6 @@ function SalesSection() {
                   {loading ? "Applying..." : "Apply"}
                 </Button>
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                {hasGridDraftChanges ? <Badge variant="secondary" className="border bg-muted text-foreground">Unsaved changes</Badge> : null}
-                <Badge variant="secondary" className="border bg-background text-foreground">Range: {gridAppliedStartDate || "All"} to {gridAppliedEndDate || "All"}</Badge>
-                <Badge variant="secondary" className="border bg-background text-foreground">Payment: {gridAppliedPaymentFilter}</Badge>
-                {gridAppliedSearch.trim() ? <Badge variant="secondary" className="border bg-background text-foreground">Search: {gridAppliedSearch}</Badge> : null}
-                {gridLastUpdatedAt ? <Badge variant="secondary" className="border bg-background text-muted-foreground">Updated: {new Date(gridLastUpdatedAt).toLocaleString()}</Badge> : null}
-              </div>
             </>
           ) : (
             <>
@@ -1663,17 +1728,9 @@ function SalesSection() {
                   {productLoading ? "Applying..." : "Apply"}
                 </Button>
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                {hasProductDraftChanges ? <Badge variant="secondary" className="border bg-muted text-foreground">Unsaved changes</Badge> : null}
-                <Badge variant="secondary" className="border bg-background text-foreground">Range: {productAppliedStartDate || "All"} to {productAppliedEndDate || "All"}</Badge>
-                <Badge variant="secondary" className="border bg-background text-foreground">Period: {productAppliedPeriodType}</Badge>
-                {productAppliedSearch.trim() ? <Badge variant="secondary" className="border bg-background text-foreground">Search: {productAppliedSearch}</Badge> : null}
-                {productLastUpdatedAt ? <Badge variant="secondary" className="border bg-background text-muted-foreground">Updated: {new Date(productLastUpdatedAt).toLocaleString()}</Badge> : null}
-              </div>
             </>
           )}
-        </CardContent>
-      </Card>
+      </div>
 
       <TabsContent value="charts" className="space-y-4">
         <Card>
@@ -1682,11 +1739,9 @@ function SalesSection() {
             <CardDescription>Visual report for quick reading across payments, top products, and period trends</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <Card className="bg-muted/30"><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Sales (Charts)</p><p className="text-xl font-bold">{formatCurrency(chartFilteredSales.reduce((s, r) => s + r.grandTotal, 0))}</p><p className="text-[11px] text-muted-foreground">From chart filters</p></CardContent></Card>
               <Card className="bg-muted/30"><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Profit (Charts)</p><p className="text-xl font-bold">{formatCurrency(chartFilteredSales.reduce((s, r) => s + r.totalProfit, 0))}</p><p className="text-[11px] text-muted-foreground">From chart filters</p></CardContent></Card>
-              <Card className="bg-muted/30"><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Product Sales</p><p className="text-xl font-bold">{formatCurrency(productReport?.summary.totalSales || 0)}</p><p className="text-[11px] text-muted-foreground">From product analytics filters</p></CardContent></Card>
-              <Card className="bg-muted/30"><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Product Profit</p><p className="text-xl font-bold">{formatCurrency(productReport?.summary.totalProfit || 0)}</p><p className="text-[11px] text-muted-foreground">{(productReport?.summary.margin || 0).toFixed(1)}% margin</p></CardContent></Card>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1812,14 +1867,9 @@ function SalesSection() {
                     Snapshot for {gridAppliedStartDate || "all dates"}{gridAppliedEndDate ? ` to ${gridAppliedEndDate}` : ""}
                   </p>
                 </div>
-                {gridSummary.notes?.upiCardTracking ? (
-                  <Badge variant="secondary" className="border bg-background text-muted-foreground">
-                    {gridSummary.notes.upiCardTracking}
-                  </Badge>
-                ) : null}
               </div>
 
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
                 <Card className="border bg-background shadow-none">
                   <CardContent className="px-3 py-3">
                     <p className="text-[11px] text-muted-foreground">Total Sales</p>
@@ -1858,20 +1908,8 @@ function SalesSection() {
                 </Card>
                 <Card className="border bg-background shadow-none">
                   <CardContent className="px-3 py-3">
-                    <p className="text-[11px] text-muted-foreground">UPI Sales</p>
+                    <p className="text-[11px] text-muted-foreground">Online Sales</p>
                     <p className="text-lg font-bold">{formatCurrency(gridSummary.paymentBreakdown.upi)}</p>
-                  </CardContent>
-                </Card>
-                <Card className="border bg-background shadow-none">
-                  <CardContent className="px-3 py-3">
-                    <p className="text-[11px] text-muted-foreground">Card Sales</p>
-                    <p className="text-lg font-bold">{formatCurrency(gridSummary.paymentBreakdown.card)}</p>
-                  </CardContent>
-                </Card>
-                <Card className="border bg-background shadow-none">
-                  <CardContent className="px-3 py-3">
-                    <p className="text-[11px] text-muted-foreground">Credit Sales</p>
-                    <p className="text-lg font-bold">{formatCurrency(gridSummary.paymentBreakdown.credit)}</p>
                   </CardContent>
                 </Card>
               </div>
@@ -2131,7 +2169,7 @@ function SalesSection() {
 
 // ==================== INVENTORY REPORT ====================
 
-function InventorySection() {
+export function InventorySection() {
   const [data, setData] = useState<InventoryRow[]>([])
   const [loading, setLoading] = useState(true)
   const [draftSearch, setDraftSearch] = useState("")

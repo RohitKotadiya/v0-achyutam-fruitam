@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
+import { InventorySection } from "@/components/admin/reports-tab"
 import { Loader2, ChevronDown, ChevronRight, ChevronUp } from "lucide-react"
 
 interface Product {
@@ -75,6 +76,7 @@ interface StockHistoryRow {
   type: "ADD" | "DAMAGE"
   sku: string
   name: string
+  category: string
   quantity: number
   costPrice: number | null
   originalCost: number | null
@@ -92,14 +94,31 @@ const toLocalDateInputValue = (date: Date) => {
   return `${year}-${month}-${day}`
 }
 
-type HistorySortKey = "date" | "type" | "sku" | "quantity" | "weightedCostBefore" | "weightedCostAfter" | "costPrice"
+type HistorySortKey = "date" | "type" | "sku" | "category" | "quantity" | "weightedCostBefore" | "weightedCostAfter" | "costPrice"
 
 const UNDO_WINDOW_MS = 120000
+const INVENTORY_ACTIVE_SUB_TAB_KEY = "inventory-active-sub-tab-v1"
+const INVENTORY_PREPARE_MIX_VIEW_KEY = "inventory-prepare-mix-view-v1"
+const INVENTORY_PREPARE_MIX_PREFS_KEY = "inventory-prepare-mix-prefs-v1"
 
-export function InventoryTab() {
+type InventorySubTab = "add-stock" | "prepare-mix" | "report" | "damage" | "history"
+type PrepareMixView = "entry" | "batches"
+
+export function InventoryTab({
+  forcedSubTab,
+  forcedPrepareMixView,
+  hideSubTabList = false,
+}: {
+  forcedSubTab?: InventorySubTab
+  forcedPrepareMixView?: PrepareMixView
+  hideSubTabList?: boolean
+} = {}) {
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
-  const [activeSubTab, setActiveSubTab] = useState("add-stock")
+  const [activeSubTab, setActiveSubTab] = useState<InventorySubTab>(forcedSubTab || "add-stock")
+  const [isActiveSubTabRestored, setIsActiveSubTabRestored] = useState(false)
+  const [prepareMixView, setPrepareMixView] = useState<PrepareMixView>(forcedPrepareMixView || "entry")
+  const [isPrepareMixViewRestored, setIsPrepareMixViewRestored] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [stockInfo, setStockInfo] = useState<Record<string, StockInfo>>({})
@@ -153,11 +172,16 @@ export function InventoryTab() {
   const [draftHistoryQuery, setDraftHistoryQuery] = useState("")
   const [draftHistoryType, setDraftHistoryType] = useState<"all" | "ADD" | "DAMAGE">("all")
   const [draftHistoryStatus, setDraftHistoryStatus] = useState<"all" | "active" | "undone">("all")
+  const [draftHistoryCategory, setDraftHistoryCategory] = useState("all")
+  const [draftHistoryBatchId, setDraftHistoryBatchId] = useState("")
+  const [historyDatePreset, setHistoryDatePreset] = useState("30days")
   const [historyStartDate, setHistoryStartDate] = useState(historyStartDefault)
   const [historyEndDate, setHistoryEndDate] = useState(historyToday)
   const [historyQuery, setHistoryQuery] = useState("")
   const [historyType, setHistoryType] = useState<"all" | "ADD" | "DAMAGE">("all")
   const [historyStatus, setHistoryStatus] = useState<"all" | "active" | "undone">("all")
+  const [historyCategory, setHistoryCategory] = useState("all")
+  const [historyBatchId, setHistoryBatchId] = useState("")
   const [historyRows, setHistoryRows] = useState<StockHistoryRow[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historySortBy, setHistorySortBy] = useState<HistorySortKey>("date")
@@ -166,15 +190,88 @@ export function InventoryTab() {
   const [historyPageSize, setHistoryPageSize] = useState(20)
   const [showHistoryPaginationControls, setShowHistoryPaginationControls] = useState(false)
 
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (forcedSubTab) {
+      setActiveSubTab(forcedSubTab)
+      setIsActiveSubTabRestored(true)
+      return
+    }
+    const savedSubTab = window.localStorage.getItem(INVENTORY_ACTIVE_SUB_TAB_KEY)
+    const allowedSubTabs = ["add-stock", "prepare-mix", "report", "damage", "history"]
+    if (savedSubTab && allowedSubTabs.includes(savedSubTab)) {
+      setActiveSubTab(savedSubTab as InventorySubTab)
+    }
+    setIsActiveSubTabRestored(true)
+  }, [forcedSubTab])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (!isActiveSubTabRestored) return
+    if (forcedSubTab) return
+    window.localStorage.setItem(INVENTORY_ACTIVE_SUB_TAB_KEY, activeSubTab)
+  }, [activeSubTab, isActiveSubTabRestored, forcedSubTab])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (forcedPrepareMixView) {
+      setPrepareMixView(forcedPrepareMixView)
+      setIsPrepareMixViewRestored(true)
+      return
+    }
+    const savedView = window.localStorage.getItem(INVENTORY_PREPARE_MIX_VIEW_KEY)
+    if (savedView === "entry" || savedView === "batches") {
+      setPrepareMixView(savedView)
+    }
+    setIsPrepareMixViewRestored(true)
+  }, [forcedPrepareMixView])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (!isPrepareMixViewRestored) return
+    if (forcedPrepareMixView) return
+    window.localStorage.setItem(INVENTORY_PREPARE_MIX_VIEW_KEY, prepareMixView)
+  }, [prepareMixView, isPrepareMixViewRestored, forcedPrepareMixView])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const raw = window.localStorage.getItem(INVENTORY_PREPARE_MIX_PREFS_KEY)
+    if (!raw) return
+    try {
+      const saved = JSON.parse(raw) as { targetMixSku?: string; sourceCategoryId?: string; targetCategoryFilterId?: string }
+      if (saved.targetMixSku) setTargetMixSku(saved.targetMixSku)
+      if (saved.sourceCategoryId) setSourceCategoryId(saved.sourceCategoryId)
+      if (saved.targetCategoryFilterId) setTargetCategoryFilterId(saved.targetCategoryFilterId)
+    } catch {
+      // Ignore corrupted persisted state and continue with defaults.
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    window.localStorage.setItem(
+      INVENTORY_PREPARE_MIX_PREFS_KEY,
+      JSON.stringify({ targetMixSku, sourceCategoryId, targetCategoryFilterId }),
+    )
+  }, [targetMixSku, sourceCategoryId, targetCategoryFilterId])
+
   const hasHistoryDraftChanges =
     draftHistoryStartDate !== historyStartDate ||
     draftHistoryEndDate !== historyEndDate ||
     draftHistoryQuery !== historyQuery ||
     draftHistoryType !== historyType ||
-    draftHistoryStatus !== historyStatus
+    draftHistoryStatus !== historyStatus ||
+    draftHistoryCategory !== historyCategory ||
+    draftHistoryBatchId !== historyBatchId
 
   const sortedHistoryRows = useMemo(() => {
-    const rows = [...historyRows]
+    let rows = [...historyRows]
+    if (historyCategory !== "all") {
+      rows = rows.filter((r) => r.category === historyCategory)
+    }
+    if (historyBatchId.trim()) {
+      rows = rows.filter((r) => r.batchId === historyBatchId.trim())
+    }
     rows.sort((a, b) => {
       let diff = 0
       if (historySortBy === "date") {
@@ -183,6 +280,8 @@ export function InventoryTab() {
         diff = a.type.localeCompare(b.type)
       } else if (historySortBy === "sku") {
         diff = a.sku.localeCompare(b.sku)
+      } else if (historySortBy === "category") {
+        diff = (a.category || "").localeCompare(b.category || "")
       } else if (historySortBy === "quantity") {
         diff = (a.quantity || 0) - (b.quantity || 0)
       } else if (historySortBy === "weightedCostBefore") {
@@ -195,7 +294,7 @@ export function InventoryTab() {
       return historySortDir === "asc" ? diff : -diff
     })
     return rows
-  }, [historyRows, historySortBy, historySortDir])
+  }, [historyRows, historySortBy, historySortDir, historyCategory, historyBatchId])
 
   const historyTotalPages = Math.max(1, Math.ceil(sortedHistoryRows.length / historyPageSize))
 
@@ -617,6 +716,8 @@ export function InventoryTab() {
     setHistoryQuery(draftHistoryQuery)
     setHistoryType(draftHistoryType)
     setHistoryStatus(draftHistoryStatus)
+    setHistoryCategory(draftHistoryCategory)
+    setHistoryBatchId(draftHistoryBatchId)
   }
 
   const resetHistoryFilters = () => {
@@ -625,11 +726,52 @@ export function InventoryTab() {
     setDraftHistoryQuery("")
     setDraftHistoryType("all")
     setDraftHistoryStatus("all")
+    setDraftHistoryCategory("all")
+    setDraftHistoryBatchId("")
+    setHistoryDatePreset("30days")
     setHistoryStartDate(historyStartDefault)
     setHistoryEndDate(historyToday)
     setHistoryQuery("")
     setHistoryType("all")
     setHistoryStatus("all")
+    setHistoryCategory("all")
+    setHistoryBatchId("")
+  }
+
+  const applyHistoryDatePreset = (preset: string) => {
+    setHistoryDatePreset(preset)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const todayStr = toLocalDateInputValue(today)
+    const mondayOffset = (today.getDay() + 6) % 7
+
+    let start = ""
+    let end = todayStr
+
+    if (preset === "today") {
+      start = todayStr
+    } else if (preset === "yesterday") {
+      const y = new Date(today)
+      y.setDate(y.getDate() - 1)
+      start = toLocalDateInputValue(y)
+      end = start
+    } else if (preset === "week") {
+      const w = new Date(today)
+      w.setDate(w.getDate() - mondayOffset)
+      start = toLocalDateInputValue(w)
+    } else if (preset === "month") {
+      start = toLocalDateInputValue(new Date(today.getFullYear(), today.getMonth(), 1))
+    } else if (preset === "30days") {
+      start = toLocalDateInputValue(new Date(Date.now() - 29 * 86400000))
+    } else if (preset === "all") {
+      start = ""
+      end = ""
+    }
+
+    setDraftHistoryStartDate(start)
+    setDraftHistoryEndDate(end)
+    setHistoryStartDate(start)
+    setHistoryEndDate(end)
   }
 
   const handleAddInventory = async (e: React.FormEvent) => {
@@ -857,10 +999,11 @@ export function InventoryTab() {
         throw new Error(data.error || "Failed to prepare mix")
       }
 
-      toast({ title: "Success", description: "Mix prepared successfully" })
+      toast({ title: "Success", description: "Mix prepared. Opening batch management..." })
       setIngredientQtyBySku({})
       setMixPreparedQuantity("")
       setMixRemarks("")
+      setPrepareMixView("batches")
       await fetchProducts()
       await fetchMixBatches()
     } catch (error) {
@@ -945,17 +1088,20 @@ export function InventoryTab() {
   }
 
   return (
-    <Tabs value={activeSubTab} onValueChange={setActiveSubTab} className="space-y-4">
+    <Tabs value={activeSubTab} onValueChange={(v) => setActiveSubTab(v as InventorySubTab)} className="space-y-4">
+      {!hideSubTabList ? (
       <div className="w-full overflow-x-auto pb-1">
         <TabsList className="inline-flex w-max min-w-full gap-1">
-          <TabsTrigger value="add-stock" className="!flex-none px-3">Add Stock</TabsTrigger>
+          <TabsTrigger value="add-stock" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Add Stock</TabsTrigger>
           {settings.enableMixDishPrep === "true" && (
-            <TabsTrigger value="prepare-mix" className="!flex-none px-3">Prepare Mix</TabsTrigger>
+            <TabsTrigger value="prepare-mix" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Prepare Mix</TabsTrigger>
           )}
-          <TabsTrigger value="damage" className="!flex-none px-3">Damage Record</TabsTrigger>
-          <TabsTrigger value="history" className="!flex-none px-3">Stock History</TabsTrigger>
+          <TabsTrigger value="report" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Inventory Report</TabsTrigger>
+          <TabsTrigger value="damage" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Damage Record</TabsTrigger>
+          <TabsTrigger value="history" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Stock History</TabsTrigger>
         </TabsList>
       </div>
+      ) : null}
 
       <TabsContent value="add-stock" className="space-y-4">
         <Card>
@@ -1127,6 +1273,21 @@ export function InventoryTab() {
                 </div>
               ) : null}
 
+              <div className="sticky top-0 z-10 mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+                <Tabs value={prepareMixView} onValueChange={(v) => setPrepareMixView(v as PrepareMixView)}>
+                  <TabsList className="h-8">
+                    <TabsTrigger value="entry" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Entry</TabsTrigger>
+                    <TabsTrigger value="batches" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Mix Batches</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+                <div className="flex items-center gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => void fetchMixBatches()}>
+                    Refresh Batches
+                  </Button>
+                </div>
+              </div>
+
+              {prepareMixView === "entry" ? (
               <form onSubmit={handlePrepareMix} className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div className="space-y-2">
@@ -1255,10 +1416,13 @@ export function InventoryTab() {
                   <Input value={mixRemarks} onChange={(e) => setMixRemarks(e.target.value)} />
                 </div>
 
-                <Button type="submit" disabled={loading}>{loading ? "Preparing..." : "Prepare Mix"}</Button>
+                <div className="sticky bottom-0 z-10 flex flex-wrap gap-2 rounded-md border bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+                  <Button type="submit" disabled={loading}>{loading ? "Preparing..." : "Prepare Mix"}</Button>
+                  <Button type="button" variant="outline" onClick={() => setPrepareMixView("batches")}>Mix Batches</Button>
+                </div>
               </form>
-
-              <div className="mt-6 space-y-4 border-t pt-4">
+              ) : (
+              <div className="space-y-4">
                 <div>
                   <h4 className="text-sm font-semibold">Open Batch Management</h4>
                   <p className="text-xs text-muted-foreground">Update prepared qty directly per batch from Action column when actual yield differs from planned yield.</p>
@@ -1290,11 +1454,11 @@ export function InventoryTab() {
                 <div className="rounded border">
                   <div className="grid grid-cols-[2fr_90px_90px_90px_90px_110px_180px] gap-2 border-b bg-muted/50 px-3 py-2 text-xs font-medium">
                     <span>Open Batch Details</span>
-                    <span className="text-right">Prepared</span>
-                    <span className="text-right">Sold</span>
-                    <span className="text-right">Produced Rem.</span>
-                    <span className="text-right">Cost Rem.</span>
-                    <span className="text-right">Zero-Cost Rem.</span>
+                    <span className="text-right">Prepared Units</span>
+                    <span className="text-right">Sold Units</span>
+                    <span className="text-right">Produced Remaining</span>
+                    <span className="text-right">Cost Remaining</span>
+                    <span className="text-right">Zero-Cost Remaining</span>
                     <span className="text-center">Action</span>
                   </div>
                   <div className="max-h-[360px] overflow-y-auto">
@@ -1325,15 +1489,17 @@ export function InventoryTab() {
                               step="0.01"
                               value={batchPreparedQtyDraft[batch.id] ?? String(batch.producedUnits)}
                               onChange={(e) => setBatchPreparedQtyDraft((prev) => ({ ...prev, [batch.id]: e.target.value }))}
+                              disabled={batch.producedUnitsRemaining <= 0}
                               className="h-8 text-right"
                             />
                             <Button
                               type="button"
                               size="sm"
-                              disabled={batchUpdateLoadingId === batch.id}
+                              disabled={batchUpdateLoadingId === batch.id || batch.producedUnitsRemaining <= 0}
+                              title={batch.producedUnitsRemaining <= 0 ? "Batch is fully sold and closed" : ""}
                               onClick={() => handleUpdateBatchPreparedQty(batch)}
                             >
-                              {batchUpdateLoadingId === batch.id ? "..." : "Update"}
+                              {batchUpdateLoadingId === batch.id ? "..." : batch.producedUnitsRemaining <= 0 ? "Closed" : "Update"}
                             </Button>
                           </div>
                         </div>
@@ -1342,10 +1508,15 @@ export function InventoryTab() {
                   </div>
                 </div>
               </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
       )}
+
+      <TabsContent value="report" className="space-y-4">
+        <InventorySection />
+      </TabsContent>
 
       <TabsContent value="history" className="space-y-4">
         <Card>
@@ -1387,17 +1558,35 @@ export function InventoryTab() {
           <CardContent>
             <div className="space-y-3">
               <div className="flex flex-wrap gap-3">
+                <Select
+                  value={historyDatePreset}
+                  onValueChange={(v) => {
+                    if (v === "custom") return
+                    applyHistoryDatePreset(v)
+                  }}
+                >
+                  <SelectTrigger className="w-full md:w-[170px]"><SelectValue placeholder="Date Range" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="today">Today</SelectItem>
+                    <SelectItem value="yesterday">Yesterday</SelectItem>
+                    <SelectItem value="week">This Week</SelectItem>
+                    <SelectItem value="month">This Month</SelectItem>
+                    <SelectItem value="30days">Last 30 Days</SelectItem>
+                    <SelectItem value="all">All Time</SelectItem>
+                    <SelectItem value="custom">Custom Range</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Input
                   type="date"
                   value={draftHistoryStartDate}
-                  onChange={(e) => setDraftHistoryStartDate(e.target.value)}
-                  className="w-full md:w-[170px]"
+                  onChange={(e) => { setDraftHistoryStartDate(e.target.value); setHistoryDatePreset("custom") }}
+                  className="w-full md:w-[150px]"
                 />
                 <Input
                   type="date"
                   value={draftHistoryEndDate}
-                  onChange={(e) => setDraftHistoryEndDate(e.target.value)}
-                  className="w-full md:w-[170px]"
+                  onChange={(e) => { setDraftHistoryEndDate(e.target.value); setHistoryDatePreset("custom") }}
+                  className="w-full md:w-[150px]"
                 />
                 <Input
                   placeholder="Search SKU, product, or batch ID"
@@ -1425,6 +1614,23 @@ export function InventoryTab() {
                     <SelectItem value="undone">Undone</SelectItem>
                   </SelectContent>
                 </Select>
+                <Select value={draftHistoryCategory} onValueChange={(value) => setDraftHistoryCategory(value)}>
+                  <SelectTrigger className="w-full md:w-[170px]">
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {categories.map((cat) => (
+                      <SelectItem key={cat.id} value={cat.displayName || cat.name}>{cat.displayName || cat.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  placeholder="Batch ID"
+                  value={draftHistoryBatchId}
+                  onChange={(e) => setDraftHistoryBatchId(e.target.value)}
+                  className="w-full md:w-[120px]"
+                />
                 <Button type="button" variant="outline" size="sm" onClick={resetHistoryFilters}>
                   Reset Filters
                 </Button>
@@ -1464,11 +1670,12 @@ export function InventoryTab() {
               ) : null}
 
               <div className="rounded border max-h-[520px] overflow-auto">
-                <div className="sticky top-0 z-20 grid grid-cols-[170px_90px_100px_1.6fr_100px_100px_100px_110px_1.25fr] gap-2 border-b bg-muted/95 px-3 py-2 text-xs font-medium">
+                <div className="sticky top-0 z-20 grid grid-cols-[170px_90px_100px_1.2fr_1fr_100px_100px_100px_110px_1.5fr] gap-2 border-b bg-muted/95 px-3 py-2 text-xs font-medium">
                   <button type="button" className="text-left" onClick={() => toggleHistorySort("date")}>Date/Time{sortIndicator("date")}</button>
                   <button type="button" className="text-left" onClick={() => toggleHistorySort("type")}>Type{sortIndicator("type")}</button>
                   <span>Batch ID</span>
                   <button type="button" className="text-left" onClick={() => toggleHistorySort("sku")}>SKU / Product{sortIndicator("sku")}</button>
+                  <button type="button" className="text-left" onClick={() => toggleHistorySort("category")}>Category{sortIndicator("category")}</button>
                   <button type="button" className="text-right" onClick={() => toggleHistorySort("quantity")}>Qty{sortIndicator("quantity")}</button>
                   <button
                     type="button"
@@ -1498,17 +1705,18 @@ export function InventoryTab() {
                   paginatedHistoryRows.map((row) => (
                     <div
                       key={row.id}
-                      className={`grid grid-cols-[170px_90px_100px_1.6fr_100px_100px_100px_110px_1.25fr] gap-2 border-b px-3 py-2 text-sm ${row.isUndone ? "bg-amber-50/50" : ""}`}
+                      className={`grid grid-cols-[170px_90px_100px_1.2fr_1fr_100px_100px_100px_110px_1.5fr] gap-2 border-b px-3 py-2 text-sm ${row.isUndone ? "bg-amber-50/50" : ""}`}
                     >
                       <span className="text-xs text-muted-foreground">{new Date(row.date).toLocaleString()}</span>
                       <span className="text-xs font-medium">{row.type}{row.isUndone ? " (UNDONE)" : ""}</span>
                       <span className="truncate font-mono text-xs text-muted-foreground">{row.batchId || "-"}</span>
                       <span className="truncate">{row.name}</span>
+                      <span className="truncate text-xs text-muted-foreground">{row.category || "-"}</span>
                       <span className="text-right">{Number(row.quantity || 0).toFixed(2)}</span>
                       <span className="text-right">{row.weightedCostBefore == null ? "-" : Number(row.weightedCostBefore).toFixed(2)}</span>
                       <span className="text-right">{row.weightedCostAfter == null ? "-" : Number(row.weightedCostAfter).toFixed(2)}</span>
                       <span className="text-right">{row.costPrice == null ? "-" : Number(row.costPrice).toFixed(2)}</span>
-                      <span className="truncate text-muted-foreground">{row.remarks || "-"}</span>
+                      <span className="text-xs text-muted-foreground whitespace-normal break-words">{row.remarks || "-"}</span>
                     </div>
                   ))
                 )}

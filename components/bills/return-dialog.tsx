@@ -52,11 +52,13 @@ interface ReturnDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   billNo: number
+  displayBillNo?: string | null
   billId: string
   onSuccess: () => void
 }
 
-export function ReturnDialog({ open, onOpenChange, billNo, billId, onSuccess }: ReturnDialogProps) {
+export function ReturnDialog({ open, onOpenChange, billNo, displayBillNo, billId, onSuccess }: ReturnDialogProps) {
+  const displayNo = displayBillNo ?? billNo
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
   const [fetching, setFetching] = useState(false)
@@ -81,7 +83,7 @@ export function ReturnDialog({ open, onOpenChange, billNo, billId, onSuccess }: 
 
       if (!res.ok || !data.success || !data.bill) {
         console.error("Return dialog: failed to load bill", { billNo, status: res.status, data })
-        toast({ title: "Error", description: data?.error || `Failed to load bill #${billNo}`, variant: "destructive" })
+        toast({ title: "Error", description: data?.error || `Failed to load bill #${displayNo}`, variant: "destructive" })
         setFetching(false)
         return
       }
@@ -204,11 +206,11 @@ export function ReturnDialog({ open, onOpenChange, billNo, billId, onSuccess }: 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-5xl min-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <RotateCcw className="h-5 w-5" />
-            Return Items — Bill #{billNo}
+            Return Items — Bill #{displayNo}
           </DialogTitle>
           <DialogDescription>
             Select items to return. Choose whether to restock or mark as damaged.

@@ -14,6 +14,7 @@ type PrintableBillData = {
   grandTotal: number
   lineItems: PrintableLineItem[]
   remarks?: string | null
+  displayBillNo?: string | null
 }
 
 const RECEIPT_WIDTH = 32
@@ -119,7 +120,7 @@ export async function printBillSilently(
       .text(`${centerText("Receipt")}\n`)
       .text(`${divider()}\n`)
       .align("left")
-      .text(`${fitLine(`Bill #${billNo}`, dateTimeStr)}\n`)
+      .text(`${fitLine(`Bill #${billData.displayBillNo ?? billNo}`, dateTimeStr)}\n`)
       .text(`${billData.customerName}${billData.customerMobile ? ` / ${billData.customerMobile}` : ""}\n`)
       .text(`${divider()}\n`)
 

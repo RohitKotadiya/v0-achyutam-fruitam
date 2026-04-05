@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
-const parseLocalStart = (date: string) => new Date(`${date}T00:00:00`)
-const parseLocalEnd = (date: string) => new Date(`${date}T23:59:59.999`)
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
+
+const parseISTDate = (dateStr: string): Date => {
+  const [year, month, day] = dateStr.split("-").map(Number)
+  return new Date(Date.UTC(year, month - 1, day) - IST_OFFSET_MS)
+}
+
+const parseLocalStart = (date: string) => parseISTDate(date)
+const parseLocalEnd = (date: string) => new Date(parseISTDate(date).getTime() + 24 * 3600000 - 1)
 
 function extractWacMeta(remarks: string | null) {
   if (!remarks) {
@@ -38,7 +45,7 @@ export async function GET(request: Request) {
       },
       include: {
         product: {
-          select: { sku: true, name: true },
+          select: { sku: true, name: true, category: { select: { name: true, displayName: true } } },
         },
       },
       orderBy: { date: "desc" },
@@ -51,7 +58,7 @@ export async function GET(request: Request) {
       },
       include: {
         product: {
-          select: { sku: true, name: true },
+          select: { sku: true, name: true, category: { select: { name: true, displayName: true } } },
         },
       },
       orderBy: { date: "desc" },
@@ -68,6 +75,7 @@ export async function GET(request: Request) {
           type: "ADD" as const,
           sku: log.product.sku,
           name: log.product.name,
+          category: log.product.category?.displayName || log.product.category?.name || "",
           quantity: log.unitsReceived,
           costPrice: log.costPrice,
           originalCost: log.originalCost,
@@ -85,6 +93,7 @@ export async function GET(request: Request) {
         type: "DAMAGE" as const,
         sku: log.product.sku,
         name: log.product.name,
+        category: log.product.category?.displayName || log.product.category?.name || "",
         quantity: log.quantity,
         costPrice: null,
         originalCost: null,

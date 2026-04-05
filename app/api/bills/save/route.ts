@@ -38,6 +38,16 @@ export async function POST(request: Request) {
       }, { status: 400 })
     }
 
+    if (paymentMethod === "PENDING" && (!customerMobile || String(customerMobile).length !== 10)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Pending bills require a valid 10-digit customer mobile",
+        },
+        { status: 400 },
+      )
+    }
+
     // Customer optional
     const customerNameFinal = customerName || "Walk-in-Cust"
     let customerId = null
@@ -236,6 +246,20 @@ export async function POST(request: Request) {
 
       const totalProfit = grandTotalNum - totalCost
 
+      const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
+      const istNow = new Date(Date.now() + IST_OFFSET_MS)
+      const yy = String(istNow.getUTCFullYear()).slice(-2)
+      const prefix = `${yy}-`
+      const lastBill = await tx.bill.findFirst({
+        where: { displayBillNo: { startsWith: prefix } },
+        orderBy: { displayBillNo: "desc" },
+        select: { displayBillNo: true },
+      })
+      const lastSeq = lastBill?.displayBillNo
+        ? parseInt(lastBill.displayBillNo.split("-")[1], 10)
+        : 0
+      const displayBillNo = `${prefix}${String(lastSeq + 1).padStart(3, "0")}`
+
       const newBill = await tx.bill.create({
         data: {
           customerName: customerNameFinal,
@@ -248,6 +272,7 @@ export async function POST(request: Request) {
           grandTotal: grandTotalNum,
           totalCost,
           totalProfit,
+          displayBillNo,
         },
       })
 
@@ -289,6 +314,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       billNo: bill.bill.billNo,
+      displayBillNo: bill.bill.displayBillNo,
       totalProfit: bill.totalProfit,
     })
   } catch (error) {

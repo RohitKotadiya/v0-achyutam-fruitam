@@ -34,13 +34,14 @@ function formatPaymentMethod(value?: string) {
 }
 
 export function generateWhatsAppMessage(billNo: number, billData: any) {
-  const { customerName, grandTotal, lineItems, paymentMethod, remarks, billDate } = billData
+  const { customerName, grandTotal, lineItems, paymentMethod, remarks, billDate, displayBillNo } = billData
+  const displayNo = displayBillNo ?? billNo
   const lines: string[] = []
 
   lines.push("*ACHYUTAM FRUITAM*")
 
   const billStamp = formatBillDateTime(billDate)
-  lines.push(billStamp ? `Bill #${billNo} | ${billStamp}` : `Bill #${billNo}`)
+  lines.push(billStamp ? `Bill #${displayNo} | ${billStamp}` : `Bill #${displayNo}`)
   lines.push(`Customer: ${customerName || "Walk-in Customer"}`)
   lines.push("─────────────────")
 

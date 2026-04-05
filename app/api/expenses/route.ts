@@ -1,8 +1,15 @@
 import { type NextRequest, NextResponse } from "next/server"
 import prisma from "@/lib/prisma"
 
-const parseLocalStart = (date: string) => new Date(`${date}T00:00:00`)
-const parseLocalEnd = (date: string) => new Date(`${date}T23:59:59.999`)
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
+
+const parseISTDate = (dateStr: string): Date => {
+  const [year, month, day] = dateStr.split("-").map(Number)
+  return new Date(Date.UTC(year, month - 1, day) - IST_OFFSET_MS)
+}
+
+const parseLocalStart = (date: string) => parseISTDate(date)
+const parseLocalEnd = (date: string) => new Date(parseISTDate(date).getTime() + 24 * 3600000 - 1)
 
 export async function GET(request: NextRequest) {
   try {
@@ -39,22 +46,45 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { date, category, description, amount, paymentMethod, remarks } = body
+    const { date, category, description, amount, paidFrom, remarks } = body
 
     if (!category || !description || !amount) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
+    const parsedAmount = parseFloat(amount)
+    const expenseDate = date ? new Date(date) : new Date()
+    const location = (paidFrom || "COUNTER").toUpperCase() as "COUNTER" | "SAFE" | "BANK"
+
+    // paymentMethod kept for backward compat: COUNTER→CASH, SAFE→CASH, BANK→ONLINE
+    const paymentMethod = location === "BANK" ? "ONLINE" : "CASH"
+
     const expense = await prisma.expense.create({
       data: {
-        date: date ? new Date(date) : new Date(),
+        date: expenseDate,
         category,
         description,
-        amount: Number.parseFloat(amount),
-        paymentMethod: paymentMethod || "CASH",
-        remarks,
+        amount: parsedAmount,
+        paymentMethod,
+        paidFrom: location,
+        remarks: remarks || null,
       },
     })
+
+    // For SAFE or BANK expenses, create a CashTransaction to reduce that location's balance
+    if (location === "SAFE" || location === "BANK") {
+      await prisma.cashTransaction.create({
+        data: {
+          date: expenseDate,
+          fromLocation: location,
+          toLocation: "EXTERNAL",
+          amount: parsedAmount,
+          note: `Expense: ${description} (${category})`,
+          category: "EXPENSE",
+          expenseId: expense.id,
+        },
+      })
+    }
 
     return NextResponse.json(expense)
   } catch (error) {

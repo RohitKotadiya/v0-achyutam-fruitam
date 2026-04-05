@@ -1,22 +1,51 @@
 import { type NextRequest, NextResponse } from "next/server"
 import prisma from "@/lib/prisma"
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params
     const body = await request.json()
-    const { date, category, description, amount, paymentMethod, remarks } = body
+    const { date, category, description, amount, paidFrom, remarks } = body
+
+    const existing = await prisma.expense.findUnique({ where: { id } })
+    if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
+    const parsedAmount = amount ? parseFloat(amount) : existing.amount
+    const expenseDate = date ? new Date(date) : existing.date
+    const location = ((paidFrom || existing.paidFrom) as string).toUpperCase() as "COUNTER" | "SAFE" | "BANK"
+    const paymentMethod = location === "BANK" ? "ONLINE" : "CASH"
 
     const expense = await prisma.expense.update({
-      where: { id: params.id },
+      where: { id },
       data: {
-        date: date ? new Date(date) : undefined,
+        date: expenseDate,
         category,
         description,
-        amount: amount ? Number.parseFloat(amount) : undefined,
+        amount: parsedAmount,
         paymentMethod,
-        remarks,
+        paidFrom: location,
+        remarks: remarks ?? existing.remarks,
       },
     })
+
+    // Reconcile CashTransaction: delete old one (if existed), create new if SAFE/BANK
+    const oldLocation = existing.paidFrom.toUpperCase()
+    if (oldLocation === "SAFE" || oldLocation === "BANK") {
+      await prisma.cashTransaction.deleteMany({ where: { expenseId: id } })
+    }
+    if (location === "SAFE" || location === "BANK") {
+      await prisma.cashTransaction.create({
+        data: {
+          date: expenseDate,
+          fromLocation: location,
+          toLocation: "EXTERNAL",
+          amount: parsedAmount,
+          note: `Expense: ${description ?? existing.description} (${category ?? existing.category})`,
+          category: "EXPENSE",
+          expenseId: expense.id,
+        },
+      })
+    }
 
     return NextResponse.json(expense)
   } catch (error) {
@@ -25,11 +54,12 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await prisma.expense.delete({
-      where: { id: params.id },
-    })
+    const { id } = await params
+    // Remove linked CashTransaction if SAFE/BANK expense
+    await prisma.cashTransaction.deleteMany({ where: { expenseId: id } })
+    await prisma.expense.delete({ where: { id } })
 
     return NextResponse.json({ success: true })
   } catch (error) {

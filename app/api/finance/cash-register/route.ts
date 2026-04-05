@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { addDays, startOfDay } from "date-fns"
 
 const clampCutoffHour = (value: unknown) => {
   const parsed = Number(value)
@@ -8,19 +7,47 @@ const clampCutoffHour = (value: unknown) => {
   return Math.min(23, Math.max(0, Math.floor(parsed)))
 }
 
-const parseLocalDate = (date: string) => new Date(`${date}T00:00:00`)
+// IST = UTC+5:30. All date arithmetic uses UTC offsets explicitly so the
+// result is identical whether the server runs on IST (local) or UTC (Vercel).
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
 
-const getCurrentBusinessDate = (cutoffHour: number) => {
-  const shifted = new Date()
-  shifted.setHours(shifted.getHours() - cutoffHour)
-  return startOfDay(shifted)
+// Parse "YYYY-MM-DD" as midnight IST, returned as a UTC Date.
+const parseISTDate = (dateStr: string): Date => {
+  const [year, month, day] = dateStr.split("-").map(Number)
+  return new Date(Date.UTC(year, month - 1, day) - IST_OFFSET_MS)
 }
 
+// Return the midnight-IST Date for the current business day, shifted back
+// by cutoffHour so that e.g. 12:30 AM with cutoff=1 belongs to yesterday.
+const getCurrentBusinessDate = (cutoffHour: number): Date => {
+  // Express current instant in IST "wall-clock" milliseconds
+  const istMs = Date.now() + IST_OFFSET_MS
+  // Shift back by the cutoff window
+  const businessMs = istMs - cutoffHour * 3600000
+  // Find UTC midnight of the resulting IST date
+  const d = new Date(businessMs)
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - IST_OFFSET_MS)
+}
+
+// Return { start, end } UTC timestamps covering one business day.
+// businessDate must be a midnight-IST Date (as returned by parseISTDate /
+// getCurrentBusinessDate).
 const getBusinessRange = (businessDate: Date, cutoffHour: number) => {
-  const start = new Date(businessDate)
-  start.setHours(cutoffHour, 0, 0, 0)
-  const end = new Date(addDays(start, 1).getTime() - 1)
+  const start = new Date(businessDate.getTime() + cutoffHour * 3600000)
+  const end   = new Date(start.getTime() + 24 * 3600000 - 1)
   return { start, end }
+}
+
+const isPrismaMissingSchemaError = (error: unknown) => {
+  const code = (error as { code?: string } | null)?.code
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    code === "P2021" ||
+    code === "P2022" ||
+    /unknown arg(ument)?\s+`?paidFrom`?/i.test(message) ||
+    /cashTransaction/i.test(message) ||
+    /cannot read properties of undefined.*aggregate/i.test(message)
+  )
 }
 
 // GET - Fetch cash register for a specific date (default: today)
@@ -31,9 +58,38 @@ export async function GET(request: Request) {
     const cutoffConfig = await prisma.systemConfig.findUnique({ where: { key: "businessDayCutoffHour" } })
     const cutoffHour = clampCutoffHour(cutoffConfig?.value)
 
-    const businessDate = dateParam
-      ? startOfDay(parseLocalDate(dateParam))
-      : getCurrentBusinessDate(cutoffHour)
+    let businessDate: Date
+    if (dateParam) {
+      businessDate = parseISTDate(dateParam)
+    } else {
+      const todayBusiness = getCurrentBusinessDate(cutoffHour)
+      // Check if today's register is open (exists and not closed)
+      const todayReg = await prisma.cashRegister.findUnique({
+        where: { date: todayBusiness },
+        select: { closedAt: true },
+      })
+      if (todayReg && todayReg.closedAt === null) {
+        // Today's register is open — show today
+        businessDate = todayBusiness
+      } else {
+        // Today's register is closed or doesn't exist yet.
+        // Check yesterday: if it has bills but register not closed, show it.
+        const yesterday = new Date(todayBusiness.getTime() - 24 * 3600000)
+        const { start: yStart, end: yEnd } = getBusinessRange(yesterday, cutoffHour)
+        const yBills = await prisma.bill.count({
+          where: { dateTime: { gte: yStart, lte: yEnd } },
+        })
+        const yReg = await prisma.cashRegister.findUnique({
+          where: { date: yesterday },
+          select: { closedAt: true },
+        })
+        if (yBills > 0 && (!yReg || yReg.closedAt === null)) {
+          businessDate = yesterday
+        } else {
+          businessDate = todayBusiness
+        }
+      }
+    }
     const { start: dayStart, end: dayEnd } = getBusinessRange(businessDate, cutoffHour)
 
     // Get or create today's register
@@ -83,54 +139,86 @@ export async function GET(request: Request) {
       _sum: { amount: true },
     })
 
-    // Capital (owner putting cash in)
-    const cashCapital = await prisma.ownerTransaction.aggregate({
-      where: {
-        date: { gte: dayStart, lte: dayEnd },
-        type: "CAPITAL",
-        paymentMethod: "CASH",
-      },
-      _sum: { amount: true },
-    })
+    // Transfers from Safe/Bank arriving at Counter (physical cash in)
+    let counterTransfersInAmount = 0
+    try {
+      const counterTransfersIn = await prisma.cashTransaction.aggregate({
+        where: {
+          date: { gte: dayStart, lte: dayEnd },
+          toLocation: "COUNTER",
+        },
+        _sum: { amount: true },
+      })
+      counterTransfersInAmount = counterTransfersIn._sum.amount || 0
+    } catch (error) {
+      if (!isPrismaMissingSchemaError(error)) throw error
+      counterTransfersInAmount = 0
+    }
 
-    const totalCashIn = cashFromSales + (cashCollections._sum.amount || 0) + (cashCapital._sum.amount || 0)
+    const totalCashIn =
+      cashFromSales +
+      (cashCollections._sum.amount || 0) +
+      counterTransfersInAmount
 
-    // Calculate cash out (cash expenses + cash drawings)
-    const cashExpenses = await prisma.expense.aggregate({
-      where: {
-        date: { gte: dayStart, lte: dayEnd },
-        paymentMethod: "CASH",
-      },
-      _sum: { amount: true },
-    })
+    // Counter expenses (paid from counter cash drawer)
+    // Fallback to legacy paymentMethod when paidFrom column is not migrated yet.
+    let cashExpensesAmount = 0
+    try {
+      const cashExpenses = await prisma.expense.aggregate({
+        where: {
+          date: { gte: dayStart, lte: dayEnd },
+          paidFrom: "COUNTER",
+        },
+        _sum: { amount: true },
+      })
+      cashExpensesAmount = cashExpenses._sum.amount || 0
+    } catch (error) {
+      if (!isPrismaMissingSchemaError(error)) throw error
+      const legacyCashExpenses = await prisma.expense.aggregate({
+        where: {
+          date: { gte: dayStart, lte: dayEnd },
+          paymentMethod: "CASH",
+        },
+        _sum: { amount: true },
+      })
+      cashExpensesAmount = legacyCashExpenses._sum.amount || 0
+    }
 
-    const cashDrawings = await prisma.ownerTransaction.aggregate({
-      where: {
-        date: { gte: dayStart, lte: dayEnd },
-        type: "DRAWING",
-        paymentMethod: "CASH",
-      },
-      _sum: { amount: true },
-    })
+    // Transfers from Counter going to Safe/Bank
+    let counterTransfersOutAmount = 0
+    try {
+      const counterTransfersOut = await prisma.cashTransaction.aggregate({
+        where: {
+          date: { gte: dayStart, lte: dayEnd },
+          fromLocation: "COUNTER",
+        },
+        _sum: { amount: true },
+      })
+      counterTransfersOutAmount = counterTransfersOut._sum.amount || 0
+    } catch (error) {
+      if (!isPrismaMissingSchemaError(error)) throw error
+      counterTransfersOutAmount = 0
+    }
 
-    const totalCashOut = (cashExpenses._sum.amount || 0) + (cashDrawings._sum.amount || 0)
+    const totalCashOut = cashExpensesAmount + counterTransfersOutAmount
 
     const openingBalance = register?.openingBalance || 0
     const expectedClosing = openingBalance + totalCashIn - totalCashOut
 
     return NextResponse.json({
       register,
+      businessDate: businessDate.toISOString(),
       summary: {
         openingBalance,
         cashIn: {
           sales: cashFromSales,
           collections: cashCollections._sum.amount || 0,
-          capital: cashCapital._sum.amount || 0,
+          transfersIn: counterTransfersInAmount,
           total: totalCashIn,
         },
         cashOut: {
-          expenses: cashExpenses._sum.amount || 0,
-          drawings: cashDrawings._sum.amount || 0,
+          expenses: cashExpensesAmount,
+          transfersOut: counterTransfersOutAmount,
           total: totalCashOut,
         },
         expectedClosing,
@@ -140,7 +228,14 @@ export async function GET(request: Request) {
     })
   } catch (error) {
     console.error("Error fetching cash register:", error)
-    return NextResponse.json({ error: "Failed to fetch cash register" }, { status: 500 })
+    const details = error instanceof Error ? error.message : String(error)
+    return NextResponse.json(
+      {
+        error: "Failed to fetch cash register",
+        ...(process.env.NODE_ENV !== "production" ? { details } : {}),
+      },
+      { status: 500 }
+    )
   }
 }
 
@@ -152,7 +247,7 @@ export async function POST(request: Request) {
     const cutoffConfig = await prisma.systemConfig.findUnique({ where: { key: "businessDayCutoffHour" } })
     const cutoffHour = clampCutoffHour(cutoffConfig?.value)
     const targetDate = date
-      ? startOfDay(parseLocalDate(date))
+      ? parseISTDate(date)
       : getCurrentBusinessDate(cutoffHour)
 
     const data: any = {}
@@ -178,7 +273,7 @@ export async function POST(request: Request) {
     // When closing the register, auto-seed next day's opening balance
     // with today's closing amount — only if next day has no record yet
     if (actualClosing !== undefined) {
-      const nextDay = startOfDay(addDays(targetDate, 1))
+      const nextDay = new Date(targetDate.getTime() + 24 * 3600000)
       await prisma.cashRegister.upsert({
         where: { date: nextDay },
         create: {

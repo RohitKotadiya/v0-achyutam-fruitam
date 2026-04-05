@@ -11,17 +11,22 @@ import { SuppliersTab } from "@/components/admin/suppliers-tab"
 import { SettingsTab } from "@/components/admin/settings-tab"
 import { FinanceTab } from "@/components/admin/finance-tab"
 import { StockTransferTab } from "@/components/admin/stock-transfer-tab"
-import { Package, ShoppingCart, FolderKanban, BarChart3, Users, Truck, Settings, Wallet } from "lucide-react"
+import { Package, ShoppingCart, FolderKanban, BarChart3, Users, Truck, Settings, Wallet, FlaskConical, LogOut, FileText } from "lucide-react"
 import { BackButton } from "@/components/ui/back-button"
 import { useRouter } from "next/navigation"
-import { FileText } from "lucide-react"
+import { signOut, useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 
+const ADMIN_ACTIVE_TAB_KEY = "admin-active-tab-v1"
+
 export default function AdminPage() {
+  const { data: session } = useSession()
   const [activeTab, setActiveTab] = useState("inventory")
+  const [isActiveTabRestored, setIsActiveTabRestored] = useState(false)
   const [settings, setSettings] = useState<Record<string,string>>({ enableStockTransfer: "true" })
   const router = useRouter()
-  const tabTriggerClass = "flex items-center gap-2 !flex-none px-3"
+  const tabTriggerClass =
+    "flex items-center gap-2 !flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:shadow-sm"
 
   useEffect(() => {
     async function loadSettings() {
@@ -33,6 +38,31 @@ export default function AdminPage() {
     }
     loadSettings()
   }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const savedTab = window.localStorage.getItem(ADMIN_ACTIVE_TAB_KEY)
+    const allowedTabs = ["inventory", "mix-entry", "mix-batches", "sku", "categories", "stock-transfer", "finance", "reports", "customers", "suppliers", "settings"]
+    if (savedTab && allowedTabs.includes(savedTab)) {
+      setActiveTab(savedTab)
+    }
+    setIsActiveTabRestored(true)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (!isActiveTabRestored) return
+    window.localStorage.setItem(ADMIN_ACTIVE_TAB_KEY, activeTab)
+  }, [activeTab, isActiveTabRestored])
+
+  useEffect(() => {
+    if (activeTab === "stock-transfer" && settings.enableStockTransfer !== "true") {
+      setActiveTab("inventory")
+    }
+    if ((activeTab === "mix-entry" || activeTab === "mix-batches") && settings.enableMixDishPrep !== "true") {
+      setActiveTab("inventory")
+    }
+  }, [activeTab, settings.enableStockTransfer, settings.enableMixDishPrep])
 
   return (
     <div className="min-h-screen bg-background">
@@ -51,7 +81,7 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Right: Bills + POS buttons */}
+            {/* Right: Bills + POS + Logout buttons */}
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -71,6 +101,19 @@ export default function AdminPage() {
                 <ShoppingCart className="w-4 h-4 mr-2" />
                 POS
               </Button>
+
+              {session && (
+                <span className="hidden md:flex items-center text-xs">
+                  <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-medium">Admin</span>
+                </span>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => signOut({ callbackUrl: "/login" })}
+              >
+                <LogOut className="w-4 h-4" />
+              </Button>
             </div>
           </div>
         </div>
@@ -84,6 +127,18 @@ export default function AdminPage() {
               <Package className="h-4 w-4" />
               <span className="hidden sm:inline">Inventory</span>
             </TabsTrigger>
+            {settings.enableMixDishPrep === "true" && (
+            <TabsTrigger value="mix-entry" className={tabTriggerClass}>
+              <FlaskConical className="h-4 w-4" />
+              <span className="hidden sm:inline">Mix Entry</span>
+            </TabsTrigger>
+            )}
+            {settings.enableMixDishPrep === "true" && (
+            <TabsTrigger value="mix-batches" className={tabTriggerClass}>
+              <FlaskConical className="h-4 w-4" />
+              <span className="hidden sm:inline">Mix Batches</span>
+            </TabsTrigger>
+            )}
             <TabsTrigger value="sku" className={tabTriggerClass}>
               <ShoppingCart className="h-4 w-4" />
               <span className="hidden sm:inline">SKU</span>
@@ -104,7 +159,7 @@ export default function AdminPage() {
             </TabsTrigger>
             <TabsTrigger value="reports" className={tabTriggerClass}>
               <BarChart3 className="h-4 w-4" />
-              <span className="hidden sm:inline">Reports</span>
+              <span className="hidden sm:inline">Sales</span>
             </TabsTrigger>
             <TabsTrigger value="customers" className={tabTriggerClass}>
               <Users className="h-4 w-4" />
@@ -116,7 +171,6 @@ export default function AdminPage() {
             </TabsTrigger>
             <TabsTrigger value="settings" className={tabTriggerClass}>
               <Settings className="h-4 w-4" />
-              <span className="hidden sm:inline">Settings</span>
             </TabsTrigger>
             </TabsList>
           </div>
@@ -124,6 +178,18 @@ export default function AdminPage() {
           <TabsContent value="inventory" className="space-y-4">
             <InventoryTab />
           </TabsContent>
+
+          {settings.enableMixDishPrep === "true" && (
+          <TabsContent value="mix-entry" className="space-y-4">
+            <InventoryTab forcedSubTab="prepare-mix" forcedPrepareMixView="entry" hideSubTabList />
+          </TabsContent>
+          )}
+
+          {settings.enableMixDishPrep === "true" && (
+          <TabsContent value="mix-batches" className="space-y-4">
+            <InventoryTab forcedSubTab="prepare-mix" forcedPrepareMixView="batches" hideSubTabList />
+          </TabsContent>
+          )}
 
           <TabsContent value="sku" className="space-y-4">
             <SKUTab />

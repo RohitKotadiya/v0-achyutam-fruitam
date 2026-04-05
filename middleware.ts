@@ -1,45 +1,32 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getToken } from "next-auth/jwt"
 
-function unauthorizedResponse() {
-  return new NextResponse("Authentication required", {
-    status: 401,
-    headers: {
-      "WWW-Authenticate": 'Basic realm="POS Access", charset="UTF-8"',
-      "X-Robots-Tag": "noindex, nofollow, noarchive",
-    },
-  })
-}
-
-function isAuthorized(request: NextRequest, username: string, password: string) {
-  const authHeader = request.headers.get("authorization")
-  if (!authHeader?.startsWith("Basic ")) return false
-
-  const encoded = authHeader.slice(6)
-  let decoded = ""
-  try {
-    decoded = atob(encoded)
-  } catch {
-    return false
-  }
-
-  const separatorIndex = decoded.indexOf(":")
-  if (separatorIndex < 0) return false
-
-  const user = decoded.slice(0, separatorIndex)
-  const pass = decoded.slice(separatorIndex + 1)
-  return user === username && pass === password
-}
-
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
   const response = NextResponse.next()
   response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive")
 
-  const username = process.env.POS_BASIC_AUTH_USER
-  const password = process.env.POS_BASIC_AUTH_PASSWORD
+  // Public paths — no auth needed
+  if (pathname.startsWith("/login") || pathname.startsWith("/api/auth")) {
+    return response
+  }
 
-  // Enable global access wall when credentials are configured.
-  if (username && password && !isAuthorized(request, username, password)) {
-    return unauthorizedResponse()
+  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
+
+  if (!token) {
+    // API routes get 401
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    // Pages redirect to login
+    const loginUrl = new URL("/login", request.url)
+    loginUrl.searchParams.set("callbackUrl", pathname)
+    return NextResponse.redirect(loginUrl)
+  }
+
+  // Admin routes require ADMIN role
+  if (pathname.startsWith("/admin") && token.role !== "ADMIN") {
+    return NextResponse.redirect(new URL("/pos?error=unauthorized", request.url))
   }
 
   return response

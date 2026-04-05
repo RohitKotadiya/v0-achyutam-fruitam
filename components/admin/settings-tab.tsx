@@ -17,6 +17,14 @@ interface CategoryOption {
   name: string
 }
 
+interface UserRow {
+  id: string
+  name: string | null
+  email: string
+  role: string
+  active: boolean
+}
+
 const DEFAULT_SETTINGS: Record<string, string> = {
   shopName: "Achyutam Fruitam",
   shopAddress: "",
@@ -42,10 +50,19 @@ export function SettingsTab() {
   const [fetching, setFetching] = useState(true)
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
   const [categories, setCategories] = useState<CategoryOption[]>([])
+  const [users, setUsers] = useState<UserRow[]>([])
+  const [editingUser, setEditingUser] = useState<string | null>(null)
+  const [editUserData, setEditUserData] = useState({ name: "", email: "", role: "STAFF" })
+  const [changingPasswordFor, setChangingPasswordFor] = useState<string | null>(null)
+  const [newPassword, setNewPassword] = useState("")
+  const [showAddUser, setShowAddUser] = useState(false)
+  const [newUser, setNewUser] = useState({ name: "", email: "", password: "", role: "STAFF" })
+  const [userLoading, setUserLoading] = useState(false)
 
   useEffect(() => {
     fetchSettings()
     fetchCategories()
+    fetchUsers()
   }, [])
 
   const fetchCategories = async () => {
@@ -76,6 +93,85 @@ export function SettingsTab() {
 
   const updateSetting = (key: string, value: string) => {
     setSettings((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch("/api/users")
+      const data = await res.json()
+      if (Array.isArray(data)) setUsers(data)
+    } catch { setUsers([]) }
+  }
+
+  const handleSaveUser = async (id: string) => {
+    setUserLoading(true)
+    try {
+      const res = await fetch(`/api/users/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editUserData),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      await fetchUsers()
+      setEditingUser(null)
+      toast({ title: "User updated" })
+    } catch (e: unknown) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Failed", variant: "destructive" })
+    } finally { setUserLoading(false) }
+  }
+
+  const handleChangePassword = async (id: string) => {
+    if (!newPassword.trim()) return
+    setUserLoading(true)
+    try {
+      const res = await fetch(`/api/users/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: newPassword }),
+      })
+      if (!res.ok) throw new Error("Failed")
+      setChangingPasswordFor(null)
+      setNewPassword("")
+      toast({ title: "Password changed" })
+    } catch {
+      toast({ title: "Error", description: "Failed to change password", variant: "destructive" })
+    } finally { setUserLoading(false) }
+  }
+
+  const handleAddUser = async () => {
+    if (!newUser.email || !newUser.password) return
+    setUserLoading(true)
+    try {
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newUser),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      await fetchUsers()
+      setShowAddUser(false)
+      setNewUser({ name: "", email: "", password: "", role: "STAFF" })
+      toast({ title: "User added" })
+    } catch (e: unknown) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Failed", variant: "destructive" })
+    } finally { setUserLoading(false) }
+  }
+
+  const handleToggleActive = async (user: UserRow) => {
+    setUserLoading(true)
+    try {
+      await fetch(`/api/users/${user.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: !user.active }),
+      })
+      await fetchUsers()
+      toast({ title: user.active ? "User deactivated" : "User activated" })
+    } catch {
+      toast({ title: "Error", variant: "destructive" })
+    } finally { setUserLoading(false) }
   }
 
   const handleSave = async (e: React.FormEvent) => {
@@ -324,6 +420,133 @@ export function SettingsTab() {
               {loading ? "Saving..." : "Save Settings"}
             </Button>
           </form>
+        </CardContent>
+      </Card>
+
+      {/* User Management */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>User Management</CardTitle>
+              <CardDescription>Manage login accounts and permissions</CardDescription>
+            </div>
+            <Button size="sm" onClick={() => { setShowAddUser(true); setEditingUser(null); setChangingPasswordFor(null) }}>
+              + Add User
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {/* Add User Form */}
+          {showAddUser && (
+            <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
+              <p className="text-sm font-medium">New User</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Name</Label>
+                  <Input value={newUser.name} onChange={(e) => setNewUser(p => ({ ...p, name: e.target.value }))} placeholder="Display name" />
+                </div>
+                <div className="space-y-1">
+                  <Label>Email *</Label>
+                  <Input type="email" value={newUser.email} onChange={(e) => setNewUser(p => ({ ...p, email: e.target.value }))} placeholder="user@example.com" />
+                </div>
+                <div className="space-y-1">
+                  <Label>Password *</Label>
+                  <Input type="password" value={newUser.password} onChange={(e) => setNewUser(p => ({ ...p, password: e.target.value }))} placeholder="Min 6 characters" />
+                </div>
+                <div className="space-y-1">
+                  <Label>Role</Label>
+                  <Select value={newUser.role} onValueChange={(v) => setNewUser(p => ({ ...p, role: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ADMIN">Admin</SelectItem>
+                      <SelectItem value="STAFF">Staff</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleAddUser} disabled={userLoading}>Add</Button>
+                <Button size="sm" variant="outline" onClick={() => setShowAddUser(false)}>Cancel</Button>
+              </div>
+            </div>
+          )}
+
+          {/* Users List */}
+          {users.map((user) => (
+            <div key={user.id} className={`border rounded-lg p-3 space-y-2 ${!user.active ? "opacity-50" : ""}`}>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium shrink-0 ${user.role === "ADMIN" ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-600"}`}>
+                    {user.role === "ADMIN" ? "Admin" : "Staff"}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{user.name || "—"}</p>
+                    <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                  </div>
+                  {!user.active && <span className="text-xs text-destructive shrink-0">Inactive</span>}
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs"
+                    onClick={() => { setEditingUser(editingUser === user.id ? null : user.id); setEditUserData({ name: user.name ?? "", email: user.email, role: user.role }); setChangingPasswordFor(null) }}>
+                    Edit
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs"
+                    onClick={() => { setChangingPasswordFor(changingPasswordFor === user.id ? null : user.id); setNewPassword(""); setEditingUser(null) }}>
+                    Password
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs"
+                    onClick={() => handleToggleActive(user)} disabled={userLoading}>
+                    {user.active ? "Deactivate" : "Activate"}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Edit Profile */}
+              {editingUser === user.id && (
+                <div className="pt-2 border-t space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label>Name</Label>
+                      <Input value={editUserData.name} onChange={(e) => setEditUserData(p => ({ ...p, name: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Email</Label>
+                      <Input type="email" value={editUserData.email} onChange={(e) => setEditUserData(p => ({ ...p, email: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Role</Label>
+                      <Select value={editUserData.role} onValueChange={(v) => setEditUserData(p => ({ ...p, role: v }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ADMIN">Admin</SelectItem>
+                          <SelectItem value="STAFF">Staff</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => handleSaveUser(user.id)} disabled={userLoading}>Save</Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditingUser(null)}>Cancel</Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Change Password */}
+              {changingPasswordFor === user.id && (
+                <div className="pt-2 border-t flex gap-2 items-end">
+                  <div className="space-y-1 flex-1">
+                    <Label>New Password</Label>
+                    <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Enter new password" />
+                  </div>
+                  <Button size="sm" onClick={() => handleChangePassword(user.id)} disabled={userLoading || !newPassword.trim()}>Save</Button>
+                  <Button size="sm" variant="outline" onClick={() => setChangingPasswordFor(null)}>Cancel</Button>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {users.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No users found</p>}
         </CardContent>
       </Card>
     </div>

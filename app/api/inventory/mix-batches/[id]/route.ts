@@ -38,6 +38,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const currentRemaining = Number(batch.producedUnitsRemaining) || 0
     const consumedUnits = currentProduced - currentRemaining
 
+    // Prevent updates if batch is fully sold
+    if (currentRemaining <= 0) {
+      return NextResponse.json(
+        {
+          error: "Cannot update batch - all units have been sold and batch is closed",
+        },
+        { status: 400 },
+      )
+    }
+
     if (producedUnits + 1e-9 < consumedUnits) {
       return NextResponse.json(
         {

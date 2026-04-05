@@ -9,6 +9,7 @@ export async function GET() {
       select: {
         id: true,
         billNo: true,
+        displayBillNo: true,
         grandTotal: true,
         customerName: true,
         customerId: true,

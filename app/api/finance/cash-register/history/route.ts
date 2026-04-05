@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { addDays, endOfDay, startOfDay, subDays } from "date-fns"
 
-const parseLocalDate = (date: string) => new Date(`${date}T00:00:00`)
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
 
 const clampCutoffHour = (value: unknown) => {
   const parsed = Number(value)
@@ -10,16 +9,21 @@ const clampCutoffHour = (value: unknown) => {
   return Math.min(23, Math.max(0, Math.floor(parsed)))
 }
 
-const getCurrentBusinessDate = (cutoffHour: number) => {
-  const shifted = new Date()
-  shifted.setHours(shifted.getHours() - cutoffHour)
-  return startOfDay(shifted)
+const parseISTDate = (dateStr: string): Date => {
+  const [year, month, day] = dateStr.split("-").map(Number)
+  return new Date(Date.UTC(year, month - 1, day) - IST_OFFSET_MS)
+}
+
+const getCurrentBusinessDate = (cutoffHour: number): Date => {
+  const istMs = Date.now() + IST_OFFSET_MS
+  const businessMs = istMs - cutoffHour * 3600000
+  const d = new Date(businessMs)
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - IST_OFFSET_MS)
 }
 
 const getBusinessRange = (businessDate: Date, cutoffHour: number) => {
-  const start = new Date(businessDate)
-  start.setHours(cutoffHour, 0, 0, 0)
-  const end = new Date(addDays(start, 1).getTime() - 1)
+  const start = new Date(businessDate.getTime() + cutoffHour * 3600000)
+  const end   = new Date(start.getTime() + 24 * 3600000 - 1)
   return { start, end }
 }
 
@@ -35,8 +39,8 @@ export async function GET(request: Request) {
 
     // Default: last 30 days if no range provided
     const currentBusinessDate = getCurrentBusinessDate(cutoffHour)
-    const from = startDate ? startOfDay(parseLocalDate(startDate)) : startOfDay(subDays(currentBusinessDate, 29))
-    const to = endDate ? endOfDay(parseLocalDate(endDate)) : endOfDay(currentBusinessDate)
+    const from = startDate ? parseISTDate(startDate) : new Date(getCurrentBusinessDate(cutoffHour).getTime() - 29 * 24 * 3600000)
+    const to   = endDate   ? new Date(parseISTDate(endDate).getTime() + 24 * 3600000 - 1) : new Date(currentBusinessDate.getTime() + 24 * 3600000 - 1)
 
     const where: any = { date: { gte: from, lte: to } }
     if (status === "closed") where.closedAt = { not: null }
@@ -52,9 +56,9 @@ export async function GET(request: Request) {
     // We use per-record queries since records are limited (max ~90 days typical)
     const enriched = await Promise.all(
       registers.map(async (reg) => {
-        const { start: dayStart, end: dayEnd } = getBusinessRange(startOfDay(reg.date), cutoffHour)
+        const { start: dayStart, end: dayEnd } = getBusinessRange(reg.date, cutoffHour)
 
-        const [pureCashBills, splitBills, cashCollections, cashCapital, cashExpenses, cashDrawings] = await Promise.all([
+        const [pureCashBills, splitBills, cashCollections, counterTransfersIn, cashExpenses, counterTransfersOut] = await Promise.all([
           prisma.bill.aggregate({
             where: { dateTime: { gte: dayStart, lte: dayEnd }, paymentMethod: "CASH" },
             _sum: { grandTotal: true },
@@ -67,16 +71,16 @@ export async function GET(request: Request) {
             where: { date: { gte: dayStart, lte: dayEnd }, paymentMethod: "CASH" },
             _sum: { amount: true },
           }),
-          prisma.ownerTransaction.aggregate({
-            where: { date: { gte: dayStart, lte: dayEnd }, type: "CAPITAL", paymentMethod: "CASH" },
+          prisma.cashTransaction.aggregate({
+            where: { date: { gte: dayStart, lte: dayEnd }, toLocation: "COUNTER" },
             _sum: { amount: true },
           }),
           prisma.expense.aggregate({
-            where: { date: { gte: dayStart, lte: dayEnd }, paymentMethod: "CASH" },
+            where: { date: { gte: dayStart, lte: dayEnd }, paidFrom: "COUNTER" },
             _sum: { amount: true },
           }),
-          prisma.ownerTransaction.aggregate({
-            where: { date: { gte: dayStart, lte: dayEnd }, type: "DRAWING", paymentMethod: "CASH" },
+          prisma.cashTransaction.aggregate({
+            where: { date: { gte: dayStart, lte: dayEnd }, fromLocation: "COUNTER" },
             _sum: { amount: true },
           }),
         ])
@@ -85,9 +89,9 @@ export async function GET(request: Request) {
           (pureCashBills._sum.grandTotal || 0) +
           (splitBills._sum.cashAmount || 0) +
           (cashCollections._sum.amount || 0) +
-          (cashCapital._sum.amount || 0)
+          (counterTransfersIn._sum.amount || 0)
 
-        const cashOut = (cashExpenses._sum.amount || 0) + (cashDrawings._sum.amount || 0)
+        const cashOut = (cashExpenses._sum.amount || 0) + (counterTransfersOut._sum.amount || 0)
 
         const expectedClosing = reg.openingBalance + cashIn - cashOut
         const difference = reg.actualClosing != null ? reg.actualClosing - expectedClosing : null

@@ -10,8 +10,8 @@ datasource db {
 enum PaymentMethod {
   CASH
   ONLINE
-  SPLIT
   PENDING
+  SPLIT
 }
 
 enum PaymentStatus {
@@ -27,42 +27,70 @@ enum UserRole {
 }
 
 enum ReturnStatus {
-  RESTOCKED   // Item returned to inventory
-  DAMAGED     // Item was spoiled/damaged
+  RESTOCKED
+  DAMAGED
 }
 
-// Users (for authentication)
+enum OwnerTransactionType {
+  DRAWING
+  CAPITAL
+}
+
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  name          String?
-  password      String    // Hashed with bcrypt
-  role          UserRole  @default(USER)
-  active        Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String           @id @default(cuid())
+  email           String           @unique
+  name            String?
+  password        String
+  role            UserRole         @default(USER)
+  active          Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  cashAdjustments CashAdjustment[] @relation("UserCashAdjustments")
 
   @@index([email])
   @@index([role])
 }
 
-// Dynamic Category Management
-model ProductCategory {
-  id            String    @id @default(cuid())
-  name          String    @unique  // Internal name (e.g., 'fruit_bomb')
-  displayName   String              // Display name (e.g., 'Fruit Bomb')
-  description   String?
-  sortOrder     Int       @default(0)
-  color         String    @default("#8b5cf6") // Hex color code
-  icon          String?   // Icon name or emoji
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+model CashAdjustment {
+  id         String        @id @default(cuid())
+  amount     Float
+  reason     String
+  notes      String
+  userId     String?
+  user       User?         @relation("UserCashAdjustments", fields: [userId], references: [id])
+  registerId String?
+  register   CashRegister? @relation(fields: [registerId], references: [id])
+  createdAt  DateTime      @default(now())
+}
 
-  // Relations
-  products      Product[]
-  changeHistory CategoryChangeHistory[]
+model CashRegister {
+  id             String           @id @default(cuid())
+  date           DateTime         @unique
+  openingBalance Float            @default(0)
+  actualClosing  Float?
+  notes          String?
+  closedAt       DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  adjustments    CashAdjustment[]
+
+  @@index([date])
+}
+
+model ProductCategory {
+  id              String                  @id @default(cuid())
+  name            String                  @unique
+  displayName     String
+  description     String?
+  sortOrder       Int                     @default(0)
+  color           String                  @default("#8b5cf6")
+  icon            String?
+  isActive        Boolean                 @default(true)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  changeHistory   CategoryChangeHistory[]
   mixPreparations MixPreparation[]
+  products        Product[]
 
   @@index([name])
   @@index([isActive])
@@ -70,72 +98,67 @@ model ProductCategory {
 }
 
 model CategoryChangeHistory {
-  id            String          @id @default(cuid())
-  dateTime      DateTime        @default(now())
-  categoryId    String
-  category      ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  fieldChanged  String
-  oldValue      String
-  newValue      String
-  changedBy     String          @default("System")
-  createdAt     DateTime        @default(now())
+  id           String          @id @default(cuid())
+  dateTime     DateTime        @default(now())
+  categoryId   String
+  fieldChanged String
+  oldValue     String
+  newValue     String
+  changedBy    String          @default("System")
+  createdAt    DateTime        @default(now())
+  category     ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   @@index([categoryId])
   @@index([dateTime])
 }
 
-// Products/SKU Master
 model Product {
-  id            String          @id @default(cuid())
-  sku           String          @unique
-  name          String
-  categoryId    String          // Changed from enum to categoryId
-  category      ProductCategory @relation(fields: [categoryId], references: [id]) // Added relation
-  imageUrl      String?
-  originalCost  Float
-  sellingPrice  Float
-  active        Boolean         @default(true)
-  lowStockAlert Int             @default(10) // Alert when stock goes below this
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-
-  // Relations
-  inventoryLogs      InventoryLog[]
-  currentStock       StockCurrent?
-  billItems          BillItem[]
-  damageLogs         DamageLog[]
-  skuChangeHistory   SKUChangeHistory[]
-  mixDishIngredients MixDishIngredient[]
-  fruitbombIngredients FruitbombIngredient[]
-  mixPreparationTargets MixPreparation[] @relation("MixPreparationTarget")
+  id                        String                     @id @default(cuid())
+  sku                       String                     @unique
+  name                      String
+  categoryId                String
+  originalCost              Float
+  sellingPrice              Float
+  active                    Boolean                    @default(true)
+  lowStockAlert             Int                        @default(10)
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  imageUrl                  String?
+  billItems                 BillItem[]
+  damageLogs                DamageLog[]
+  fruitbombIngredients      FruitbombIngredient[]
+  inventoryLogs             InventoryLog[]
+  mixDishIngredients        MixDishIngredient[]
+  mixPreparationTargets     MixPreparation[]           @relation("MixPreparationTarget")
   mixPreparationIngredients MixPreparationIngredient[] @relation("MixPreparationIngredientProduct")
-  returns            ReturnLog[]
-  stockTransferItems StockTransferItem[]
+  category                  ProductCategory            @relation(fields: [categoryId], references: [id])
+  returns                   ReturnLog[]
+  skuChangeHistory          SKUChangeHistory[]
+  currentStock              StockCurrent?
+  stockTransferItems        StockTransferItem[]
 
   @@index([sku])
-  @@index([categoryId]) // Updated index
+  @@index([categoryId])
   @@index([active])
 }
 
-// Generic mix preparation (dynamic target SKU + source category)
 model MixPreparation {
-  id               String          @id @default(cuid())
-  date             DateTime        @default(now())
-  targetProductId  String
-  targetProduct    Product         @relation("MixPreparationTarget", fields: [targetProductId], references: [id])
-  sourceCategoryId String
-  sourceCategory   ProductCategory @relation(fields: [sourceCategoryId], references: [id])
-  preparedQuantity Float
-  producedUnits    Float           @default(0)
-  costUnits        Float           @default(0)
-  producedUnitsRemaining Float     @default(0)
-  costUnitsRemaining Float         @default(0)
-  totalIngredientCost Float        @default(0)
-  unitCostPerCostUnit Float        @default(0)
-  remarks          String?
-  createdAt        DateTime        @default(now())
-
-  ingredients      MixPreparationIngredient[]
+  id                     String                     @id @default(cuid())
+  date                   DateTime                   @default(now())
+  targetProductId        String
+  sourceCategoryId       String
+  preparedQuantity       Float
+  remarks                String?
+  createdAt              DateTime                   @default(now())
+  producedUnits          Float                      @default(0)
+  costUnits              Float                      @default(0)
+  producedUnitsRemaining Float                      @default(0)
+  costUnitsRemaining     Float                      @default(0)
+  totalIngredientCost    Float                      @default(0)
+  unitCostPerCostUnit    Float                      @default(0)
+  sourceCategory         ProductCategory            @relation(fields: [sourceCategoryId], references: [id])
+  targetProduct          Product                    @relation("MixPreparationTarget", fields: [targetProductId], references: [id])
+  ingredients            MixPreparationIngredient[]
 
   @@index([date])
   @@index([targetProductId])
@@ -146,78 +169,74 @@ model MixPreparation {
 model MixPreparationIngredient {
   id            String         @id @default(cuid())
   preparationId String
-  preparation   MixPreparation @relation(fields: [preparationId], references: [id], onDelete: Cascade)
   productId     String
-  product       Product        @relation("MixPreparationIngredientProduct", fields: [productId], references: [id])
   quantity      Float
+  preparation   MixPreparation @relation(fields: [preparationId], references: [id], onDelete: Cascade)
+  product       Product        @relation("MixPreparationIngredientProduct", fields: [productId], references: [id])
 
   @@index([preparationId])
   @@index([productId])
 }
 
-// Current Stock
 model StockCurrent {
-  id            String   @id @default(cuid())
-  productId     String   @unique
-  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  currentStock  Float    @default(0)
+  id              String   @id @default(cuid())
+  productId       String   @unique
+  currentStock    Float    @default(0)
+  updatedAt       DateTime @updatedAt
   weightedAvgCost Float?
-  updatedAt     DateTime @updatedAt
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([productId])
   @@index([currentStock])
 }
 
-// Inventory Log
 model InventoryLog {
-  id                String        @id @default(cuid())
-  date              DateTime      @default(now())
-  productId         String
-  product           Product       @relation(fields: [productId], references: [id])
-  unitsReceived     Float
-  unitsOnline       Float         @default(0)
-  unitsCash         Float         @default(0)
-  unitsPending      Float         @default(0)
-  paymentStatus     PaymentStatus @default(PENDING)
-  costPrice         Float
-  sellingPrice      Float
-  profitMargin      Float
-  remarks           String?
-  originalCost      Float
-  discountPercent   Float         @default(0)
-  avgCost           Float?
-  supplierId        String?
-  supplier          Supplier?     @relation(fields: [supplierId], references: [id])
-  createdAt         DateTime      @default(now())
+  id              String        @id @default(cuid())
+  date            DateTime      @default(now())
+  productId       String
+  unitsReceived   Float
+  unitsOnline     Float         @default(0)
+  unitsCash       Float         @default(0)
+  unitsPending    Float         @default(0)
+  paymentStatus   PaymentStatus @default(PENDING)
+  costPrice       Float
+  sellingPrice    Float
+  profitMargin    Float
+  remarks         String?
+  originalCost    Float
+  discountPercent Float         @default(0)
+  avgCost         Float?
+  supplierId      String?
+  createdAt       DateTime      @default(now())
+  product         Product       @relation(fields: [productId], references: [id])
+  supplier        Supplier?     @relation(fields: [supplierId], references: [id])
 
   @@index([productId])
   @@index([date])
   @@index([paymentStatus])
 }
 
-// Bills
 model Bill {
-  id              String        @id @default(cuid())
-  billNo          Int           @unique @default(autoincrement())
-  dateTime        DateTime      @default(now())
-  customerName    String        @default("Walk-in-Cust")
-  mobile          String?
-  customerId      String?
-  customer        Customer?     @relation(fields: [customerId], references: [id])
-  paymentMethod   PaymentMethod @default(CASH)
-  cashAmount      Float?
-  onlineAmount    Float?
-  remarks         String?
-  grandTotal      Float
-  totalCost       Float
-  totalProfit     Float
-  refundTotal     Float         @default(0)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-
-  // Relations
-  lineItems          BillItem[]
+  id                 String              @id @default(cuid())
+  billNo             Int                 @unique @default(autoincrement())
+  displayBillNo      String?             @unique
+  dateTime           DateTime            @default(now())
+  customerName       String              @default("Walk-in-Cust")
+  mobile             String?
+  customerId         String?
+  paymentMethod      PaymentMethod       @default(CASH)
+  remarks            String?
+  grandTotal         Float
+  totalCost          Float
+  totalProfit        Float
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  cashAmount         Float?
+  onlineAmount       Float?
+  refundTotal        Float               @default(0)
+  customer           Customer?           @relation(fields: [customerId], references: [id])
   editLogs           BillEditLog[]
+  lineItems          BillItem[]
   paymentCollections PaymentCollection[]
   returns            ReturnLog[]
 
@@ -228,39 +247,35 @@ model Bill {
   @@index([paymentMethod, dateTime])
 }
 
-// Bill Line Items
 model BillItem {
-  id                String   @id @default(cuid())
-  billId            String
-  bill              Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
-  productId         String
-  product           Product  @relation(fields: [productId], references: [id])
-  productName       String
-  quantity          Float
-  price             Float
-  consumptionRate   Float    @default(1) // For Fruit Bombs fractional consumption
-  isMixDish         Boolean  @default(false)
-  unitCost          Float?
-  lineCost          Float?
-  
+  id              String  @id @default(cuid())
+  billId          String
+  productId       String
+  productName     String
+  quantity        Float
+  price           Float
+  consumptionRate Float   @default(1)
+  isMixDish       Boolean @default(false)
+  unitCost        Float?
+  lineCost        Float?
+  bill            Bill    @relation(fields: [billId], references: [id], onDelete: Cascade)
+  product         Product @relation(fields: [productId], references: [id])
+
   @@index([billId])
   @@index([productId])
 }
 
-// Customers
 model Customer {
-  id            String   @id @default(cuid())
-  customerNo    Int      @unique @default(autoincrement())
-  mobile        String   @unique
-  name          String
-  totalBills    Int      @default(0)
-  totalSpent    Float    @default(0)
-  lastPurchase  DateTime @default(now())
-  firstPurchase DateTime @default(now())
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  // Relations
+  id                 String              @id @default(cuid())
+  mobile             String              @unique
+  name               String
+  totalBills         Int                 @default(0)
+  totalSpent         Float               @default(0)
+  lastPurchase       DateTime            @default(now())
+  firstPurchase      DateTime            @default(now())
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  customerNo         Int                 @unique @default(autoincrement())
   bills              Bill[]
   paymentCollections PaymentCollection[]
 
@@ -268,57 +283,52 @@ model Customer {
   @@index([totalSpent])
 }
 
-// Damage Log
 model DamageLog {
-  id          String   @id @default(cuid())
-  date        DateTime @default(now())
-  productId   String
-  product     Product  @relation(fields: [productId], references: [id])
-  quantity    Float
-  remarks     String?
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  date      DateTime @default(now())
+  productId String
+  quantity  Float
+  remarks   String?
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id])
 
   @@index([productId])
   @@index([date])
 }
 
-// Stock Transfer Outlet (other store or contact)
 model StockTransferOutlet {
-  id        String         @id @default(cuid())
+  id        String          @id @default(cuid())
   name      String
-  type      String         // "OUTLET_STORE" | "FRIEND_STORE" | "DISTRIBUTOR"
+  type      String
   mobile    String
   email     String?
   address   String?
   notes     String?
-  isActive  Boolean        @default(true)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-
+  isActive  Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
   transfers StockTransfer[]
 
   @@index([name])
   @@index([isActive])
 }
 
-// Stock Transfer main record
 model StockTransfer {
-  id               String                @id @default(cuid())
-  transferNo       Int                   @unique @default(autoincrement())
+  id               String              @id @default(cuid())
+  transferNo       Int                 @unique @default(autoincrement())
   outletId         String
-  outlet           StockTransferOutlet   @relation(fields: [outletId], references: [id])
-  transferType     String                // "OUTGOING" | "INCOMING"
-  transferDate     DateTime              @default(now())
-  settlementType   String                // "LOAN" | "SALE" | "RETURN"
-  settlementStatus String                @default("PENDING")
+  transferType     String
+  transferDate     DateTime            @default(now())
+  settlementType   String
+  settlementStatus String              @default("PENDING")
   settledDate      DateTime?
   totalValue       Float?
-  paidAmount       Float?                @default(0)
-  paymentMethod    String?               // "CASH" | "ONLINE" | "PENDING"
+  paidAmount       Float?              @default(0)
+  paymentMethod    String?
   remarks          String?
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
-
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  outlet           StockTransferOutlet @relation(fields: [outletId], references: [id])
   items            StockTransferItem[]
 
   @@index([outletId])
@@ -327,201 +337,184 @@ model StockTransfer {
   @@index([settlementStatus])
 }
 
-// Individual items within a stock transfer
 model StockTransferItem {
-  id          String        @id @default(cuid())
-  transferId  String
-  transfer    StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
-  productId   String
-  product     Product       @relation(fields: [productId], references: [id])
-  quantity    Float
-  price       Float?
-  costPrice   Float
-  remarks     String?
+  id         String        @id @default(cuid())
+  transferId String
+  productId  String
+  quantity   Float
+  price      Float?
+  costPrice  Float
+  remarks    String?
+  product    Product       @relation(fields: [productId], references: [id])
+  transfer   StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
 
   @@index([transferId])
   @@index([productId])
 }
 
-// Mix Dish Preparation
 model MixDishPrep {
-  id                  String   @id @default(cuid())
-  date                DateTime @default(now())
-  mixDishesPrepared   Float
-  createdAt           DateTime @default(now())
-
-  // Relations
-  ingredients         MixDishIngredient[]
+  id                String              @id @default(cuid())
+  date              DateTime            @default(now())
+  mixDishesPrepared Float
+  createdAt         DateTime            @default(now())
+  ingredients       MixDishIngredient[]
 
   @@index([date])
 }
 
-// Mix Dish Ingredients (for tracking what went into preparation)
 model MixDishIngredient {
-  id            String       @id @default(cuid())
-  prepId        String
-  prep          MixDishPrep  @relation(fields: [prepId], references: [id], onDelete: Cascade)
-  productId     String
-  product       Product      @relation(fields: [productId], references: [id])
-  quantity      Float
-  cubeFinished  Boolean      @default(false)
+  id           String      @id @default(cuid())
+  prepId       String
+  productId    String
+  quantity     Float
+  cubeFinished Boolean     @default(false)
+  prep         MixDishPrep @relation(fields: [prepId], references: [id], onDelete: Cascade)
+  product      Product     @relation(fields: [productId], references: [id])
 
   @@index([prepId])
   @@index([productId])
 }
 
-// Fruitbomb Preparation
 model FruitbombPrep {
-  id                  String   @id @default(cuid())
-  date                DateTime @default(now())
-  fruitbombsPrepared  Float
-  createdAt           DateTime @default(now())
-
-  // Relations
-  ingredients         FruitbombIngredient[]
+  id                 String                @id @default(cuid())
+  date               DateTime              @default(now())
+  fruitbombsPrepared Float
+  createdAt          DateTime              @default(now())
+  ingredients        FruitbombIngredient[]
 
   @@index([date])
 }
 
-// Fruitbomb Ingredients (for tracking what went into preparation)
 model FruitbombIngredient {
-  id            String           @id @default(cuid())
-  prepId        String
-  prep          FruitbombPrep    @relation(fields: [prepId], references: [id], onDelete: Cascade)
-  productId     String
-  product       Product          @relation(fields: [productId], references: [id])
-  quantity      Float
-  cubeFinished  Boolean          @default(false)
+  id           String        @id @default(cuid())
+  prepId       String
+  productId    String
+  quantity     Float
+  cubeFinished Boolean       @default(false)
+  prep         FruitbombPrep @relation(fields: [prepId], references: [id], onDelete: Cascade)
+  product      Product       @relation(fields: [productId], references: [id])
 
   @@index([prepId])
   @@index([productId])
 }
 
-// SKU Change History
 model SKUChangeHistory {
-  id            String   @id @default(cuid())
-  dateTime      DateTime @default(now())
-  productId     String
-  product       Product  @relation(fields: [productId], references: [id])
-  fieldChanged  String
-  oldValue      String
-  newValue      String
-  changedBy     String   @default("System")
-  createdAt     DateTime @default(now())
+  id           String   @id @default(cuid())
+  dateTime     DateTime @default(now())
+  productId    String
+  fieldChanged String
+  oldValue     String
+  newValue     String
+  changedBy    String   @default("System")
+  createdAt    DateTime @default(now())
+  product      Product  @relation(fields: [productId], references: [id])
 
   @@index([productId])
   @@index([dateTime])
 }
 
-// Payment Pending Log
 model PaymentPendingLog {
-  id                  String        @id @default(cuid())
-  date                DateTime      @default(now())
-  sku                 String
-  productName         String
-  unitsPending        Float
-  costPrice           Float
-  totalAmountPending  Float
-  paymentStatus       PaymentStatus @default(PENDING)
-  datePaid            DateTime?
-  paymentMethod       PaymentMethod?
-  unitsPaid           Float         @default(0)
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  id                 String         @id @default(cuid())
+  date               DateTime       @default(now())
+  sku                String
+  productName        String
+  unitsPending       Float
+  costPrice          Float
+  totalAmountPending Float
+  paymentStatus      PaymentStatus  @default(PENDING)
+  datePaid           DateTime?
+  paymentMethod      PaymentMethod?
+  unitsPaid          Float          @default(0)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
 
   @@index([sku])
   @@index([paymentStatus])
 }
 
-// Bill Edit Log
 model BillEditLog {
-  id            String   @id @default(cuid())
-  dateTime      DateTime @default(now())
-  billId        String
-  bill          Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
-  fieldChanged  String
-  oldValue      String
-  newValue      String
-  action        String   // 'EDITED', 'DELETED'
-  createdAt     DateTime @default(now())
+  id           String   @id @default(cuid())
+  dateTime     DateTime @default(now())
+  billId       String
+  fieldChanged String
+  oldValue     String
+  newValue     String
+  action       String
+  createdAt    DateTime @default(now())
+  bill         Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
 
   @@index([billId])
   @@index([dateTime])
 }
 
-
-// Daily Sales Summary (for analytics)
 model DailySalesSummary {
-  id              String   @id @default(cuid())
-  date            DateTime @unique
-  totalSales      Float    @default(0)
-  totalCost       Float    @default(0)
-  totalProfit     Float    @default(0)
-  totalBills      Int      @default(0)
-  cashSales       Float    @default(0)
-  onlineSales     Float    @default(0)
-  avgBillValue    Float    @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id           String   @id @default(cuid())
+  date         DateTime @unique
+  totalSales   Float    @default(0)
+  totalCost    Float    @default(0)
+  totalProfit  Float    @default(0)
+  totalBills   Int      @default(0)
+  cashSales    Float    @default(0)
+  onlineSales  Float    @default(0)
+  avgBillValue Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([date])
 }
 
-// Expenses
 model Expense {
-  id            String   @id @default(cuid())
-  date          DateTime @default(now())
-  category      String   // 'Rent', 'Electricity', 'Salary', 'Other'
+  id            String        @id @default(cuid())
+  date          DateTime      @default(now())
+  category      String
   description   String
   amount        Float
   paymentMethod PaymentMethod @default(CASH)
   remarks       String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  paidFrom      String        @default("COUNTER")
 
   @@index([date])
   @@index([category])
+  @@index([paidFrom])
 }
 
-// Suppliers
 model Supplier {
-  id            String   @id @default(cuid())
-  name          String
-  contactPerson String?
-  mobile        String?
-  email         String?
-  address       String?
-  gstNumber     String?
-  active        Boolean  @default(true)
-  totalPurchase Float    @default(0)
-  totalPending  Float    @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  // Relations
-  inventoryLogs InventoryLog[]
+  id             String          @id @default(cuid())
+  name           String
+  contactPerson  String?
+  mobile         String?
+  email          String?
+  address        String?
+  gstNumber      String?
+  active         Boolean         @default(true)
+  totalPurchase  Float           @default(0)
+  totalPending   Float           @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  inventoryLogs  InventoryLog[]
   purchaseOrders PurchaseOrder[]
 
   @@index([name])
   @@index([active])
 }
 
-// Purchase Orders
 model PurchaseOrder {
-  id              String        @id @default(cuid())
-  poNumber        String        @unique
-  date            DateTime      @default(now())
-  supplierId      String
-  supplier        Supplier      @relation(fields: [supplierId], references: [id])
-  totalAmount     Float
-  paidAmount      Float         @default(0)
-  pendingAmount   Float
-  paymentStatus   PaymentStatus @default(PENDING)
-  deliveryDate    DateTime?
-  status          String        @default("PENDING") // 'PENDING', 'RECEIVED', 'CANCELLED'
-  remarks         String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id            String        @id @default(cuid())
+  poNumber      String        @unique
+  date          DateTime      @default(now())
+  supplierId    String
+  totalAmount   Float
+  paidAmount    Float         @default(0)
+  pendingAmount Float
+  paymentStatus PaymentStatus @default(PENDING)
+  deliveryDate  DateTime?
+  status        String        @default("PENDING")
+  remarks       String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  supplier      Supplier      @relation(fields: [supplierId], references: [id])
 
   @@index([poNumber])
   @@index([supplierId])
@@ -529,45 +522,23 @@ model PurchaseOrder {
   @@index([status])
 }
 
-// Owner Transaction Type
-enum OwnerTransactionType {
-  DRAWING  // Money taken out by owner
-  CAPITAL  // Money put in by owner
-}
-
-// Cash Register (daily cash drawer tracking)
-model CashRegister {
-  id              String    @id @default(cuid())
-  date            DateTime  @unique
-  openingBalance  Float     @default(0)
-  actualClosing   Float?
-  notes           String?
-  closedAt        DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  @@index([date])
-}
-
-// Payment Collection (customer dues collection)
 model PaymentCollection {
   id            String        @id @default(cuid())
   customerId    String
-  customer      Customer      @relation(fields: [customerId], references: [id])
   billId        String?
-  bill          Bill?         @relation(fields: [billId], references: [id])
   amount        Float
   date          DateTime      @default(now())
   paymentMethod PaymentMethod @default(CASH)
   remarks       String?
   createdAt     DateTime      @default(now())
+  bill          Bill?         @relation(fields: [billId], references: [id])
+  customer      Customer      @relation(fields: [customerId], references: [id])
 
   @@index([customerId])
   @@index([billId])
   @@index([date])
 }
 
-// Owner Transactions (drawings & capital)
 model OwnerTransaction {
   id            String               @id @default(cuid())
   type          OwnerTransactionType
@@ -583,31 +554,47 @@ model OwnerTransaction {
   @@index([date])
 }
 
-// Return Log (tracks returned items from bills)
 model ReturnLog {
   id            String        @id @default(cuid())
   billId        String
-  bill          Bill          @relation(fields: [billId], references: [id])
   billItemId    String
   productId     String
-  product       Product       @relation(fields: [productId], references: [id])
   productName   String
   quantity      Float
-  price         Float         // per-unit selling price
-  refundAmount  Float         // quantity * price
-  costAmount    Float         // quantity * originalCost (for profit adjustment)
+  price         Float
+  refundAmount  Float
+  costAmount    Float
   reason        String
-  status        ReturnStatus  // RESTOCKED or DAMAGED
+  status        ReturnStatus
   paymentMethod PaymentMethod @default(CASH)
   date          DateTime      @default(now())
   createdAt     DateTime      @default(now())
+  bill          Bill          @relation(fields: [billId], references: [id])
+  product       Product       @relation(fields: [productId], references: [id])
 
   @@index([billId])
   @@index([productId])
   @@index([date])
 }
 
-// System Configuration (key-value store)
+model CashTransaction {
+  id           String   @id @default(cuid())
+  date         DateTime @default(now())
+  fromLocation String
+  toLocation   String
+  amount       Float
+  note         String
+  category     String
+  expenseId    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([date])
+  @@index([fromLocation])
+  @@index([toLocation])
+  @@index([category])
+}
+
 model SystemConfig {
   id        String   @id @default(cuid())
   key       String   @unique

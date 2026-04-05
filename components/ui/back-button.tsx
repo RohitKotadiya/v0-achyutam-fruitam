@@ -9,13 +9,13 @@ export function BackButton() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
-  const from = searchParams.get("from")
+  const from = searchParams?.get("from")
 
   // Use ?from= param if provided, otherwise default based on current page
   let backHref = from || "/"
   if (!from) {
-    if (pathname.startsWith("/bills")) backHref = "/pos"
-    else if (pathname.startsWith("/admin")) backHref = "/"
+    if (pathname?.startsWith("/bills")) backHref = "/pos"
+    else if (pathname?.startsWith("/admin")) backHref = "/"
   }
 
   return (

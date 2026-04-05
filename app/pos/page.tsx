@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo } from "react"
-import { Search, RefreshCw, FileText, Settings, Trash2, Save, Printer, Plus, Minus, MessageCircle, X, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react"
+import { Search, RefreshCw, FileText, Settings, Trash2, Save, Printer, Plus, Minus, MessageCircle, X, AlertTriangle, ChevronDown, ChevronUp, LogOut } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast"
 import { generateWhatsAppMessage, openWhatsAppWithFallback } from "@/lib/whatsapp"
 import { generatePrintHTML } from "@/lib/print"
 import { canUseSilentThermalPrint, printBillSilently } from "@/lib/thermal-print"
-import { AdminLoginModal } from "@/components/pos/admin-login-modal"
+import { useSession, signOut } from "next-auth/react"
 
 interface Category {
   id: string
@@ -60,11 +60,12 @@ interface CustomerSuggestion {
 
 interface LastSavedBill {
   billNo: number
+  displayBillNo: string | null
   customerName: string
   customerMobile: string | null
   grandTotal: number
   lineItems: BillItem[]
-  paymentMethod: "CASH" | "ONLINE" | "SPLIT"
+  paymentMethod: "CASH" | "ONLINE" | "SPLIT" | "PENDING"
   remarks: string
 }
 
@@ -72,7 +73,8 @@ export default function POSPage() {
   const [mounted, setMounted] = useState(false)
 
   const { toast } = useToast()
-  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false)
+  const { data: session } = useSession()
+  const isAdmin = session?.user?.role === "ADMIN"
 
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeCategoryId, setActiveCategoryId] = useState<string>("all")
@@ -80,7 +82,7 @@ export default function POSPage() {
   const [billItems, setBillItems] = useState<BillItem[]>([])
   const [customerName, setCustomerName] = useState("")
   const [customerMobile, setCustomerMobile] = useState("")
-  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ONLINE" | "SPLIT">("CASH")
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ONLINE" | "SPLIT" | "PENDING">("CASH")
   const [cashAmount, setCashAmount] = useState("")
   const [onlineAmount, setOnlineAmount] = useState("")
   const [remarks, setRemarks] = useState("")
@@ -142,13 +144,18 @@ export default function POSPage() {
       setBillItems(normalizedLineItems)
       setCustomerName(bill.customerName || '')
       setCustomerMobile(bill.mobile || '')
-      setPaymentMethod(bill.paymentMethod || 'CASH')
+      const incomingPaymentMethod = (bill.paymentMethod || "CASH").toUpperCase()
+      setPaymentMethod(
+        incomingPaymentMethod === "ONLINE" || incomingPaymentMethod === "SPLIT" || incomingPaymentMethod === "PENDING"
+          ? incomingPaymentMethod
+          : "CASH"
+      )
       setRemarks(bill.remarks || '')
       sessionStorage.removeItem('editBill')
       localStorage.removeItem('editBill')
       toast({
         title: "Editing Bill",
-        description: `Bill #${bill.billNo} loaded for editing`,
+        description: `Bill #${bill.displayBillNo ?? bill.billNo} loaded for editing`,
         duration: 3000,
       })
     }
@@ -164,11 +171,17 @@ export default function POSPage() {
 
       return {
         billNo,
+        displayBillNo: parsed?.displayBillNo ? String(parsed.displayBillNo) : null,
         customerName: String(parsed?.customerName || "Walk-in-Cust"),
         customerMobile: parsed?.customerMobile ? String(parsed.customerMobile) : null,
         grandTotal: Number(parsed?.grandTotal) || 0,
         lineItems: Array.isArray(parsed?.lineItems) ? parsed.lineItems : [],
-        paymentMethod: parsed?.paymentMethod === "ONLINE" || parsed?.paymentMethod === "SPLIT" ? parsed.paymentMethod : "CASH",
+        paymentMethod:
+          parsed?.paymentMethod === "ONLINE" ||
+          parsed?.paymentMethod === "SPLIT" ||
+          parsed?.paymentMethod === "PENDING"
+            ? parsed.paymentMethod
+            : "CASH",
         remarks: String(parsed?.remarks || ""),
       }
     } catch {
@@ -807,6 +820,15 @@ export default function POSPage() {
       return
     }
 
+    if (paymentMethod === "PENDING" && (!customerMobile || customerMobile.length !== 10)) {
+      toast({
+        title: "Customer mobile required",
+        description: "Pending bills require a valid 10-digit mobile number for dues tracking",
+        variant: "destructive",
+      })
+      return
+    }
+
     setBillActionLoading(actionType)
 
     const customerNameFinal = customerName || "Walk-in-Cust"
@@ -814,7 +836,8 @@ export default function POSPage() {
       ? customerMobile
       : null
 
-    if (!checkStockAvailability()) {
+    // Skip stock check when editing existing bill - stock is already accounted for
+    if (!editingBillNo && !checkStockAvailability()) {
       setBillActionLoading(null)
       return
     }
@@ -843,15 +866,17 @@ export default function POSPage() {
         if (!Number.isFinite(savedBillNo) || savedBillNo <= 0) {
           throw new Error("Bill save response did not include a valid bill number")
         }
+        const savedDisplayBillNo: string | null = data.displayBillNo ?? null
 
         toast({
           title: "Bill saved",
-          description: `Bill #${savedBillNo} saved!`,
+          description: `Bill #${savedDisplayBillNo ?? savedBillNo} saved!`,
           duration: 1000,
         })
 
         const savedBill = {
           billNo: savedBillNo,
+          displayBillNo: savedDisplayBillNo,
           customerName: customerNameFinal,
           customerMobile: customerMobileFinal,
           grandTotal,
@@ -879,6 +904,7 @@ export default function POSPage() {
             lineItems: savedBill.lineItems,
             paymentMethod: savedBill.paymentMethod,
             remarks: savedBill.remarks,
+            displayBillNo: savedBill.displayBillNo,
           })
           openWhatsAppWithFallback(savedBill.customerMobile || "", whatsappMessage, {
             onFallback: () => {
@@ -970,6 +996,8 @@ export default function POSPage() {
     ? `Low Stock: ${lowStockProducts.map((p) => p.name).join(", ")}`
     : ""
 
+  if (!mounted) return null
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* ─── Header ─── */}
@@ -1015,17 +1043,17 @@ export default function POSPage() {
                 <FileText className="w-4 h-4 md:mr-1.5" />
                 <span className="hidden md:inline text-xs">Bills</span>
               </Button>
+              {isAdmin && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  setIsAdminModalOpen(true)
-                }}
+                onClick={() => window.open("/admin", "_blank", "noopener,noreferrer")}
                 className="h-7 px-2 md:px-2.5"
               >
                 <Settings className="w-4 h-4 md:mr-1.5" />
                 <span className="hidden md:inline text-xs">Admin</span>
               </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -1035,6 +1063,22 @@ export default function POSPage() {
                 className="h-7 px-2"
               >
                 <RefreshCw className={`w-4 h-4 ${refreshingProducts ? "animate-spin" : ""}`} />
+              </Button>
+              {session && (
+                <span className="hidden md:flex items-center text-xs">
+                  <span className={`px-1.5 py-0.5 rounded font-medium ${isAdmin ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-600"}`}>
+                    {isAdmin ? "Admin" : "Staff"}
+                  </span>
+                </span>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => signOut({ callbackUrl: "/login" })}
+                aria-label="Logout"
+                className="h-7 px-2"
+              >
+                <LogOut className="w-4 h-4" />
               </Button>
             </div>
           </div>
@@ -1408,8 +1452,8 @@ export default function POSPage() {
 
                   {/* Payment Method */}
                   <div className="space-y-1.5">
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {(["CASH", "ONLINE", "SPLIT"] as const).map((method) => (
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {(["CASH", "ONLINE", "SPLIT", "PENDING"] as const).map((method) => (
                         <Button
                           key={method}
                           type="button"
@@ -1422,12 +1466,21 @@ export default function POSPage() {
                               setCashAmount("")
                               setOnlineAmount("")
                             }
+                            if (method !== "CASH" && method !== "SPLIT") {
+                              setCashReceived("")
+                            }
                           }}
                         >
-                          {method === "CASH" ? "Cash" : method === "ONLINE" ? "Online" : "Split"}
+                          {method === "CASH" ? "Cash" : method === "ONLINE" ? "Online" : method === "SPLIT" ? "Split" : "Pending"}
                         </Button>
                       ))}
                     </div>
+
+                    {paymentMethod === "PENDING" && (
+                      <p className="text-[10px] text-amber-600">
+                        Pending bill will be added to customer dues. Customer mobile is required.
+                      </p>
+                    )}
 
                     {/* Split amounts */}
                     {paymentMethod === "SPLIT" && (
@@ -1625,14 +1678,6 @@ export default function POSPage() {
           />
         </>
       )}
-      <AdminLoginModal
-        isOpen={isAdminModalOpen}
-        onClose={() => setIsAdminModalOpen(false)}
-        onLoginSuccess={() => {
-          setIsAdminModalOpen(false)
-          window.open("/admin?from=/pos", "_blank", "noopener,noreferrer")
-        }}
-      />
     </div>
   )
 }
