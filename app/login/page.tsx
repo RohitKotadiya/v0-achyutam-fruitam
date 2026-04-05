@@ -56,6 +56,9 @@ function LoginForm() {
         <div className="text-center">
           <h1 className="text-3xl font-bold text-purple-900">Achyutam Fruitam</h1>
           <p className="text-sm text-purple-600 mt-1">Sign in to continue</p>
+          <p className="text-xs text-gray-400 mt-1 font-mono">
+            DB: {process.env.NEXT_PUBLIC_DB_HINT ?? "unknown"}
+          </p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
