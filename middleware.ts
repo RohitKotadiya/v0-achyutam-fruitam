@@ -7,7 +7,11 @@ export async function middleware(request: NextRequest) {
   response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive")
 
   // Public paths — no auth needed
-  if (pathname.startsWith("/login") || pathname.startsWith("/api/auth")) {
+  if (
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/api/maintenance/")
+  ) {
     return response
   }
 

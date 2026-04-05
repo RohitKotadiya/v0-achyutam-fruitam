@@ -22,6 +22,12 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local scripts (contain credentials)
+/scripts/
+
+# agent memory (local only)
+/memories/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
