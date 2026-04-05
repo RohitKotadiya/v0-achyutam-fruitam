@@ -1,5 +1,4 @@
 /** @type {import('next').NextConfig} */
-// build trigger: April 6 2026
 const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
