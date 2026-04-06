@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { Pencil, Upload, ImageIcon } from "lucide-react"
+import { Pencil, Upload, ImageIcon, Search, X } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
@@ -45,6 +45,14 @@ export function SKUTab() {
   const [loading, setLoading] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [showEditDialog, setShowEditDialog] = useState(false)
+
+  // Filters
+  const [draftSku, setDraftSku] = useState("")
+  const [draftName, setDraftName] = useState("")
+  const [draftCategory, setDraftCategory] = useState("all")
+  const [appliedSku, setAppliedSku] = useState("")
+  const [appliedName, setAppliedName] = useState("")
+  const [appliedCategory, setAppliedCategory] = useState("all")
 
   // Add SKU Form
   const [newSKU, setNewSKU] = useState({
@@ -246,38 +254,23 @@ export function SKUTab() {
     }
   }
 
-  const handleMigrateSKUs = async () => {
-    setLoading(true)
-    try {
-      const res = await fetch("/api/products/migrate-sku", {
-        method: "POST",
-      })
-
-      const data = await res.json()
-
-      if (res.ok) {
-        toast({
-          title: "Success",
-          description: data.message,
-        })
-        fetchProducts()
-      } else {
-        toast({
-          title: "Error",
-          description: data.error || "Failed to migrate SKUs",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to migrate SKUs",
-        variant: "destructive",
-      })
-    } finally {
-      setLoading(false)
-    }
+  const applyFilters = () => {
+    setAppliedSku(draftSku)
+    setAppliedName(draftName)
+    setAppliedCategory(draftCategory)
   }
+
+  const resetFilters = () => {
+    setDraftSku(""); setDraftName(""); setDraftCategory("all")
+    setAppliedSku(""); setAppliedName(""); setAppliedCategory("all")
+  }
+
+  const filteredProducts = products.filter((p) => {
+    if (appliedSku && !p.sku.toLowerCase().includes(appliedSku.toLowerCase())) return false
+    if (appliedName && !p.name.toLowerCase().includes(appliedName.toLowerCase())) return false
+    if (appliedCategory !== "all" && p.categoryId !== appliedCategory) return false
+    return true
+  })
 
   return (
     <div className="space-y-6">
@@ -393,17 +386,33 @@ export function SKUTab() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Existing Products</CardTitle>
-              <CardDescription>Manage your product catalog</CardDescription>
+              <CardDescription>{filteredProducts.length} of {products.length} products</CardDescription>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleMigrateSKUs}
-              disabled={loading}
-              title="Convert numeric SKUs (1, 2, 3) to AFM format (AFM001, AFM002, etc.)"
-            >
-              Migrate SKUs to AFM Format
-            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Input
+              placeholder="SKU"
+              value={draftSku}
+              onChange={(e) => setDraftSku(e.target.value)}
+              className="h-8 w-28 text-sm"
+            />
+            <Input
+              placeholder="Name"
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              className="h-8 flex-1 min-w-[140px] text-sm"
+            />
+            <Select value={draftCategory} onValueChange={setDraftCategory}>
+              <SelectTrigger className="h-8 w-40 text-sm"><SelectValue placeholder="Category" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                {categories.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.id}>{cat.displayName}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button type="button" size="sm" className="h-8" onClick={applyFilters}>Apply</Button>
+            <Button type="button" size="sm" variant="outline" className="h-8" onClick={resetFilters}><X className="w-3 h-3 mr-1" />Reset</Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -424,14 +433,14 @@ export function SKUTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {products.length === 0 ? (
+                {filteredProducts.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={10} className="text-center text-muted-foreground">
                       No products found
                     </TableCell>
                   </TableRow>
                 ) : (
-                  products.map((product) => (
+                  filteredProducts.map((product) => (
                     <TableRow key={product.id}>
                       <TableCell>
                         {product.imageUrl ? (

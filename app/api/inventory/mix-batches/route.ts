@@ -18,6 +18,7 @@ export async function GET() {
       unitCostPerCostUnit: number
       remarks: string | null
       ingredients: unknown
+      soldUnits: number
     }>>`
       SELECT
         mp."id",
@@ -33,7 +34,8 @@ export async function GET() {
         mp."costUnitsRemaining",
         mp."unitCostPerCostUnit",
         mp."remarks",
-        COALESCE(ing."ingredients", '[]'::json) AS "ingredients"
+        COALESCE(ing."ingredients", '[]'::json) AS "ingredients",
+        COALESCE(sold."soldQty", 0) AS "soldUnits"
       FROM "MixPreparation" mp
       JOIN "Product" p ON p."id" = mp."targetProductId"
       JOIN "ProductCategory" pc ON pc."id" = mp."sourceCategoryId"
@@ -52,22 +54,29 @@ export async function GET() {
         JOIN "Product" ip ON ip."id" = mpi."productId"
         GROUP BY mpi."preparationId"
       ) ing ON ing."preparationId" = mp."id"
-      WHERE mp."producedUnitsRemaining" > 0
-      ORDER BY mp."date" DESC, mp."createdAt" DESC
-      LIMIT 100
+      LEFT JOIN (
+        SELECT
+          bi."productId",
+          mp2."id" AS "preparationId",
+          SUM(bi."quantity") AS "soldQty"
+        FROM "BillItem" bi
+        JOIN "Bill" b ON b."id" = bi."billId"
+        JOIN "MixPreparation" mp2
+          ON mp2."targetProductId" = bi."productId"
+        WHERE bi."isMixDish" = true
+          AND b."dateTime" >= mp2."date"
+        GROUP BY bi."productId", mp2."id"
+      ) sold ON sold."preparationId" = mp."id"
+      WHERE 1=1
+      ORDER BY mp."producedUnitsRemaining" DESC, mp."date" DESC, mp."createdAt" DESC
     `
 
     const rows = batches.map((batch) => {
       const producedRemaining = Number(batch.producedUnitsRemaining) || 0
       const costRemaining = Number(batch.costUnitsRemaining) || 0
       const producedUnits = Number(batch.producedUnits) || 0
-      const soldUnits = Math.max(0, producedUnits - producedRemaining)
-      
-      // Debug log to track sold units calculation
-      if (soldUnits === 0 && producedUnits > 0 && producedRemaining > 0) {
-        console.log(`[mix-batches] Batch ${batch.id} (${batch.targetName}): produced=${producedUnits}, remaining=${producedRemaining}, sold=${soldUnits}`)
-      }
-      
+      const soldUnits = Number(batch.soldUnits) || 0
+
       return {
         id: batch.id,
         date: batch.date,

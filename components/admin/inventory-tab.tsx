@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { InventorySection } from "@/components/admin/reports-tab"
-import { Loader2, ChevronDown, ChevronRight, ChevronUp } from "lucide-react"
+import { Loader2, ChevronDown, ChevronRight, ChevronUp, X } from "lucide-react"
 
 interface Product {
   id: string
@@ -158,6 +158,20 @@ export function InventoryTab({
   const [batchPreparedQtyDraft, setBatchPreparedQtyDraft] = useState<Record<string, string>>({})
   const [batchUpdateLoadingId, setBatchUpdateLoadingId] = useState<string | null>(null)
   const [mixBusyMessage, setMixBusyMessage] = useState("")
+
+  // Batch filters
+  const batchToday = toLocalDateInputValue(new Date())
+  const batchStartDefault = toLocalDateInputValue(new Date(Date.now() - 29 * 86400000))
+  const [draftBatchSearch, setDraftBatchSearch] = useState("")
+  const [draftBatchStatus, setDraftBatchStatus] = useState<"all" | "open" | "closed">("all")
+  const [draftBatchStart, setDraftBatchStart] = useState(batchStartDefault)
+  const [draftBatchEnd, setDraftBatchEnd] = useState(batchToday)
+  const [appliedBatchSearch, setAppliedBatchSearch] = useState("")
+  const [appliedBatchStatus, setAppliedBatchStatus] = useState<"all" | "open" | "closed">("all")
+  const [appliedBatchStart, setAppliedBatchStart] = useState(batchStartDefault)
+  const [appliedBatchEnd, setAppliedBatchEnd] = useState(batchToday)
+  const [batchCurrentPage, setBatchCurrentPage] = useState(1)
+  const [batchPageSize, setBatchPageSize] = useState(20)
 
   const [damageForm, setDamageForm] = useState({
     sku: "",
@@ -926,6 +940,38 @@ export function InventoryTab({
     }
   }, [mixBatches])
 
+  const filteredBatches = useMemo(() => {
+    return mixBatches.filter((batch) => {
+      if (appliedBatchStatus === "open" && batch.producedUnitsRemaining <= 0) return false
+      if (appliedBatchStatus === "closed" && batch.producedUnitsRemaining > 0) return false
+      if (appliedBatchSearch) {
+        const q = appliedBatchSearch.toLowerCase()
+        if (!batch.targetName.toLowerCase().includes(q) && !batch.targetSku.toLowerCase().includes(q)) return false
+      }
+      if (appliedBatchStart) {
+        const d = new Date(batch.date); d.setHours(0, 0, 0, 0)
+        const s = new Date(appliedBatchStart); s.setHours(0, 0, 0, 0)
+        if (d < s) return false
+      }
+      if (appliedBatchEnd) {
+        const d = new Date(batch.date); d.setHours(23, 59, 59, 999)
+        const e = new Date(appliedBatchEnd); e.setHours(23, 59, 59, 999)
+        if (d > e) return false
+      }
+      return true
+    })
+  }, [mixBatches, appliedBatchSearch, appliedBatchStatus, appliedBatchStart, appliedBatchEnd])
+
+  const batchTotalPages = Math.max(1, Math.ceil(filteredBatches.length / batchPageSize))
+  const paginatedBatches = useMemo(() => {
+    const start = (batchCurrentPage - 1) * batchPageSize
+    return filteredBatches.slice(start, start + batchPageSize)
+  }, [filteredBatches, batchCurrentPage, batchPageSize])
+
+  useEffect(() => { setBatchCurrentPage(1) }, [appliedBatchSearch, appliedBatchStatus, appliedBatchStart, appliedBatchEnd, batchPageSize])
+
+  useEffect(() => { setBatchCurrentPage((p) => Math.min(p, batchTotalPages)) }, [batchTotalPages])
+
   useEffect(() => {
     if (targetMixSku && !targetMixProducts.some((product) => product.sku === targetMixSku)) {
       setTargetMixSku("")
@@ -1452,8 +1498,33 @@ export function InventoryTab({
                 </div>
 
                 <div className="rounded border">
-                  <div className="grid grid-cols-[2fr_90px_90px_90px_90px_110px_180px] gap-2 border-b bg-muted/50 px-3 py-2 text-xs font-medium">
-                    <span>Open Batch Details</span>
+                  {/* Filter bar */}
+                  <div className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-3 py-2">
+                    <Input
+                      placeholder="Search product / SKU"
+                      value={draftBatchSearch}
+                      onChange={(e) => setDraftBatchSearch(e.target.value)}
+                      className="h-8 w-44 text-sm"
+                    />
+                    <Select value={draftBatchStatus} onValueChange={(v) => setDraftBatchStatus(v as "all" | "open" | "closed")}>
+                      <SelectTrigger className="h-8 w-32 text-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="open">Open</SelectItem>
+                        <SelectItem value="closed">Closed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input type="date" value={draftBatchStart} onChange={(e) => setDraftBatchStart(e.target.value)} className="h-8 w-36 text-sm" />
+                    <Input type="date" value={draftBatchEnd} onChange={(e) => setDraftBatchEnd(e.target.value)} className="h-8 w-36 text-sm" />
+                    <Button size="sm" className="h-8" onClick={() => { setAppliedBatchSearch(draftBatchSearch); setAppliedBatchStatus(draftBatchStatus); setAppliedBatchStart(draftBatchStart); setAppliedBatchEnd(draftBatchEnd) }}>Apply</Button>
+                    <Button size="sm" variant="outline" className="h-8" onClick={() => { const s = toLocalDateInputValue(new Date(Date.now() - 29 * 86400000)); const t = toLocalDateInputValue(new Date()); setDraftBatchSearch(""); setDraftBatchStatus("all"); setDraftBatchStart(s); setDraftBatchEnd(t); setAppliedBatchSearch(""); setAppliedBatchStatus("all"); setAppliedBatchStart(s); setAppliedBatchEnd(t) }}><X className="w-3 h-3 mr-1" />Reset</Button>
+                    <span className="ml-auto text-xs text-muted-foreground">{filteredBatches.length} batch{filteredBatches.length !== 1 ? "es" : ""}</span>
+                    <select value={batchPageSize} onChange={(e) => setBatchPageSize(Number(e.target.value))} className="h-8 rounded-md border bg-background px-2 text-xs text-foreground">
+                      {[10, 20, 50, 100].map((n) => <option key={n} value={n}>{n} / page</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-[2fr_90px_90px_90px_90px_110px_180px] gap-2 bg-muted/50 px-3 py-2 text-xs font-medium">
+                    <span>Batch Details</span>
                     <span className="text-right">Prepared Units</span>
                     <span className="text-right">Sold Units</span>
                     <span className="text-right">Produced Remaining</span>
@@ -1461,51 +1532,71 @@ export function InventoryTab({
                     <span className="text-right">Zero-Cost Remaining</span>
                     <span className="text-center">Action</span>
                   </div>
-                  <div className="max-h-[360px] overflow-y-auto">
-                    {mixBatches.length === 0 ? (
-                      <div className="px-3 py-6 text-center text-sm text-muted-foreground">No open mix batches</div>
+                  <div className="max-h-[480px] overflow-y-auto">
+                    {paginatedBatches.length === 0 ? (
+                      <div className="px-3 py-6 text-center text-sm text-muted-foreground">No batches found</div>
                     ) : (
-                      mixBatches.map((batch) => (
-                        <div key={batch.id} className="grid grid-cols-[2fr_90px_90px_90px_90px_110px_180px] gap-2 border-b px-3 py-2 text-sm">
-                          <div className="min-w-0">
-                            <div className="truncate font-medium">{batch.targetName}</div>
-                            <div className="text-xs text-muted-foreground">Batch: {new Date(batch.date).toLocaleString()}</div>
-                            <div className="text-xs text-muted-foreground">Source: {batch.sourceCategoryDisplayName}</div>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              Ingredients: {batch.ingredients.length > 0 ? batch.ingredients.map((ing) => `${ing.name} (${Number(ing.quantity).toFixed(2)})`).join(", ") : "-"}
+                      paginatedBatches.map((batch) => {
+                        const isClosed = batch.producedUnitsRemaining <= 0
+                        return (
+                          <div key={batch.id} className={`grid grid-cols-[2fr_90px_90px_90px_90px_110px_180px] gap-2 border-b px-3 py-2 text-sm ${isClosed ? "bg-muted/30 opacity-70" : ""}`}>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate font-medium">{batch.targetName}</span>
+                                {isClosed && <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">Closed</span>}
+                              </div>
+                              <div className="text-xs text-muted-foreground">Batch: {new Date(batch.date).toLocaleString()}</div>
+                              <div className="text-xs text-muted-foreground">Source: {batch.sourceCategoryDisplayName}</div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                Ingredients: {batch.ingredients.length > 0 ? batch.ingredients.map((ing) => `${ing.name} (${Number(ing.quantity).toFixed(2)})`).join(", ") : "-"}
+                              </div>
+                              {batch.remarks ? <div className="mt-1 text-xs text-muted-foreground">Remarks: {batch.remarks}</div> : null}
+                              <div className="mt-1 text-xs text-muted-foreground">Unit Cost: {batch.unitCostPerCostUnit.toFixed(2)}</div>
                             </div>
-                            {batch.remarks ? <div className="mt-1 text-xs text-muted-foreground">Remarks: {batch.remarks}</div> : null}
-                            <div className="mt-1 text-xs text-muted-foreground">Unit Cost: {batch.unitCostPerCostUnit.toFixed(2)}</div>
+                            <div className="text-right">{batch.producedUnits.toFixed(2)}</div>
+                            <div className="text-right">{batch.soldUnits.toFixed(2)}</div>
+                            <div className="text-right">{batch.producedUnitsRemaining.toFixed(2)}</div>
+                            <div className="text-right">{batch.costUnitsRemaining.toFixed(2)}</div>
+                            <div className="text-right">{batch.zeroCostUnitsRemaining.toFixed(2)}</div>
+                            <div className="flex items-center gap-2">
+                              {isClosed ? (
+                                <span className="w-full text-center text-xs text-muted-foreground italic">All sold out</span>
+                              ) : (
+                                <>
+                                  <Input
+                                    type="number"
+                                    min="0.01"
+                                    step="0.01"
+                                    value={batchPreparedQtyDraft[batch.id] ?? String(batch.producedUnits)}
+                                    onChange={(e) => setBatchPreparedQtyDraft((prev) => ({ ...prev, [batch.id]: e.target.value }))}
+                                    className="h-8 text-right"
+                                  />
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    disabled={batchUpdateLoadingId === batch.id}
+                                    onClick={() => handleUpdateBatchPreparedQty(batch)}
+                                  >
+                                    {batchUpdateLoadingId === batch.id ? "..." : "Update"}
+                                  </Button>
+                                </>
+                              )}
+                            </div>
                           </div>
-                          <div className="text-right">{batch.producedUnits.toFixed(2)}</div>
-                          <div className="text-right">{batch.soldUnits.toFixed(2)}</div>
-                          <div className="text-right">{batch.producedUnitsRemaining.toFixed(2)}</div>
-                          <div className="text-right">{batch.costUnitsRemaining.toFixed(2)}</div>
-                          <div className="text-right">{batch.zeroCostUnitsRemaining.toFixed(2)}</div>
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="number"
-                              min="0.01"
-                              step="0.01"
-                              value={batchPreparedQtyDraft[batch.id] ?? String(batch.producedUnits)}
-                              onChange={(e) => setBatchPreparedQtyDraft((prev) => ({ ...prev, [batch.id]: e.target.value }))}
-                              disabled={batch.producedUnitsRemaining <= 0}
-                              className="h-8 text-right"
-                            />
-                            <Button
-                              type="button"
-                              size="sm"
-                              disabled={batchUpdateLoadingId === batch.id || batch.producedUnitsRemaining <= 0}
-                              title={batch.producedUnitsRemaining <= 0 ? "Batch is fully sold and closed" : ""}
-                              onClick={() => handleUpdateBatchPreparedQty(batch)}
-                            >
-                              {batchUpdateLoadingId === batch.id ? "..." : batch.producedUnitsRemaining <= 0 ? "Closed" : "Update"}
-                            </Button>
-                          </div>
-                        </div>
-                      ))
+                        )
+                      })
                     )}
                   </div>
+                  {/* Pagination footer */}
+                  {batchTotalPages > 1 && (
+                    <div className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
+                      <span>Page {batchCurrentPage} of {batchTotalPages} — {filteredBatches.length} total</span>
+                      <div className="flex items-center gap-1">
+                        <Button variant="outline" size="sm" className="h-7 px-2.5" onClick={() => setBatchCurrentPage((p) => Math.max(1, p - 1))} disabled={batchCurrentPage === 1}>Prev</Button>
+                        <Button variant="outline" size="sm" className="h-7 px-2.5" onClick={() => setBatchCurrentPage((p) => Math.min(batchTotalPages, p + 1))} disabled={batchCurrentPage === batchTotalPages}>Next</Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
               )}

@@ -13,6 +13,8 @@ export async function GET() {
     })
 
     const customerData = customers.map((customer) => ({
+      id: customer.id,
+      customerNo: customer.customerNo,
       name: customer.name,
       mobile: customer.mobile,
       totalBills: customer._count.bills,
