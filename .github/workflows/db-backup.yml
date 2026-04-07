@@ -26,6 +26,8 @@ jobs:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           PGPASSWORD: ${{ secrets.PRODUCTION_DB_PASSWORD }}
         run: |
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          pg_dump --version
           FILENAME="backup_$(date +'%Y-%m-%d_%H-%M-%S').sql"
           pg_dump "$DATABASE_URL" \
             --no-owner \
