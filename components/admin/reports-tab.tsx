@@ -215,6 +215,9 @@ const FINANCE_CHART_COLORS = [
   "#0d9488", // teal
 ]
 
+const REPORT_KPI_CARD_CLASS = "h-full min-h-[96px]"
+const REPORT_KPI_CARD_CONTENT_CLASS = "flex flex-col justify-between"
+
 function toDateInputValue(date: Date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, "0")
@@ -571,23 +574,23 @@ function ReportsOverviewSection({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Card className="cursor-pointer border-emerald-200/70 bg-gradient-to-br from-emerald-100/60 to-green-50/70 hover:from-emerald-100 hover:to-green-100/80" onClick={() => onNavigate("sales", { salesView: "bills", gridStart: todayStr, gridEnd: todayStr, gridPay: "all", gridQuery: "" })}>
-          <CardContent className="pt-4"><p className="text-xs text-muted-foreground">Today&apos;s Sales</p><p className="text-xl font-bold">{formatCurrency(todaySales)}</p><p className="text-[11px] text-muted-foreground">Open today bills</p></CardContent>
+        <Card className={`cursor-pointer bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-transparent ${REPORT_KPI_CARD_CLASS}`} onClick={() => onNavigate("sales", { salesView: "bills", gridStart: todayStr, gridEnd: todayStr, gridPay: "all", gridQuery: "" })}>
+          <CardContent className={REPORT_KPI_CARD_CONTENT_CLASS}><p className="text-xs text-muted-foreground">Today&apos;s Sales</p><p className="text-lg font-bold">{formatCurrency(todaySales)}</p><p className="text-[10px] text-muted-foreground">Open today bills</p></CardContent>
         </Card>
-        <Card className="cursor-pointer border-sky-200/70 bg-gradient-to-br from-sky-100/60 to-cyan-50/70 hover:from-sky-100 hover:to-cyan-100/80" onClick={() => onNavigate("sales", { salesView: "bills", gridStart: monthStartStr, gridEnd: todayStr, gridPay: "all", gridQuery: "" })}>
-          <CardContent className="pt-4"><p className="text-xs text-muted-foreground">This Month Sales</p><p className="text-xl font-bold">{formatCurrency(monthSales)}</p><p className="text-[11px] text-muted-foreground">Open month bills</p></CardContent>
+        <Card className={`cursor-pointer bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-transparent ${REPORT_KPI_CARD_CLASS}`} onClick={() => onNavigate("sales", { salesView: "bills", gridStart: monthStartStr, gridEnd: todayStr, gridPay: "all", gridQuery: "" })}>
+          <CardContent className={REPORT_KPI_CARD_CONTENT_CLASS}><p className="text-xs text-muted-foreground">This Month Sales</p><p className="text-lg font-bold">{formatCurrency(monthSales)}</p><p className="text-[10px] text-muted-foreground">Open month bills</p></CardContent>
         </Card>
-        <Card className="cursor-pointer border-fuchsia-200/70 bg-gradient-to-br from-fuchsia-100/60 to-pink-50/70 hover:from-fuchsia-100 hover:to-pink-100/80" onClick={() => onNavigate("sales", { salesView: "products", prodPeriod: "month", prodStart: monthStartStr, prodEnd: todayStr, prodQuery: topProduct?.name || "" })}>
-          <CardContent className="pt-4"><p className="text-xs text-muted-foreground">Top Product</p><p className="text-sm font-semibold truncate">{topProduct?.name || "N/A"}</p><p className="text-[11px] text-muted-foreground">Qty {topProduct?.qty.toFixed(2) || "0.00"}</p></CardContent>
+        <Card className={`cursor-pointer bg-gradient-to-br from-purple-500/10 to-pink-500/10 border-transparent ${REPORT_KPI_CARD_CLASS}`} onClick={() => onNavigate("sales", { salesView: "products", prodPeriod: "month", prodStart: monthStartStr, prodEnd: todayStr, prodQuery: topProduct?.name || "" })}>
+          <CardContent className={REPORT_KPI_CARD_CONTENT_CLASS}><p className="text-xs text-muted-foreground">Top Product</p><p className="text-lg font-bold truncate">{topProduct?.name || "N/A"}</p><p className="text-[10px] text-muted-foreground">Qty {topProduct?.qty.toFixed(2) || "0.00"}</p></CardContent>
         </Card>
-        <Card className="cursor-pointer border-amber-200/70 bg-gradient-to-br from-amber-100/60 to-orange-50/70 hover:from-amber-100 hover:to-orange-100/80" onClick={() => onNavigate("sales")}>
-          <CardContent className="pt-4"><p className="text-xs text-muted-foreground">Low Stock Alert</p><p className="text-xl font-bold">{lowStock.length}</p><p className="text-[11px] text-muted-foreground truncate">{lowStock[0]?.name || "All good"}</p></CardContent>
+        <Card className={`cursor-pointer bg-gradient-to-br from-amber-500/10 to-orange-500/10 border-transparent ${REPORT_KPI_CARD_CLASS}`} onClick={() => onNavigate("sales")}>
+          <CardContent className={REPORT_KPI_CARD_CONTENT_CLASS}><p className="text-xs text-muted-foreground">Low Stock Alert</p><p className="text-lg font-bold">{lowStock.length}</p><p className="text-[10px] text-muted-foreground truncate">{lowStock[0]?.name || "All good"}</p></CardContent>
         </Card>
-        <Card className="cursor-pointer border-orange-200/70 bg-gradient-to-br from-orange-100/60 to-amber-50/70 hover:from-orange-100 hover:to-amber-100/80" onClick={() => onNavigate("sales", { salesView: "bills", gridStart: monthStartStr, gridEnd: todayStr, gridPay: "PENDING", gridQuery: "" })}>
-          <CardContent className="pt-4"><p className="text-xs text-muted-foreground">Pending Credit</p><p className="text-xl font-bold">{formatCurrency(pendingCredit)}</p><p className="text-[11px] text-muted-foreground">Open credit bills</p></CardContent>
+        <Card className={`cursor-pointer bg-gradient-to-br from-orange-500/10 to-amber-500/10 border-transparent ${REPORT_KPI_CARD_CLASS}`} onClick={() => onNavigate("sales", { salesView: "bills", gridStart: monthStartStr, gridEnd: todayStr, gridPay: "PENDING", gridQuery: "" })}>
+          <CardContent className={REPORT_KPI_CARD_CONTENT_CLASS}><p className="text-xs text-muted-foreground">Pending Credit</p><p className="text-lg font-bold">{formatCurrency(pendingCredit)}</p><p className="text-[10px] text-muted-foreground">Open credit bills</p></CardContent>
         </Card>
-        <Card className="cursor-pointer border-violet-200/70 bg-gradient-to-br from-violet-100/60 to-indigo-50/70 hover:from-violet-100 hover:to-indigo-100/80" onClick={() => onNavigate("pl")}>
-          <CardContent className="pt-4"><p className="text-xs text-muted-foreground">Total Profit</p><p className="text-xl font-bold">{formatCurrency(totalProfit)}</p><p className="text-[11px] text-muted-foreground">This month&apos;s net profit</p></CardContent>
+        <Card className={`cursor-pointer bg-gradient-to-br from-purple-500/10 to-indigo-500/10 border-transparent ${REPORT_KPI_CARD_CLASS}`} onClick={() => onNavigate("pl")}>
+          <CardContent className={REPORT_KPI_CARD_CONTENT_CLASS}><p className="text-xs text-muted-foreground">Total Profit</p><p className="text-lg font-bold">{formatCurrency(totalProfit)}</p><p className="text-[10px] text-muted-foreground">This month&apos;s net profit</p></CardContent>
         </Card>
       </div>
 
@@ -1016,9 +1019,9 @@ function ExpenseReportsSection() {
 
 function SummaryCard({ label, value, sub, icon, gradient }: { label: string; value: number; sub: string; icon: React.ReactNode; gradient: string }) {
   return (
-    <Card className={`bg-gradient-to-br ${gradient} border-transparent`}>
-      <CardHeader className="pb-1 pt-3 px-4"><CardTitle className="text-xs font-medium flex items-center gap-1.5">{icon} {label}</CardTitle></CardHeader>
-      <CardContent className="px-4 pb-3">
+    <Card className={`bg-gradient-to-br ${gradient} border-transparent ${REPORT_KPI_CARD_CLASS}`}>
+      <CardContent className={REPORT_KPI_CARD_CONTENT_CLASS}>
+        <p className="text-xs text-muted-foreground flex items-center gap-1.5">{icon} {label}</p>
         <p className="text-lg font-bold">{formatCurrency(value)}</p>
         <p className="text-[10px] text-muted-foreground">{sub}</p>
       </CardContent>
@@ -1870,45 +1873,45 @@ function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "char
               </div>
 
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
-                <Card className="border bg-background shadow-none">
-                  <CardContent className="px-3 py-3">
-                    <p className="text-[11px] text-muted-foreground">Total Sales</p>
+                <Card className={`bg-green-500/10 border-transparent ${REPORT_KPI_CARD_CLASS}`}>
+                  <CardContent className={REPORT_KPI_CARD_CONTENT_CLASS}>
+                    <p className="text-xs text-muted-foreground">Total Sales</p>
                     <p className="text-lg font-bold">{formatCurrency(gridSummary.totalSales)}</p>
                   </CardContent>
                 </Card>
-                <Card className="border bg-background shadow-none">
-                  <CardContent className="px-3 py-3">
-                    <p className="text-[11px] text-muted-foreground">Bills Generated</p>
+                <Card className={`bg-muted/20 border-transparent ${REPORT_KPI_CARD_CLASS}`}>
+                  <CardContent className={REPORT_KPI_CARD_CONTENT_CLASS}>
+                    <p className="text-xs text-muted-foreground">Bills Generated</p>
                     <p className="text-lg font-bold">{gridSummary.totalBillsGenerated}</p>
                   </CardContent>
                 </Card>
-                <Card className="border bg-background shadow-none">
-                  <CardContent className="px-3 py-3">
-                    <p className="text-[11px] text-muted-foreground">Discounts Given</p>
+                <Card className={`bg-amber-500/10 border-transparent ${REPORT_KPI_CARD_CLASS}`}>
+                  <CardContent className={REPORT_KPI_CARD_CONTENT_CLASS}>
+                    <p className="text-xs text-muted-foreground">Discounts Given</p>
                     <p className="text-lg font-bold">{formatCurrency(gridSummary.discountsGiven)}</p>
                   </CardContent>
                 </Card>
-                <Card className="border bg-background shadow-none">
-                  <CardContent className="px-3 py-3">
-                    <p className="text-[11px] text-muted-foreground">Returns / Refunds</p>
+                <Card className={`bg-red-500/10 border-transparent ${REPORT_KPI_CARD_CLASS}`}>
+                  <CardContent className={REPORT_KPI_CARD_CONTENT_CLASS}>
+                    <p className="text-xs text-muted-foreground">Returns / Refunds</p>
                     <p className="text-lg font-bold">{formatCurrency(gridSummary.returnsRefunds)}</p>
                   </CardContent>
                 </Card>
-                <Card className="border bg-background shadow-none">
-                  <CardContent className="px-3 py-3">
-                    <p className="text-[11px] text-muted-foreground">Net Sales</p>
+                <Card className={`bg-gradient-to-br from-purple-500/10 to-indigo-500/10 border-transparent ${REPORT_KPI_CARD_CLASS}`}>
+                  <CardContent className={REPORT_KPI_CARD_CONTENT_CLASS}>
+                    <p className="text-xs text-muted-foreground">Net Sales</p>
                     <p className="text-lg font-bold">{formatCurrency(gridSummary.netSales)}</p>
                   </CardContent>
                 </Card>
-                <Card className="border bg-background shadow-none">
-                  <CardContent className="px-3 py-3">
-                    <p className="text-[11px] text-muted-foreground">Cash Sales</p>
+                <Card className={`bg-blue-500/10 border-transparent ${REPORT_KPI_CARD_CLASS}`}>
+                  <CardContent className={REPORT_KPI_CARD_CONTENT_CLASS}>
+                    <p className="text-xs text-muted-foreground">Cash Sales</p>
                     <p className="text-lg font-bold">{formatCurrency(gridSummary.paymentBreakdown.cash)}</p>
                   </CardContent>
                 </Card>
-                <Card className="border bg-background shadow-none">
-                  <CardContent className="px-3 py-3">
-                    <p className="text-[11px] text-muted-foreground">Online Sales</p>
+                <Card className={`bg-cyan-500/10 border-transparent ${REPORT_KPI_CARD_CLASS}`}>
+                  <CardContent className={REPORT_KPI_CARD_CONTENT_CLASS}>
+                    <p className="text-xs text-muted-foreground">Online Sales</p>
                     <p className="text-lg font-bold">{formatCurrency(gridSummary.paymentBreakdown.upi)}</p>
                   </CardContent>
                 </Card>

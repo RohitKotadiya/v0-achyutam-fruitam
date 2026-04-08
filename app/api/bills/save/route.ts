@@ -134,9 +134,6 @@ export async function POST(request: Request) {
         if (!productNameById.has(item.productId)) {
           productNameById.set(item.productId, item.productName)
         }
-        if (!item.isMixDish) {
-          totalCost += item.costForProfit * requiredUnits
-        }
       }
 
       const productIds = Array.from(requiredByProduct.keys())
@@ -154,11 +151,24 @@ export async function POST(request: Request) {
         }
       }
 
-      const mixProductIds = Array.from(
-        new Set(validItems.filter((item) => item.isMixDish).map((item) => item.productId)),
+      const preparedProductRows = await tx.$queryRaw<Array<{ targetProductId: string }>>(
+        Prisma.sql`
+          SELECT DISTINCT "targetProductId"
+          FROM "MixPreparation"
+          WHERE "targetProductId" IN (${Prisma.join(productIds)})
+        `,
       )
+      const batchManagedProductIdSet = new Set(preparedProductRows.map((row) => row.targetProductId))
+      const batchManagedProductIds = productIds.filter((id) => batchManagedProductIdSet.has(id))
 
-      if (mixProductIds.length > 0) {
+      for (const item of validItems) {
+        const requiredUnits = item.quantity * item.consumptionRate
+        if (!batchManagedProductIdSet.has(item.productId)) {
+          totalCost += item.costForProfit * requiredUnits
+        }
+      }
+
+      if (batchManagedProductIds.length > 0) {
         const openBatches = await tx.$queryRaw<Array<{
           id: string
           targetProductId: string
@@ -174,7 +184,7 @@ export async function POST(request: Request) {
               "costUnitsRemaining",
               "unitCostPerCostUnit"
             FROM "MixPreparation"
-            WHERE "targetProductId" IN (${Prisma.join(mixProductIds)})
+            WHERE "targetProductId" IN (${Prisma.join(batchManagedProductIds)})
               AND "producedUnitsRemaining" > 0
             ORDER BY "targetProductId" ASC, "date" ASC, "createdAt" ASC
           `,
@@ -189,7 +199,7 @@ export async function POST(request: Request) {
 
         const batchAdjustments: Array<{ id: string; consumedUnits: number; costedUnits: number }> = []
 
-        for (const productId of mixProductIds) {
+        for (const productId of batchManagedProductIds) {
           let pendingUnits = requiredByProduct.get(productId) || 0
           const productBatches = batchesByProduct.get(productId) || []
           const totalAvailableFromBatches = productBatches.reduce(
@@ -199,7 +209,7 @@ export async function POST(request: Request) {
 
           if (totalAvailableFromBatches + 1e-9 < pendingUnits) {
             throw new Error(
-              `Prepared batch balance mismatch for ${productNameById.get(productId) || productId}. Please sync yield correction.`,
+              `Only ${totalAvailableFromBatches.toFixed(2)} prepared units available for ${productNameById.get(productId) || productId}.`,
             )
           }
 
@@ -226,7 +236,11 @@ export async function POST(request: Request) {
             UPDATE "MixPreparation"
             SET
               "producedUnitsRemaining" = GREATEST(0, "producedUnitsRemaining" - ${adjustment.consumedUnits}),
-              "costUnitsRemaining" = GREATEST(0, "costUnitsRemaining" - ${adjustment.costedUnits})
+              "costUnitsRemaining" = GREATEST(0, "costUnitsRemaining" - ${adjustment.costedUnits}),
+              "isOpen" = CASE
+                WHEN GREATEST(0, "producedUnitsRemaining" - ${adjustment.consumedUnits}) <= 0 THEN false
+                ELSE "isOpen"
+              END
             WHERE "id" = ${adjustment.id}
           `
         }
@@ -280,7 +294,7 @@ export async function POST(request: Request) {
         data: validItems.map((item) => {
           const requiredUnits = item.quantity * item.consumptionRate
           const totalRequiredUnits = requiredByProduct.get(item.productId) || requiredUnits
-          const unitCost = item.isMixDish
+          const unitCost = batchManagedProductIdSet.has(item.productId)
             ? totalRequiredUnits > 0
               ? (mixCostByProduct.get(item.productId) || 0) / totalRequiredUnits
               : 0

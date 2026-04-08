@@ -106,6 +106,7 @@ export async function POST(request: Request) {
             "totalIngredientCost",
             "unitCostPerCostUnit",
             "remarks",
+            "isOpen",
             "createdAt"
           )
         VALUES
@@ -122,6 +123,7 @@ export async function POST(request: Request) {
             ${totalIngredientCost},
             ${unitCostPerCostUnit},
             ${remarks || null},
+            true,
             ${now}
           )
       `

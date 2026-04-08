@@ -23,6 +23,9 @@ interface CustomerRow {
 
 type SortDir = "asc" | "desc"
 
+const KPI_CARD_CLASS = "h-full min-h-[96px]"
+const KPI_CARD_CONTENT_CLASS = "flex flex-col justify-between"
+
 function SortableHeader({ label, field, sortField, sortDir, onSort }: { label: string; field: string; sortField: string; sortDir: SortDir; onSort: (f: string) => void }) {
   const active = sortField === field
   return (
@@ -187,48 +190,40 @@ export function CustomersTab() {
     <div className="space-y-4">
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-transparent">
-          <CardHeader>
-            <CardTitle className="text-xs font-medium flex items-center gap-1.5">
+        <Card className={`bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
               <Users className="h-4 w-4 text-blue-600" /> Total Customers
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </p>
             <p className="text-lg font-bold">{data.length}</p>
-            <p className="text-xs text-muted-foreground">{data.filter(r => r.totalBills >= 2).length} repeat buyers</p>
+            <p className="text-[10px] text-muted-foreground">{data.filter(r => r.totalBills >= 2).length} repeat buyers</p>
           </CardContent>
         </Card>
-        <Card className="bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-transparent">
-          <CardHeader>
-            <CardTitle className="text-xs font-medium flex items-center gap-1.5">
+        <Card className={`bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
               <TrendingUp className="h-4 w-4 text-green-600" /> Total Revenue
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </p>
             <p className="text-lg font-bold">{formatCurrency(allTotalRevenue)}</p>
-            <p className="text-xs text-muted-foreground">All time</p>
+            <p className="text-[10px] text-muted-foreground">All time</p>
           </CardContent>
         </Card>
-        <Card className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 border-transparent">
-          <CardHeader>
-            <CardTitle className="text-xs font-medium flex items-center gap-1.5">
+        <Card className={`bg-gradient-to-br from-purple-500/10 to-pink-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
               <IndianRupee className="h-4 w-4 text-purple-600" /> Avg Spend
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </p>
             <p className="text-lg font-bold">{formatCurrency(allAvgSpend)}</p>
-            <p className="text-xs text-muted-foreground">Per customer</p>
+            <p className="text-[10px] text-muted-foreground">Per customer</p>
           </CardContent>
         </Card>
-        <Card className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border-transparent">
-          <CardHeader>
-            <CardTitle className="text-xs font-medium flex items-center gap-1.5">
+        <Card className={`bg-gradient-to-br from-amber-500/10 to-orange-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
               <Star className="h-4 w-4 text-amber-600" /> Top Customer
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </p>
             <p className="text-lg font-bold truncate">{top10[0]?.name ?? "—"}</p>
-            <p className="text-xs text-muted-foreground">{top10[0] ? formatCurrency(top10[0].totalSpent) : "No data"}</p>
+            <p className="text-[10px] text-muted-foreground">{top10[0] ? formatCurrency(top10[0].totalSpent) : "No data"}</p>
           </CardContent>
         </Card>
       </div>

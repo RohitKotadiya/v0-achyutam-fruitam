@@ -116,50 +116,6 @@ interface DashboardData {
     billCount: number
     difference: number | null
   }
-  month: {
-    sales: number
-    cost: number
-    grossProfit: number
-    expenses: number
-    netProfit: number
-    billCount: number
-    safeWithdrawals: number
-    safeDeposits: number
-  }
-  outstanding: {
-    total: number
-    count: number
-    dues: Array<{
-      id: string
-      billNo: number
-      displayBillNo: string | null
-      customerName: string
-      grandTotal: number
-      collected: number
-      remaining: number
-      customerId?: string | null
-      dateTime?: string | null
-    }>
-  }
-}
-
-interface CashRegisterData {
-  businessDate?: string
-  register?: {
-    openingBalance: number
-    actualClosing: number | null
-    notes: string | null
-    closedAt: string | null
-    [key: string]: unknown
-  } | null
-  summary: {
-    openingBalance: number
-    cashIn: { sales: number; collections: number; transfersIn: number; total: number }
-    cashOut: { expenses: number; transfersOut: number; total: number }
-    expectedClosing: number
-    actualClosing: number | null
-    difference: number | null
-  }
 }
 
 interface RegisterHistoryRow {
@@ -420,13 +376,7 @@ function CashAdjustmentsSection() {
   const [error, setError] = useState("");
 
   const [allReasons, setAllReasons] = useState<string[]>([]);
-  const fetchAdjustments = useCallback(async (
-    filters?: { reason: string; user: string; dateFrom: string; dateTo: string; rangePreset: string },
-    pageArg?: number,
-    pageSizeArg?: number,
-    sortF?: string,
-    sortD?: string,
-  ) => {
+  const fetchAdjustments = useCallback(async (filters = undefined, pageArg = undefined, pageSizeArg = undefined, sortF = undefined, sortD = undefined) => {
     setLoading(true);
     setError("");
     try {
@@ -458,7 +408,7 @@ function CashAdjustmentsSection() {
   useEffect(() => { fetchAdjustments(undefined, 1, pageSize, sortField, sortDir); }, [sortField, sortDir]);
 
   const reasons = allReasons;
-  const users = useMemo(() => Array.from(new Set(adjustments.map(a => a.user?.name || a.userId))).filter((u): u is string => !!u), [adjustments]);
+  const users = useMemo(() => Array.from(new Set(adjustments.map(a => a.user?.name || a.userId))).filter(Boolean), [adjustments]);
 
   // Calculate total pages
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -645,7 +595,7 @@ function OverviewSection() {
       .then((json) => {
         const outstanding = json?.outstanding
         if (!outstanding) return
-        setData((prev: DashboardData | null) => {
+        setData((prev) => {
           if (!prev) return prev
           return {
             ...prev,
@@ -789,15 +739,13 @@ function SummaryCard({
   label: string; value: number; sub: string; icon: React.ReactNode; gradient: string
 }) {
   return (
-    <Card className={`bg-gradient-to-br ${gradient} border-transparent`}>
-      <CardHeader>
-        <CardTitle className="text-xs font-medium flex items-center gap-1.5">
+    <Card className={`bg-gradient-to-br ${gradient} border-transparent ${KPI_CARD_CLASS}`}>
+      <CardContent className={KPI_CARD_CONTENT_CLASS}>
+        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
           {icon} {label}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
+        </p>
         <p className="text-lg font-bold">{formatCurrency(value)}</p>
-        <p className="text-xs text-muted-foreground">{sub}</p>
+        <p className="text-[10px] text-muted-foreground">{sub}</p>
       </CardContent>
     </Card>
   )
@@ -974,7 +922,7 @@ function CashRegisterDailySection() {
       const savedRegister = await res.json()
       if (action === "open") {
         const nextOpening = parseFloat(openingBalance || "0")
-        setData((prev: CashRegisterData | null) => {
+        setData((prev) => {
           const fallbackSummary = {
             openingBalance: nextOpening,
             cashIn: { sales: 0, collections: 0, transfersIn: 0, total: 0 },
@@ -1764,16 +1712,11 @@ function CustomerDuesSection() {
 
   return (
     <div className="space-y-4">
-      <Card className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border-amber-200/20">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2">
-            <Receipt className="h-5 w-5 text-amber-600" />
-            Total Outstanding
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-3xl font-bold">{formatCurrency(totalOutstanding)}</p>
-          <p className="text-sm text-muted-foreground">{dues.length} pending bills</p>
+      <Card className={`bg-gradient-to-br from-amber-500/10 to-orange-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+        <CardContent className={KPI_CARD_CONTENT_CLASS}>
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Receipt className="h-4 w-4 text-amber-600" /> Total Outstanding</p>
+          <p className="text-lg font-bold">{formatCurrency(totalOutstanding)}</p>
+          <p className="text-[10px] text-muted-foreground">{dues.length} pending bills</p>
         </CardContent>
       </Card>
 
@@ -1804,7 +1747,7 @@ function CustomerDuesSection() {
                   <TableRow key={due.id}>
                     <TableCell>#{due.displayBillNo ?? due.billNo}</TableCell>
                     <TableCell>{due.customerName}</TableCell>
-                    <TableCell>{due.dateTime ? formatIndianDate(new Date(due.dateTime)) : "-"}</TableCell>
+                    <TableCell>{formatIndianDate(new Date(due.dateTime))}</TableCell>
                     <TableCell className="text-right">{formatCurrency(due.grandTotal)}</TableCell>
                     <TableCell className="text-right text-green-600">{formatCurrency(due.collected)}</TableCell>
                     <TableCell className="text-right font-semibold text-red-600">{formatCurrency(due.remaining)}</TableCell>
@@ -2127,37 +2070,25 @@ function SafeSection() {
     <div className="space-y-4">
       {/* KPI Cards */}
       <div className="grid grid-cols-3 gap-3">
-        <Card className={`bg-gradient-to-br from-slate-500/10 to-gray-500/10 ${KPI_CARD_CLASS}`}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium flex items-center gap-1.5">
-              <Landmark className="h-4 w-4 text-slate-600" /> Safe Balance
-            </CardTitle>
-          </CardHeader>
+        <Card className={`bg-gradient-to-br from-slate-500/10 to-gray-500/10 border-transparent ${KPI_CARD_CLASS}`}>
           <CardContent className={KPI_CARD_CONTENT_CLASS}>
-            <p className={`text-2xl font-bold ${summary.balance >= 0 ? "text-slate-800" : "text-red-700"}`}>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Landmark className="h-4 w-4 text-slate-600" /> Safe Balance</p>
+            <p className={`text-lg font-bold ${summary.balance < 0 ? "text-red-700" : ""}`}>
               {formatCurrency(summary.balance)}
             </p>
             <p className="text-[10px] text-muted-foreground">{summary.transactions.length} transactions</p>
           </CardContent>
         </Card>
-        <Card className={`bg-gradient-to-br from-green-500/10 to-emerald-500/10 ${KPI_CARD_CLASS}`}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium flex items-center gap-1.5">
-              <ArrowDownLeft className="h-4 w-4 text-green-600" /> Total Added
-            </CardTitle>
-          </CardHeader>
+        <Card className={`bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-transparent ${KPI_CARD_CLASS}`}>
           <CardContent className={KPI_CARD_CONTENT_CLASS}>
-            <p className="text-lg font-bold text-green-700">{formatCurrency(summary.totalIn)}</p>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5"><ArrowDownLeft className="h-4 w-4 text-green-600" /> Total Added</p>
+            <p className="text-lg font-bold">{formatCurrency(summary.totalIn)}</p>
           </CardContent>
         </Card>
-        <Card className={`bg-gradient-to-br from-red-500/10 to-orange-500/10 ${KPI_CARD_CLASS}`}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium flex items-center gap-1.5">
-              <ArrowUpRight className="h-4 w-4 text-red-600" /> Total Removed
-            </CardTitle>
-          </CardHeader>
+        <Card className={`bg-gradient-to-br from-red-500/10 to-orange-500/10 border-transparent ${KPI_CARD_CLASS}`}>
           <CardContent className={KPI_CARD_CONTENT_CLASS}>
-            <p className="text-lg font-bold text-red-700">{formatCurrency(summary.totalOut)}</p>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5"><ArrowUpRight className="h-4 w-4 text-red-600" /> Total Removed</p>
+            <p className="text-lg font-bold">{formatCurrency(summary.totalOut)}</p>
           </CardContent>
         </Card>
       </div>
@@ -2560,24 +2491,39 @@ function ExpensesSection() {
       {/* KPI cards */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Card className={`bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-transparent ${KPI_CARD_CLASS}`}>
-          <CardHeader className="pb-2"><CardTitle className="text-xs font-medium flex items-center gap-1.5"><DollarSign className="h-4 w-4 text-blue-600" /> Rent</CardTitle></CardHeader>
-          <CardContent className={KPI_CARD_CONTENT_CLASS}><p className="text-lg font-bold">{formatCurrency(expenseByCategory("Rent"))}</p><p className="text-xs text-muted-foreground">Filtered period</p></CardContent>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5"><DollarSign className="h-4 w-4 text-blue-600" /> Rent</p>
+            <p className="text-lg font-bold">{formatCurrency(expenseByCategory("Rent"))}</p>
+            <p className="text-[10px] text-muted-foreground">Filtered period</p>
+          </CardContent>
         </Card>
         <Card className={`bg-gradient-to-br from-amber-500/10 to-orange-500/10 border-transparent ${KPI_CARD_CLASS}`}>
-          <CardHeader className="pb-2"><CardTitle className="text-xs font-medium flex items-center gap-1.5"><TrendingDown className="h-4 w-4 text-amber-600" /> Electricity</CardTitle></CardHeader>
-          <CardContent className={KPI_CARD_CONTENT_CLASS}><p className="text-lg font-bold">{formatCurrency(expenseByCategory("Electricity"))}</p><p className="text-xs text-muted-foreground">Filtered period</p></CardContent>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5"><TrendingDown className="h-4 w-4 text-amber-600" /> Electricity</p>
+            <p className="text-lg font-bold">{formatCurrency(expenseByCategory("Electricity"))}</p>
+            <p className="text-[10px] text-muted-foreground">Filtered period</p>
+          </CardContent>
         </Card>
         <Card className={`bg-gradient-to-br from-purple-500/10 to-pink-500/10 border-transparent ${KPI_CARD_CLASS}`}>
-          <CardHeader className="pb-2"><CardTitle className="text-xs font-medium flex items-center gap-1.5"><Users className="h-4 w-4 text-purple-600" /> Salary</CardTitle></CardHeader>
-          <CardContent className={KPI_CARD_CONTENT_CLASS}><p className="text-lg font-bold">{formatCurrency(expenseByCategory("Salary"))}</p><p className="text-xs text-muted-foreground">Filtered period</p></CardContent>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Users className="h-4 w-4 text-purple-600" /> Salary</p>
+            <p className="text-lg font-bold">{formatCurrency(expenseByCategory("Salary"))}</p>
+            <p className="text-[10px] text-muted-foreground">Filtered period</p>
+          </CardContent>
         </Card>
         <Card className={`bg-gradient-to-br from-slate-500/10 to-gray-500/10 border-transparent ${KPI_CARD_CLASS}`}>
-          <CardHeader className="pb-2"><CardTitle className="text-xs font-medium flex items-center gap-1.5"><Receipt className="h-4 w-4 text-slate-600" /> Other</CardTitle></CardHeader>
-          <CardContent className={KPI_CARD_CONTENT_CLASS}><p className="text-lg font-bold">{formatCurrency(expenseByCategory("Other"))}</p><p className="text-xs text-muted-foreground">Filtered period</p></CardContent>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Receipt className="h-4 w-4 text-slate-600" /> Other</p>
+            <p className="text-lg font-bold">{formatCurrency(expenseByCategory("Other"))}</p>
+            <p className="text-[10px] text-muted-foreground">Filtered period</p>
+          </CardContent>
         </Card>
         <Card className={`bg-gradient-to-br from-red-500/10 to-orange-500/10 border-transparent ${KPI_CARD_CLASS}`}>
-          <CardHeader className="pb-2"><CardTitle className="text-xs font-medium flex items-center gap-1.5"><TrendingDown className="h-4 w-4 text-red-600" /> Total</CardTitle></CardHeader>
-          <CardContent className={KPI_CARD_CONTENT_CLASS}><p className="text-lg font-bold">{formatCurrency(totalExpenses)}</p><p className="text-xs text-muted-foreground">{expenses.length} entries</p></CardContent>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5"><TrendingDown className="h-4 w-4 text-red-600" /> Total</p>
+            <p className="text-lg font-bold">{formatCurrency(totalExpenses)}</p>
+            <p className="text-[10px] text-muted-foreground">{expenses.length} entries</p>
+          </CardContent>
         </Card>
       </div>
 
