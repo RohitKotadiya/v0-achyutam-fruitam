@@ -184,23 +184,36 @@ export async function GET(request: Request) {
       cashExpensesAmount = legacyCashExpenses._sum.amount || 0
     }
 
-    // Transfers from Counter going to Safe/Bank
+    // Transfers from Counter going to Safe/Bank (exclude return refunds)
     let counterTransfersOutAmount = 0
+    let billReturnRefundAmount = 0
     try {
       const counterTransfersOut = await prisma.cashTransaction.aggregate({
         where: {
           date: { gte: dayStart, lte: dayEnd },
           fromLocation: "COUNTER",
+          toLocation: { in: ["SAFE", "BANK"] },
         },
         _sum: { amount: true },
       })
       counterTransfersOutAmount = counterTransfersOut._sum.amount || 0
+
+      const billReturnRefund = await prisma.cashTransaction.aggregate({
+        where: {
+          date: { gte: dayStart, lte: dayEnd },
+          fromLocation: "COUNTER",
+          category: "RETURN",
+        },
+        _sum: { amount: true },
+      })
+      billReturnRefundAmount = billReturnRefund._sum.amount || 0
     } catch (error) {
       if (!isPrismaMissingSchemaError(error)) throw error
       counterTransfersOutAmount = 0
+      billReturnRefundAmount = 0
     }
 
-    const totalCashOut = cashExpensesAmount + counterTransfersOutAmount
+    const totalCashOut = cashExpensesAmount + counterTransfersOutAmount + billReturnRefundAmount
 
     const openingBalance = register?.openingBalance || 0
     const expectedClosing = openingBalance + totalCashIn - totalCashOut
@@ -219,6 +232,7 @@ export async function GET(request: Request) {
         cashOut: {
           expenses: cashExpensesAmount,
           transfersOut: counterTransfersOutAmount,
+          billReturnRefund: billReturnRefundAmount,
           total: totalCashOut,
         },
         expectedClosing,

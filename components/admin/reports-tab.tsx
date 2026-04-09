@@ -1627,17 +1627,18 @@ function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "char
           prodQuery: productAppliedSearch,
         })
       }}
-      className="space-y-4"
     >
-      {!hideViewTabs ? (
-        <TabsList className="grid w-full grid-cols-3 lg:w-auto">
-          <TabsTrigger value="charts" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Charts</TabsTrigger>
-          <TabsTrigger value="bills" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Sales Grid</TabsTrigger>
-          <TabsTrigger value="products" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Product-wise Analytics</TabsTrigger>
-        </TabsList>
-      ) : null}
+      <Card>
+      <CardHeader className="pb-2">
+        {!hideViewTabs ? (
+          <TabsList className="grid w-full grid-cols-3 lg:w-auto">
+            <TabsTrigger value="charts" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Charts</TabsTrigger>
+            <TabsTrigger value="bills" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Sales Grid</TabsTrigger>
+            <TabsTrigger value="products" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Product-wise Analytics</TabsTrigger>
+          </TabsList>
+        ) : null}
 
-      <div className="space-y-3 rounded-md border bg-muted/20 px-4 py-3">
+        <div className="flex flex-wrap gap-3 items-end pt-2 mt-1 border-t">
           {salesViewTab === "charts" ? (
             <>
               <div className="flex flex-wrap gap-3 mb-1">
@@ -1733,15 +1734,12 @@ function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "char
               </div>
             </>
           )}
-      </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-3">
 
-      <TabsContent value="charts" className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" /> Sales Charts (Overall + Product-wise)</CardTitle>
-            <CardDescription>Visual report for quick reading across payments, top products, and period trends</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      <TabsContent value="charts" className="space-y-3">
+          <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Card className="bg-muted/30"><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Sales (Charts)</p><p className="text-xl font-bold">{formatCurrency(chartFilteredSales.reduce((s, r) => s + r.grandTotal, 0))}</p><p className="text-[11px] text-muted-foreground">From chart filters</p></CardContent></Card>
               <Card className="bg-muted/30"><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Profit (Charts)</p><p className="text-xl font-bold">{formatCurrency(chartFilteredSales.reduce((s, r) => s + r.totalProfit, 0))}</p><p className="text-[11px] text-muted-foreground">From chart filters</p></CardContent></Card>
@@ -1833,8 +1831,7 @@ function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "char
                 </div>
               </CardContent>
             </Card>
-          </CardContent>
-        </Card>
+          </div>
       </TabsContent>
 
       <TabsContent value="bills" className="space-y-4">
@@ -2166,6 +2163,8 @@ function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "char
         </CardContent>
       </Card>
       </TabsContent>
+      </CardContent>
+      </Card>
     </Tabs>
   )
 }

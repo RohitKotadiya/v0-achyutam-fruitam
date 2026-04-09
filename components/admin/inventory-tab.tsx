@@ -93,6 +93,16 @@ interface StockHistoryRow {
   isUndone: boolean
 }
 
+interface DamageRecordRow {
+  id: string
+  date: string
+  sku: string
+  name: string
+  category: string
+  quantity: number
+  remarks: string | null
+}
+
 const toLocalDateInputValue = (date: Date) => {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, "0")
@@ -180,11 +190,26 @@ export function InventoryTab({
     reason: "",
   })
   const [damageProductSearch, setDamageProductSearch] = useState("")
+  const [showDamageForm, setShowDamageForm] = useState(true)
+  const [damageRows, setDamageRows] = useState<DamageRecordRow[]>([])
+  const [damageRowsLoading, setDamageRowsLoading] = useState(false)
+  const damageToday = toLocalDateInputValue(new Date())
+  const damageStartDefault = toLocalDateInputValue(new Date(Date.now() - 29 * 86400000))
+  const [draftDamageStartDate, setDraftDamageStartDate] = useState(damageStartDefault)
+  const [draftDamageEndDate, setDraftDamageEndDate] = useState(damageToday)
+  const [draftDamageProductSku, setDraftDamageProductSku] = useState("all")
+  const [draftDamageProductSearch, setDraftDamageProductSearch] = useState("")
+  const [draftDamageReasonQuery, setDraftDamageReasonQuery] = useState("")
+  const [damageStartDate, setDamageStartDate] = useState(damageStartDefault)
+  const [damageEndDate, setDamageEndDate] = useState(damageToday)
+  const [damageProductSku, setDamageProductSku] = useState("all")
+  const [damageReasonQuery, setDamageReasonQuery] = useState("")
   const historyToday = toLocalDateInputValue(new Date())
   const historyStartDefault = toLocalDateInputValue(new Date(Date.now() - 29 * 86400000))
   const [draftHistoryStartDate, setDraftHistoryStartDate] = useState(historyStartDefault)
   const [draftHistoryEndDate, setDraftHistoryEndDate] = useState(historyToday)
-  const [draftHistoryQuery, setDraftHistoryQuery] = useState("")
+  const [draftHistoryProductSku, setDraftHistoryProductSku] = useState("all")
+  const [draftHistoryProductSearch, setDraftHistoryProductSearch] = useState("")
   const [draftHistoryType, setDraftHistoryType] = useState<"all" | "ADD" | "DAMAGE">("all")
   const [draftHistoryStatus, setDraftHistoryStatus] = useState<"all" | "active" | "undone">("all")
   const [draftHistoryCategory, setDraftHistoryCategory] = useState("all")
@@ -192,7 +217,7 @@ export function InventoryTab({
   const [historyDatePreset, setHistoryDatePreset] = useState("30days")
   const [historyStartDate, setHistoryStartDate] = useState(historyStartDefault)
   const [historyEndDate, setHistoryEndDate] = useState(historyToday)
-  const [historyQuery, setHistoryQuery] = useState("")
+  const [historyProductSku, setHistoryProductSku] = useState("all")
   const [historyType, setHistoryType] = useState<"all" | "ADD" | "DAMAGE">("all")
   const [historyStatus, setHistoryStatus] = useState<"all" | "active" | "undone">("all")
   const [historyCategory, setHistoryCategory] = useState("all")
@@ -273,11 +298,17 @@ export function InventoryTab({
   const hasHistoryDraftChanges =
     draftHistoryStartDate !== historyStartDate ||
     draftHistoryEndDate !== historyEndDate ||
-    draftHistoryQuery !== historyQuery ||
+    draftHistoryProductSku !== historyProductSku ||
     draftHistoryType !== historyType ||
     draftHistoryStatus !== historyStatus ||
     draftHistoryCategory !== historyCategory ||
     draftHistoryBatchId !== historyBatchId
+
+  const hasDamageReportDraftChanges =
+    draftDamageStartDate !== damageStartDate ||
+    draftDamageEndDate !== damageEndDate ||
+    draftDamageProductSku !== damageProductSku ||
+    draftDamageReasonQuery !== damageReasonQuery
 
   const sortedHistoryRows = useMemo(() => {
     let rows = [...historyRows]
@@ -370,6 +401,28 @@ export function InventoryTab({
       }))
       .sort((a, b) => a.category.displayName.localeCompare(b.category.displayName))
   }, [categories, products, stockProductSearch])
+
+  const historyProductOptions = useMemo(() => {
+    const query = draftHistoryProductSearch.trim().toLowerCase()
+    return products
+      .filter((product) => {
+        if (!query) return true
+        return product.name.toLowerCase().includes(query) || product.sku.toLowerCase().includes(query)
+      })
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [products, draftHistoryProductSearch])
+
+  const damageProductOptions = useMemo(() => {
+    const query = draftDamageProductSearch.trim().toLowerCase()
+    return products
+      .filter((product) => {
+        if (!query) return true
+        return product.name.toLowerCase().includes(query) || product.sku.toLowerCase().includes(query)
+      })
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [products, draftDamageProductSearch])
 
   const toggleStockCategory = (categoryId: string) => {
     setCollapsedStockCategories((prev) => ({
@@ -621,7 +674,12 @@ export function InventoryTab({
   useEffect(() => {
     if (activeSubTab !== "history") return
     void fetchStockHistory()
-  }, [activeSubTab, historyStartDate, historyEndDate, historyQuery, historyType, historyStatus])
+  }, [activeSubTab, historyStartDate, historyEndDate, historyProductSku, historyType, historyStatus])
+
+  useEffect(() => {
+    if (activeSubTab !== "damage") return
+    void fetchDamageRecords()
+  }, [activeSubTab, damageStartDate, damageEndDate, damageProductSku, damageReasonQuery])
 
   useEffect(() => {
     setHistoryCurrentPage(1)
@@ -721,7 +779,7 @@ export function InventoryTab({
         startDate: historyStartDate,
         endDate: historyEndDate,
       })
-      if (historyQuery.trim()) params.append("sku", historyQuery.trim())
+      if (historyProductSku !== "all") params.append("sku", historyProductSku)
       if (historyType !== "all") params.append("type", historyType)
       if (historyStatus !== "all") params.append("status", historyStatus)
 
@@ -740,20 +798,82 @@ export function InventoryTab({
     }
   }
 
+  const fetchDamageRecords = async () => {
+    setDamageRowsLoading(true)
+    try {
+      const params = new URLSearchParams({
+        type: "DAMAGE",
+        startDate: damageStartDate,
+        endDate: damageEndDate,
+        limit: "100",
+      })
+      if (damageProductSku !== "all") params.append("sku", damageProductSku)
+
+      const res = await fetch(`/api/inventory/history?${params}`)
+      const data = await res.json()
+
+      if (data.success && Array.isArray(data.rows)) {
+        const reasonFilter = damageReasonQuery.trim().toLowerCase()
+        const rows = data.rows
+          .filter((row: StockHistoryRow) => row.type === "DAMAGE")
+          .map((row: StockHistoryRow) => ({
+            id: row.id,
+            date: row.date,
+            sku: row.sku,
+            name: row.name,
+            category: row.category,
+            quantity: row.quantity,
+            remarks: row.remarks,
+          }))
+          .filter((row: DamageRecordRow) => {
+            if (!reasonFilter) return true
+            return (row.remarks || "").toLowerCase().includes(reasonFilter)
+          })
+        setDamageRows(rows)
+      } else {
+        setDamageRows([])
+      }
+    } catch (error) {
+      console.error("Error fetching damage records:", error)
+      setDamageRows([])
+    } finally {
+      setDamageRowsLoading(false)
+    }
+  }
+
   const applyHistoryFilters = () => {
     setHistoryStartDate(draftHistoryStartDate)
     setHistoryEndDate(draftHistoryEndDate)
-    setHistoryQuery(draftHistoryQuery)
+    setHistoryProductSku(draftHistoryProductSku)
     setHistoryType(draftHistoryType)
     setHistoryStatus(draftHistoryStatus)
     setHistoryCategory(draftHistoryCategory)
     setHistoryBatchId(draftHistoryBatchId)
   }
 
+  const applyDamageReportFilters = () => {
+    setDamageStartDate(draftDamageStartDate)
+    setDamageEndDate(draftDamageEndDate)
+    setDamageProductSku(draftDamageProductSku)
+    setDamageReasonQuery(draftDamageReasonQuery)
+  }
+
+  const resetDamageReportFilters = () => {
+    setDraftDamageStartDate(damageStartDefault)
+    setDraftDamageEndDate(damageToday)
+    setDraftDamageProductSku("all")
+    setDraftDamageProductSearch("")
+    setDraftDamageReasonQuery("")
+    setDamageStartDate(damageStartDefault)
+    setDamageEndDate(damageToday)
+    setDamageProductSku("all")
+    setDamageReasonQuery("")
+  }
+
   const resetHistoryFilters = () => {
     setDraftHistoryStartDate(historyStartDefault)
     setDraftHistoryEndDate(historyToday)
-    setDraftHistoryQuery("")
+    setDraftHistoryProductSku("all")
     setDraftHistoryType("all")
     setDraftHistoryStatus("all")
     setDraftHistoryCategory("all")
@@ -761,7 +881,7 @@ export function InventoryTab({
     setHistoryDatePreset("30days")
     setHistoryStartDate(historyStartDefault)
     setHistoryEndDate(historyToday)
-    setHistoryQuery("")
+    setHistoryProductSku("all")
     setHistoryType("all")
     setHistoryStatus("all")
     setHistoryCategory("all")
@@ -1154,6 +1274,7 @@ export function InventoryTab({
       toast({ title: "Success", description: "Damage recorded successfully" })
       setDamageForm({ sku: "", quantity: "", reason: "" })
       await fetchProducts()
+      await fetchDamageRecords()
     } catch (error) {
       toast({
         title: "Error",
@@ -1330,9 +1451,34 @@ export function InventoryTab({
       {settings.enableMixDishPrep === "true" && (
         <TabsContent value="prepare-mix" className="space-y-4">
           <Card>
-            <CardHeader>
-              <CardTitle>Prepare Mix (Dynamic)</CardTitle>
-              <CardDescription>Select target SKU, source category, then enter ingredient quantities directly</CardDescription>
+            <CardHeader className="pb-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <CardTitle>Prepare Mix (Dynamic)</CardTitle>
+                  <CardDescription>Select target SKU, source category, then enter ingredient quantities directly</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Tabs value={prepareMixView} onValueChange={(v) => setPrepareMixView(v as PrepareMixView)}>
+                    <TabsList className="h-8">
+                      <TabsTrigger value="entry" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Entry</TabsTrigger>
+                      <TabsTrigger value="batches" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Mix Batches</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isFetchingMixBatches}
+                    onClick={() => void fetchMixBatches({ resetDrafts: true, showErrorToast: true })}
+                  >
+                    {isFetchingMixBatches ? (
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span>Refreshing...</span></>
+                    ) : (
+                      "Refresh Batches"
+                    )}
+                  </Button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="relative">
               {mixBusyMessage ? (
@@ -1350,30 +1496,6 @@ export function InventoryTab({
                   </div>
                 </div>
               ) : null}
-
-              <div className="sticky top-0 z-10 mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/85">
-                <Tabs value={prepareMixView} onValueChange={(v) => setPrepareMixView(v as PrepareMixView)}>
-                  <TabsList className="h-8">
-                    <TabsTrigger value="entry" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Entry</TabsTrigger>
-                    <TabsTrigger value="batches" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Mix Batches</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={isFetchingMixBatches}
-                    onClick={() => void fetchMixBatches({ resetDrafts: true, showErrorToast: true })}
-                  >
-                    {isFetchingMixBatches ? (
-                      <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span>Refreshing...</span></>
-                    ) : (
-                      "Refresh Batches"
-                    )}
-                  </Button>
-                </div>
-              </div>
 
               {prepareMixView === "entry" ? (
               <form onSubmit={handlePrepareMix} className="space-y-4">
@@ -1510,13 +1632,8 @@ export function InventoryTab({
                 </div>
               </form>
               ) : (
-              <div className="space-y-4">
-                <div>
-                  <h4 className="text-sm font-semibold">Open Batch Management</h4>
-                  <p className="text-xs text-muted-foreground">Update prepared qty directly per batch from Action column when actual yield differs from planned yield.</p>
-                </div>
-
-                <div className="rounded border bg-muted/30 px-3 py-3">
+              <div className="space-y-2 pt-0">
+                <div className="rounded border bg-muted/30 px-3 py-2">
                   <div className="flex flex-wrap items-center gap-4 text-sm">
                     <div>
                       <span className="text-muted-foreground">Total available open-batch stock:</span>{" "}
@@ -1797,12 +1914,37 @@ export function InventoryTab({
                   onChange={(e) => { setDraftHistoryEndDate(e.target.value); setHistoryDatePreset("custom") }}
                   className="w-full md:w-[150px]"
                 />
-                <Input
-                  placeholder="Search SKU, product, or batch ID"
-                  value={draftHistoryQuery}
-                  onChange={(e) => setDraftHistoryQuery(e.target.value)}
-                  className="w-full min-w-[220px] flex-1"
-                />
+                <Select
+                  value={draftHistoryProductSku}
+                  onValueChange={setDraftHistoryProductSku}
+                  onOpenChange={(open) => {
+                    if (!open) setDraftHistoryProductSearch("")
+                  }}
+                >
+                  <SelectTrigger className="w-full min-w-[220px] md:w-[260px]">
+                    <SelectValue placeholder="Product" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <div className="sticky top-0 z-10 bg-popover px-2 pb-2">
+                      <Input
+                        value={draftHistoryProductSearch}
+                        onChange={(e) => setDraftHistoryProductSearch(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className="h-8"
+                        placeholder="Search product..."
+                      />
+                    </div>
+                    <SelectItem value="all">All Products</SelectItem>
+                    {historyProductOptions.map((product) => (
+                      <SelectItem key={product.id} value={product.sku}>
+                        {product.name} ({product.sku})
+                      </SelectItem>
+                    ))}
+                    {historyProductOptions.length === 0 ? (
+                      <div className="px-2 py-1 text-xs text-muted-foreground">No products found</div>
+                    ) : null}
+                  </SelectContent>
+                </Select>
                 <Select value={draftHistoryType} onValueChange={(value) => setDraftHistoryType(value as "all" | "ADD" | "DAMAGE")}>
                   <SelectTrigger className="w-full md:w-[150px]">
                     <SelectValue placeholder="Type" />
@@ -1937,53 +2079,194 @@ export function InventoryTab({
 
       <TabsContent value="damage" className="space-y-4">
         <Card>
-          <CardHeader>
-            <CardTitle>Stock Damage/Adjustment</CardTitle>
-            <CardDescription>Record stock removal for damage or adjustments</CardDescription>
+          <CardHeader className="pb-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <CardTitle>Stock Damage/Adjustment</CardTitle>
+                <CardDescription>Record stock removal for damage or adjustments</CardDescription>
+              </div>
+              <Button type="button" size="sm" onClick={() => setShowDamageForm((prev) => !prev)}>
+                {showDamageForm ? "Close" : "+ Add"}
+              </Button>
+            </div>
           </CardHeader>
-          <CardContent>
-            <form onSubmit={handleAddDamage} className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="damageSKU">Product</Label>
-                  <Select value={damageForm.sku} onValueChange={(value) => setDamageForm({ ...damageForm, sku: value })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select product" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <div className="p-2 border-b">
-                        <Input
-                          value={damageProductSearch}
-                          onChange={(e) => setDamageProductSearch(e.target.value)}
-                          onKeyDown={(e) => e.stopPropagation()}
-                          placeholder="Search SKU or name"
-                          className="h-8"
-                        />
-                      </div>
-                      {damageSelectableProducts.length === 0 ? (
-                        <div className="px-3 py-2 text-xs text-muted-foreground">No products found</div>
-                      ) : (
-                        damageSelectableProducts.map((product) => (
-                          <SelectItem key={product.sku} value={product.sku}>{product.name}</SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
+          <CardContent className="pt-1">
+            {showDamageForm ? (
+            <form onSubmit={handleAddDamage} className="space-y-3">
+              <div className="rounded-lg border bg-muted/20 p-3 md:p-4">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
+                  <div className="space-y-1.5 md:col-span-6">
+                    <Label htmlFor="damageSKU">Product</Label>
+                    <Select value={damageForm.sku} onValueChange={(value) => setDamageForm({ ...damageForm, sku: value })}>
+                      <SelectTrigger id="damageSKU" className="w-full">
+                        <SelectValue placeholder="Select product" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <div className="border-b p-2">
+                          <Input
+                            value={damageProductSearch}
+                            onChange={(e) => setDamageProductSearch(e.target.value)}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            placeholder="Search SKU or name"
+                            className="h-8"
+                          />
+                        </div>
+                        {damageSelectableProducts.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-muted-foreground">No products found</div>
+                        ) : (
+                          damageSelectableProducts.map((product) => (
+                            <SelectItem key={product.sku} value={product.sku}>{product.name}</SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="damageQty">Quantity to Remove</Label>
-                  <Input id="damageQty" type="number" min="1" step="0.01" value={damageForm.quantity} onChange={(e) => setDamageForm({ ...damageForm, quantity: e.target.value })} required />
-                </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label htmlFor="damageQty">Quantity to Remove</Label>
+                    <Input
+                      id="damageQty"
+                      type="number"
+                      min="1"
+                      step="0.01"
+                      value={damageForm.quantity}
+                      onChange={(e) => setDamageForm({ ...damageForm, quantity: e.target.value })}
+                      required
+                    />
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="damageReason">Reason</Label>
-                  <Input id="damageReason" value={damageForm.reason} onChange={(e) => setDamageForm({ ...damageForm, reason: e.target.value })} required />
+                  <div className="space-y-1.5 md:col-span-4">
+                    <Label htmlFor="damageReason">Reason</Label>
+                    <Input
+                      id="damageReason"
+                      placeholder="e.g. Spoilage / handling damage"
+                      value={damageForm.reason}
+                      onChange={(e) => setDamageForm({ ...damageForm, reason: e.target.value })}
+                      required
+                    />
+                  </div>
                 </div>
               </div>
 
-              <Button type="submit" disabled={loading}>{loading ? "Recording..." : "Record Damage"}</Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="submit" disabled={loading}>{loading ? "Recording..." : "Record Damage"}</Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setDamageForm({ sku: "", quantity: "", reason: "" })
+                    setDamageProductSearch("")
+                  }}
+                >
+                  Clear
+                </Button>
+              </div>
             </form>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle>Recorded Damage Report</CardTitle>
+            <CardDescription>Latest recorded stock damage entries</CardDescription>
+
+            <div className="flex flex-wrap gap-3 items-end pt-2 mt-1 border-t">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">From</span>
+                <Input
+                  type="date"
+                  value={draftDamageStartDate}
+                  onChange={(e) => setDraftDamageStartDate(e.target.value)}
+                  className="h-8 w-36 text-xs"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">To</span>
+                <Input
+                  type="date"
+                  value={draftDamageEndDate}
+                  onChange={(e) => setDraftDamageEndDate(e.target.value)}
+                  className="h-8 w-36 text-xs"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">Product</span>
+                <Select
+                  value={draftDamageProductSku}
+                  onValueChange={setDraftDamageProductSku}
+                  onOpenChange={(open) => {
+                    if (!open) setDraftDamageProductSearch("")
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-64 text-xs">
+                    <SelectValue placeholder="Product" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <div className="sticky top-0 z-10 bg-popover px-2 pb-2">
+                      <Input
+                        value={draftDamageProductSearch}
+                        onChange={(e) => setDraftDamageProductSearch(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className="h-8"
+                        placeholder="Search product..."
+                      />
+                    </div>
+                    <SelectItem value="all">All Products</SelectItem>
+                    {damageProductOptions.map((product) => (
+                      <SelectItem key={product.id} value={product.sku}>
+                        {product.name} ({product.sku})
+                      </SelectItem>
+                    ))}
+                    {damageProductOptions.length === 0 ? (
+                      <div className="px-2 py-1 text-xs text-muted-foreground">No products found</div>
+                    ) : null}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">Reason</span>
+                <Input
+                  value={draftDamageReasonQuery}
+                  onChange={(e) => setDraftDamageReasonQuery(e.target.value)}
+                  placeholder="Reason contains..."
+                  className="h-8 w-48 text-xs"
+                />
+              </div>
+              <Button type="button" size="sm" variant="outline" onClick={resetDamageReportFilters}>
+                Reset
+              </Button>
+              <Button type="button" size="sm" onClick={applyDamageReportFilters} disabled={!hasDamageReportDraftChanges || damageRowsLoading}>
+                Apply
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-1">
+            <div className="rounded border max-h-[420px] overflow-auto">
+              <div className="sticky top-0 z-10 grid grid-cols-[170px_1fr_140px_110px_1.4fr] gap-2 border-b bg-muted/95 px-3 py-2 text-xs font-medium">
+                <span>Date/Time</span>
+                <span>Product</span>
+                <span>Category</span>
+                <span className="text-right">Qty Removed</span>
+                <span>Reason</span>
+              </div>
+
+              {damageRowsLoading ? (
+                <div className="px-3 py-6 text-center text-sm text-muted-foreground">Loading damage records...</div>
+              ) : damageRows.length === 0 ? (
+                <div className="px-3 py-6 text-center text-sm text-muted-foreground">No damage records found</div>
+              ) : (
+                damageRows.map((row) => (
+                  <div key={row.id} className="grid grid-cols-[170px_1fr_140px_110px_1.4fr] gap-2 border-b px-3 py-2 text-sm">
+                    <span className="text-xs text-muted-foreground">{new Date(row.date).toLocaleString()}</span>
+                    <span className="truncate">{row.name} ({row.sku})</span>
+                    <span className="truncate text-xs text-muted-foreground">{row.category || "-"}</span>
+                    <span className="text-right">{Number(row.quantity || 0).toFixed(2)}</span>
+                    <span className="text-xs text-muted-foreground whitespace-normal break-words">{row.remarks || "-"}</span>
+                  </div>
+                ))
+              )}
+            </div>
           </CardContent>
         </Card>
       </TabsContent>

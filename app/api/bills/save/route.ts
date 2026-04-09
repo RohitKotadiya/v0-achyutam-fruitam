@@ -19,6 +19,7 @@ export async function POST(request: Request) {
   try {
     const data = await request.json()
     const {
+      editBillNo,
       customerName,
       customerMobile,
       paymentMethod,
@@ -30,6 +31,10 @@ export async function POST(request: Request) {
     } = data
 
     const grandTotalNum = Number(grandTotal) || 0
+    const parsedEditBillNo = Number(editBillNo)
+    const targetEditBillNo = Number.isFinite(parsedEditBillNo) && parsedEditBillNo > 0
+      ? Math.trunc(parsedEditBillNo)
+      : null
 
     if (!lineItems || lineItems.length === 0) {
       return NextResponse.json({ 
@@ -50,27 +55,9 @@ export async function POST(request: Request) {
 
     // Customer optional
     const customerNameFinal = customerName || "Walk-in-Cust"
-    let customerId = null
-
-    if (customerMobile && customerMobile.length === 10) {
-      customerId = await prisma.customer.upsert({
-        where: { mobile: customerMobile },
-        update: {
-          name: customerNameFinal,
-          totalBills: { increment: 1 },
-          totalSpent: { increment: grandTotalNum },
-          lastPurchase: new Date(),
-        },
-        create: {
-          mobile: customerMobile,
-          name: customerNameFinal,
-          totalBills: 1,
-          totalSpent: grandTotalNum,
-          lastPurchase: new Date(),
-          firstPurchase: new Date(),
-        },
-      }).then(c => c.id)
-    }
+    const customerMobileFinal = customerMobile && String(customerMobile).length === 10
+      ? String(customerMobile)
+      : null
 
     const requestedProductIds = (Array.isArray(lineItems) ? lineItems : [])
       .map((item: any) => String(item?.product?.id || ""))
@@ -124,6 +111,123 @@ export async function POST(request: Request) {
 
     const bill = await prisma.$transaction(async (tx) => {
       let totalCost = 0
+      const now = new Date()
+
+      const existingBill = targetEditBillNo
+        ? await tx.bill.findUnique({
+            where: { billNo: targetEditBillNo },
+            include: {
+              lineItems: {
+                select: {
+                  productId: true,
+                  quantity: true,
+                  consumptionRate: true,
+                },
+              },
+            },
+          })
+        : null
+
+      if (targetEditBillNo && !existingBill) {
+        throw new Error(`Bill #${targetEditBillNo} not found for update`)
+      }
+
+      if (existingBill) {
+        for (const item of existingBill.lineItems) {
+          const stockToRestore = (Number(item.quantity) || 0) * (Number(item.consumptionRate) || 1)
+          if (stockToRestore <= 0) continue
+
+          await tx.stockCurrent.updateMany({
+            where: { productId: item.productId },
+            data: {
+              currentStock: {
+                increment: stockToRestore,
+              },
+            },
+          })
+        }
+      }
+
+      let resolvedCustomerId: string | null = null
+
+      if (!existingBill) {
+        if (customerMobileFinal) {
+          resolvedCustomerId = await tx.customer.upsert({
+            where: { mobile: customerMobileFinal },
+            update: {
+              name: customerNameFinal,
+              totalBills: { increment: 1 },
+              totalSpent: { increment: grandTotalNum },
+              lastPurchase: now,
+            },
+            create: {
+              mobile: customerMobileFinal,
+              name: customerNameFinal,
+              totalBills: 1,
+              totalSpent: grandTotalNum,
+              lastPurchase: now,
+              firstPurchase: now,
+            },
+            select: { id: true },
+          }).then((c) => c.id)
+        }
+      } else {
+        const previousCustomerId = existingBill.customerId
+
+        if (customerMobileFinal) {
+          const targetCustomer = await tx.customer.findUnique({
+            where: { mobile: customerMobileFinal },
+            select: { id: true },
+          })
+
+          if (targetCustomer) {
+            resolvedCustomerId = targetCustomer.id
+            if (previousCustomerId === targetCustomer.id) {
+              await tx.customer.update({
+                where: { id: targetCustomer.id },
+                data: {
+                  name: customerNameFinal,
+                  totalSpent: { increment: grandTotalNum - existingBill.grandTotal },
+                  lastPurchase: now,
+                },
+              })
+            } else {
+              await tx.customer.update({
+                where: { id: targetCustomer.id },
+                data: {
+                  name: customerNameFinal,
+                  totalBills: { increment: 1 },
+                  totalSpent: { increment: grandTotalNum },
+                  lastPurchase: now,
+                },
+              })
+            }
+          } else {
+            const createdCustomer = await tx.customer.create({
+              data: {
+                mobile: customerMobileFinal,
+                name: customerNameFinal,
+                totalBills: 1,
+                totalSpent: grandTotalNum,
+                lastPurchase: now,
+                firstPurchase: now,
+              },
+              select: { id: true },
+            })
+            resolvedCustomerId = createdCustomer.id
+          }
+        }
+
+        if (previousCustomerId && previousCustomerId !== resolvedCustomerId) {
+          await tx.customer.updateMany({
+            where: { id: previousCustomerId },
+            data: {
+              totalBills: { decrement: 1 },
+              totalSpent: { decrement: existingBill.grandTotal },
+            },
+          })
+        }
+      }
 
       const requiredByProduct = new Map<string, number>()
       const productNameById = new Map<string, string>()
@@ -260,35 +364,66 @@ export async function POST(request: Request) {
 
       const totalProfit = grandTotalNum - totalCost
 
-      const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
-      const istNow = new Date(Date.now() + IST_OFFSET_MS)
-      const yy = String(istNow.getUTCFullYear()).slice(-2)
-      const prefix = `${yy}-`
-      const lastBill = await tx.bill.findFirst({
-        where: { displayBillNo: { startsWith: prefix } },
-        orderBy: { displayBillNo: "desc" },
-        select: { displayBillNo: true },
-      })
-      const lastSeq = lastBill?.displayBillNo
-        ? parseInt(lastBill.displayBillNo.split("-")[1], 10)
-        : 0
-      const displayBillNo = `${prefix}${String(lastSeq + 1).padStart(3, "0")}`
+      let savedBill
+      if (existingBill) {
+        savedBill = await tx.bill.update({
+          where: { id: existingBill.id },
+          data: {
+            customerName: customerNameFinal,
+            mobile: customerMobileFinal,
+            customerId: resolvedCustomerId,
+            paymentMethod: paymentMethod || "CASH",
+            cashAmount: cashAmount || null,
+            onlineAmount: onlineAmount || null,
+            remarks: remarks || null,
+            grandTotal: grandTotalNum,
+            totalCost,
+            totalProfit,
+          },
+        })
 
-      const newBill = await tx.bill.create({
-        data: {
-          customerName: customerNameFinal,
-          mobile: customerMobile || null,
-          customerId,
-          paymentMethod: paymentMethod || "CASH",
-          cashAmount: cashAmount || null,
-          onlineAmount: onlineAmount || null,
-          remarks: remarks || null,
-          grandTotal: grandTotalNum,
-          totalCost,
-          totalProfit,
-          displayBillNo,
-        },
-      })
+        await tx.billItem.deleteMany({ where: { billId: existingBill.id } })
+
+        await tx.billEditLog.create({
+          data: {
+            billId: existingBill.id,
+            action: "UPDATED",
+            fieldChanged: "lineItems+totals",
+            oldValue: String(existingBill.grandTotal),
+            newValue: String(grandTotalNum),
+          },
+        })
+      } else {
+        const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
+        const istNow = new Date(Date.now() + IST_OFFSET_MS)
+        const yy = String(istNow.getUTCFullYear()).slice(-2)
+        const prefix = `${yy}-`
+        const lastBill = await tx.bill.findFirst({
+          where: { displayBillNo: { startsWith: prefix } },
+          orderBy: { displayBillNo: "desc" },
+          select: { displayBillNo: true },
+        })
+        const lastSeq = lastBill?.displayBillNo
+          ? parseInt(lastBill.displayBillNo.split("-")[1], 10)
+          : 0
+        const displayBillNo = `${prefix}${String(lastSeq + 1).padStart(3, "0")}`
+
+        savedBill = await tx.bill.create({
+          data: {
+            customerName: customerNameFinal,
+            mobile: customerMobileFinal,
+            customerId: resolvedCustomerId,
+            paymentMethod: paymentMethod || "CASH",
+            cashAmount: cashAmount || null,
+            onlineAmount: onlineAmount || null,
+            remarks: remarks || null,
+            grandTotal: grandTotalNum,
+            totalCost,
+            totalProfit,
+            displayBillNo,
+          },
+        })
+      }
 
       await tx.billItem.createMany({
         data: validItems.map((item) => {
@@ -301,7 +436,7 @@ export async function POST(request: Request) {
             : item.costForProfit
 
           return {
-            billId: newBill.id,
+            billId: savedBill.id,
             productId: item.productId,
             productName: item.productName,
             quantity: item.quantity,
@@ -315,7 +450,7 @@ export async function POST(request: Request) {
       })
 
       return {
-        bill: newBill,
+        bill: savedBill,
         totalProfit,
       }
     },

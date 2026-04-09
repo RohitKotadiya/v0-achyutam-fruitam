@@ -73,8 +73,11 @@ export async function GET(request: Request) {
     const mapped = bills.map((b) => {
       const collectedFromCollections = collectionsMap.get(b.id) || 0
       const isPendingBill = b.paymentMethod === "PENDING"
-      const collectedAmount = isPendingBill ? collectedFromCollections : b.grandTotal
-      const remainingDue = isPendingBill ? Math.max(0, b.grandTotal - collectedFromCollections) : 0
+      const netPayable = Math.max(0, (b.grandTotal || 0) - (b.refundTotal || 0))
+      const collectedAmount = isPendingBill
+        ? Math.min(netPayable, collectedFromCollections)
+        : Math.max(0, (b.grandTotal || 0) - (b.refundTotal || 0))
+      const remainingDue = isPendingBill ? Math.max(0, netPayable - collectedFromCollections) : 0
 
       return {
         ...b,

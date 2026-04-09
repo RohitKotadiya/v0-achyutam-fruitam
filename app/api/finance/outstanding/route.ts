@@ -11,6 +11,7 @@ export async function GET() {
         billNo: true,
         displayBillNo: true,
         grandTotal: true,
+        refundTotal: true,
         customerName: true,
         customerId: true,
         dateTime: true,
@@ -30,11 +31,18 @@ export async function GET() {
     const collectionsMap = new Map(collectionsPerBill.map((c) => [c.billId, c._sum.amount || 0]))
 
     const dues = pendingBills
-      .map((bill) => ({
-        ...bill,
-        collected: collectionsMap.get(bill.id) || 0,
-        remaining: bill.grandTotal - (collectionsMap.get(bill.id) || 0),
-      }))
+      .map((bill) => {
+        const netPayable = Math.max(0, (bill.grandTotal || 0) - (bill.refundTotal || 0))
+        const collected = collectionsMap.get(bill.id) || 0
+
+        return {
+          ...bill,
+          // Keep "Total" column aligned with what is actually payable after returns.
+          grandTotal: netPayable,
+          collected: Math.min(netPayable, collected),
+          remaining: Math.max(0, netPayable - collected),
+        }
+      })
       .filter((b) => b.remaining > 0)
 
     const total = dues.reduce((sum, b) => sum + b.remaining, 0)

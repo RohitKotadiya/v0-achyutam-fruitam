@@ -775,18 +775,20 @@ function CashRegisterSection() {
   return (
     <div className="space-y-3">
       <Tabs value={innerTab} onValueChange={setInnerTab}>
-        <TabsList className="h-8">
-          <TabsTrigger value="daily" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Daily Entry</TabsTrigger>
-          <TabsTrigger value="history" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">History</TabsTrigger>
-        </TabsList>
-        <TabsContent value="daily"><CashRegisterDailySection /></TabsContent>
-        <TabsContent value="history"><CashRegisterHistorySection /></TabsContent>
+        <TabsContent value="daily"><CashRegisterDailySection innerTab={innerTab} setInnerTab={setInnerTab} /></TabsContent>
+        <TabsContent value="history"><CashRegisterHistorySection innerTab={innerTab} setInnerTab={setInnerTab} /></TabsContent>
       </Tabs>
     </div>
   )
 }
 
-function CashRegisterDailySection() {
+function CashRegisterDailySection({
+  innerTab,
+  setInnerTab,
+}: {
+  innerTab: string
+  setInnerTab: (value: string) => void
+}) {
       // Handle adjustment dialog success
       const handleAdjustmentSuccess = async () => {
         setShowAdjustmentDialog(false)
@@ -926,7 +928,7 @@ function CashRegisterDailySection() {
           const fallbackSummary = {
             openingBalance: nextOpening,
             cashIn: { sales: 0, collections: 0, transfersIn: 0, total: 0 },
-            cashOut: { expenses: 0, transfersOut: 0, total: 0 },
+            cashOut: { expenses: 0, transfersOut: 0, billReturnRefund: 0, total: 0 },
             expectedClosing: nextOpening,
             actualClosing: null,
             difference: null,
@@ -1031,31 +1033,33 @@ function CashRegisterDailySection() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 flex-wrap">
-        <Button variant="outline" size="icon" onClick={() => shiftDate(-1)} title="Previous Day">
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <Button
-          variant={isToday ? "default" : "outline"}
-          size="sm"
-          onClick={() => setSelectedDate(toLocalDateInputValue(new Date()))}
-          className="gap-1.5"
-          title="Go to Today"
-        >
-          <CalendarDays className="h-3.5 w-3.5" />
-          Today
-        </Button>
-        <Button variant="outline" size="icon" onClick={() => shiftDate(1)} title="Next Day">
-          <ChevronRight className="h-4 w-4" />
-        </Button>
-        <Input
-          type="date"
-          value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
-          className="w-40"
-        />
+      <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" onClick={() => shiftDate(-1)} title="Previous Day">
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={isToday ? "default" : "outline"}
+            size="sm"
+            onClick={() => setSelectedDate(toLocalDateInputValue(new Date()))}
+            className="gap-1.5"
+            title="Go to Today"
+          >
+            <CalendarDays className="h-3.5 w-3.5" />
+            Today
+          </Button>
+          <Button variant="outline" size="icon" onClick={() => shiftDate(1)} title="Next Day">
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="w-40"
+          />
+        </div>
         {/* Safe transfer quick actions */}
-        <div className="ml-auto flex gap-2">
+        <div className="flex gap-2 lg:mx-auto">
           <Button
             size="sm"
             variant="outline"
@@ -1073,6 +1077,10 @@ function CashRegisterDailySection() {
             <ArrowDownLeft className="h-3.5 w-3.5" /> From Safe
           </Button>
         </div>
+        <TabsList className="h-8 lg:ml-auto">
+          <TabsTrigger value="daily" onClick={() => setInnerTab("daily")} className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Daily Entry</TabsTrigger>
+          <TabsTrigger value="history" onClick={() => setInnerTab("history")} className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">History</TabsTrigger>
+        </TabsList>
       </div>
 
       {/* Counter ↔ Safe Transfer Dialog */}
@@ -1237,6 +1245,10 @@ function CashRegisterDailySection() {
                 <span className="text-muted-foreground">Transfers to Safe/Bank:</span>
                 <span>{formatCurrency(s.cashOut.transfersOut)}</span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Bill return refund:</span>
+                <span>{formatCurrency(s.cashOut.billReturnRefund || 0)}</span>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -1300,6 +1312,10 @@ function CashRegisterDailySection() {
                   <TableCell className="pl-6 text-muted-foreground text-xs" colSpan={2}>− Transfers to Safe / Bank</TableCell>
                   <TableCell className="text-right text-xs text-red-600">{formatCurrency(s.cashOut.transfersOut)}</TableCell>
                 </TableRow>
+                <TableRow>
+                  <TableCell className="pl-6 text-muted-foreground text-xs" colSpan={2}>− Bill return refund</TableCell>
+                  <TableCell className="text-right text-xs text-red-600">{formatCurrency(s.cashOut.billReturnRefund || 0)}</TableCell>
+                </TableRow>
                 <TableRow className="bg-red-500/5">
                   <TableCell className="font-semibold text-sm text-red-700" colSpan={2}>Total Cash Out</TableCell>
                   <TableCell className="text-right font-bold text-sm text-red-700">{formatCurrency(s.cashOut.total)}</TableCell>
@@ -1348,7 +1364,13 @@ function CashRegisterDailySection() {
 
 // ==================== CASH REGISTER HISTORY ====================
 
-function CashRegisterHistorySection() {
+function CashRegisterHistorySection({
+  innerTab,
+  setInnerTab,
+}: {
+  innerTab: string
+  setInnerTab: (value: string) => void
+}) {
   const [rows, setRows] = useState<RegisterHistoryRow[]>([])
   const [totals, setTotals] = useState({ cashIn: 0, cashOut: 0, closedDays: 0, openDays: 0 })
   const [loading, setLoading] = useState(true)
@@ -1498,6 +1520,10 @@ function CashRegisterHistorySection() {
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
+            <TabsList className="h-8">
+              <TabsTrigger value="daily" onClick={() => setInnerTab("daily")} className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Daily Entry</TabsTrigger>
+              <TabsTrigger value="history" onClick={() => setInnerTab("history")} className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">History</TabsTrigger>
+            </TabsList>
             <Button type="button" variant="outline" size="sm" onClick={exportHistory} disabled={sorted.length === 0}>
               <Download className="h-4 w-4 mr-1" /> Export
             </Button>
@@ -2158,49 +2184,15 @@ function SafeSection() {
         </DialogContent>
       </Dialog>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2 items-end px-4 py-3 rounded-md border bg-muted/20">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Range</span>
-          <Select value={draftRangePreset} onValueChange={(v) => onDraftRangeChange(v as DateRangePreset)}>
-            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {DATE_RANGE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">From</span>
-          <Input type="date" value={draftStartDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftStartDate(e.target.value) }} className="h-8 w-40 text-xs" />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">To</span>
-          <Input type="date" value={draftEndDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftEndDate(e.target.value) }} className="h-8 w-40 text-xs" />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Direction</span>
-          <Select value={draftTypeFilter} onValueChange={setDraftTypeFilter}>
-            <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="in">Money In</SelectItem>
-              <SelectItem value="out">Money Out</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <Button variant="outline" size="sm" onClick={resetAllFilters}>Reset</Button>
-        <Button size="sm" onClick={applyFilters} disabled={!hasDraftChanges}>Apply</Button>
-      </div>
-
-      {/* Transaction History */}
+      {/* Transaction History — filters + table in one card */}
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader className="pb-2">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <CardTitle className="text-base flex items-center gap-2">
+              <CardTitle className="text-sm flex items-center gap-2">
                 <Landmark className="h-4 w-4 text-muted-foreground" /> Safe Transaction History
               </CardTitle>
-              <CardDescription>All money movements in and out of the Safe (Tizori)</CardDescription>
+              <CardDescription className="text-xs">All money movements in and out of the Safe (Tizori)</CardDescription>
             </div>
             <div className="flex items-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={exportSafe} disabled={filteredTxns.length === 0}>
@@ -2210,26 +2202,49 @@ function SafeSection() {
                 <span>Pagination</span>
                 {showPaginationControls ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
               </Button>
-              {showPaginationControls ? (
+              {showPaginationControls && (
                 <div className="flex items-center gap-2 rounded-md border bg-muted/20 px-2 py-1 text-xs text-muted-foreground">
                   <span>Rows</span>
-                  <select
-                    value={pageSize}
-                    onChange={(e) => setPageSize(Number(e.target.value))}
-                    className="h-7 rounded-md border bg-background px-2 text-xs text-foreground"
-                  >
-                    {[10, 20, 50, 100].map((size) => (
-                      <option key={size} value={size}>
-                        {size}
-                      </option>
-                    ))}
+                  <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="h-7 rounded-md border bg-background px-2 text-xs text-foreground">
+                    {[10, 20, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
                   </select>
                 </div>
-              ) : null}
+              )}
             </div>
           </div>
+          {/* Filter bar */}
+          <div className="flex flex-wrap gap-2 items-end pt-2 mt-1 border-t">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Range</span>
+              <Select value={draftRangePreset} onValueChange={(v) => onDraftRangeChange(v as DateRangePreset)}>
+                <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>{DATE_RANGE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">From</span>
+              <Input type="date" value={draftStartDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftStartDate(e.target.value) }} className="h-8 w-40 text-xs" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">To</span>
+              <Input type="date" value={draftEndDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftEndDate(e.target.value) }} className="h-8 w-40 text-xs" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Direction</span>
+              <Select value={draftTypeFilter} onValueChange={setDraftTypeFilter}>
+                <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="in">Money In</SelectItem>
+                  <SelectItem value="out">Money Out</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button variant="outline" size="sm" onClick={resetAllFilters}>Reset</Button>
+            <Button size="sm" onClick={applyFilters} disabled={!hasDraftChanges}>Apply</Button>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-1">
           {showPaginationControls && filteredTxns.length > 0 && (
             <PaginationBar total={filteredTxns.length} page={page} pageSize={pageSize} totalPages={totalPages} onPage={setPage} />
           )}
@@ -2259,21 +2274,15 @@ function SafeSection() {
                     const isIn = t.toLocation === "SAFE"
                     return (
                       <TableRow key={t.id}>
-                        <TableCell className="text-xs whitespace-nowrap">
-                          {formatIndianDateTime(new Date(t.date))}
-                        </TableCell>
+                        <TableCell className="text-xs whitespace-nowrap">{formatIndianDateTime(new Date(t.date))}</TableCell>
                         <TableCell>
                           <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${isIn ? "bg-green-100 text-green-700 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
                             {txnLabel(t)}
                           </span>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate">{t.note}</TableCell>
-                        <TableCell className="text-right text-xs font-semibold text-green-700">
-                          {isIn ? formatCurrency(t.amount) : "—"}
-                        </TableCell>
-                        <TableCell className="text-right text-xs font-semibold text-red-600">
-                          {!isIn ? formatCurrency(t.amount) : "—"}
-                        </TableCell>
+                        <TableCell className="text-right text-xs font-semibold text-green-700">{isIn ? formatCurrency(t.amount) : "—"}</TableCell>
+                        <TableCell className="text-right text-xs font-semibold text-red-600">{!isIn ? formatCurrency(t.amount) : "—"}</TableCell>
                         <TableCell>
                           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(t.id)}>
                             <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
@@ -2527,58 +2536,12 @@ function ExpensesSection() {
         </Card>
       </div>
 
-      {/* Filter bar */}
-      <div className="flex flex-wrap gap-3 items-end rounded-md border bg-muted/20 px-4 py-3">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Range</span>
-          <Select value={draftRangePreset} onValueChange={(v) => onDraftRangeChange(v as DateRangePreset)}>
-            <SelectTrigger className="h-9 w-40 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {DATE_RANGE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">From</span>
-          <Input type="date" value={draftFilter.startDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftFilter((f) => ({ ...f, startDate: e.target.value })) }} className="h-9 w-40 text-xs" />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">To</span>
-          <Input type="date" value={draftFilter.endDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftFilter((f) => ({ ...f, endDate: e.target.value })) }} className="h-9 w-40 text-xs" />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Category</span>
-          <Select value={draftFilter.category} onValueChange={(v) => setDraftFilter((f) => ({ ...f, category: v }))}>
-            <SelectTrigger className="h-9 w-44 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Categories</SelectItem>
-              <SelectItem value="Rent">Rent</SelectItem>
-              <SelectItem value="Electricity">Electricity</SelectItem>
-              <SelectItem value="Salary">Salary</SelectItem>
-              <SelectItem value="Other">Other</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Paid From</span>
-          <Select value={draftPaidFromFilter} onValueChange={setDraftPaidFromFilter}>
-            <SelectTrigger className="h-9 w-44 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Sources</SelectItem>
-              {PAID_FROM_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <Button variant="outline" size="sm" onClick={resetAllFilters}>Reset Filters</Button>
-        <Button size="sm" onClick={applyFilters} disabled={!hasDraftChanges}>Apply</Button>
-      </div>
-
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Expense Management</CardTitle>
-              <CardDescription>Track business expenses</CardDescription>
+              <CardTitle className="text-sm">Expense Management</CardTitle>
+              <CardDescription className="text-xs">Track business expenses</CardDescription>
             </div>
             <div className="flex items-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={exportExpenses} disabled={filteredSorted.length === 0}>
@@ -2665,8 +2628,53 @@ function ExpensesSection() {
               </Dialog>
             </div>
           </div>
+          {/* Filter bar */}
+          <div className="flex flex-wrap gap-3 items-end pt-2 mt-1 border-t">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Range</span>
+              <Select value={draftRangePreset} onValueChange={(v) => onDraftRangeChange(v as DateRangePreset)}>
+                <SelectTrigger className="h-9 w-40 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {DATE_RANGE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">From</span>
+              <Input type="date" value={draftFilter.startDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftFilter((f) => ({ ...f, startDate: e.target.value })) }} className="h-9 w-40 text-xs" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">To</span>
+              <Input type="date" value={draftFilter.endDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftFilter((f) => ({ ...f, endDate: e.target.value })) }} className="h-9 w-40 text-xs" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Category</span>
+              <Select value={draftFilter.category} onValueChange={(v) => setDraftFilter((f) => ({ ...f, category: v }))}>
+                <SelectTrigger className="h-9 w-44 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  <SelectItem value="Rent">Rent</SelectItem>
+                  <SelectItem value="Electricity">Electricity</SelectItem>
+                  <SelectItem value="Salary">Salary</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Paid From</span>
+              <Select value={draftPaidFromFilter} onValueChange={setDraftPaidFromFilter}>
+                <SelectTrigger className="h-9 w-44 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sources</SelectItem>
+                  {PAID_FROM_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button variant="outline" size="sm" onClick={resetAllFilters}>Reset Filters</Button>
+            <Button size="sm" onClick={applyFilters} disabled={!hasDraftChanges}>Apply</Button>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-1">
           {showPaginationControls && filteredSorted.length > 0 && (
             <PaginationBar total={filteredSorted.length} page={page} pageSize={pageSize} totalPages={totalPages} onPage={setPage} />
           )}
@@ -2963,57 +2971,21 @@ function BankSection() {
         </Card>
       </div>
 
-      {/* Filter + Actions bar */}
-      <div className="flex flex-wrap gap-3 items-end rounded-md border bg-muted/20 px-4 py-3">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Range</span>
-          <Select value={draftRangePreset} onValueChange={(v) => onDraftRangeChange(v as DateRangePreset)}>
-            <SelectTrigger className="h-9 w-36 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {DATE_RANGE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">From</span>
-          <Input type="date" value={draftStartDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftStartDate(e.target.value) }} className="h-9 w-40 text-xs" />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">To</span>
-          <Input type="date" value={draftEndDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftEndDate(e.target.value) }} className="h-9 w-40 text-xs" />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Type</span>
-          <Select value={draftTxnTypeFilter} onValueChange={setDraftTxnTypeFilter}>
-            <SelectTrigger className="h-9 w-36 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Types</SelectItem>
-              <SelectItem value="SALE">Sale</SelectItem>
-              <SelectItem value="DEPOSIT">Deposit</SelectItem>
-              <SelectItem value="WITHDRAWAL">Withdrawal</SelectItem>
-              <SelectItem value="EXPENSE">Expense</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <Button variant="outline" size="sm" onClick={resetAllFilters}>Reset Filters</Button>
-        <Button size="sm" onClick={applyFilters} disabled={!hasDraftChanges}>Apply</Button>
-        <div className="ml-auto flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={() => setShowWithdrawDialog(true)}>
-            <ArrowDownLeft className="h-4 w-4 mr-1" /> Withdraw Cash from Bank
-          </Button>
-          <Button size="sm" onClick={() => setShowDepositDialog(true)}>
-            <ArrowUpRight className="h-4 w-4 mr-1" /> Deposit Cash to Bank
-          </Button>
-        </div>
-      </div>
-
       {/* Transaction Table */}
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <CardTitle className="text-base">Bank Transactions</CardTitle>
+              <CardTitle className="text-sm">Bank Transactions</CardTitle>
               <p className="text-xs text-muted-foreground">All online sales + cash deposits/withdrawals + bank expenses</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => setShowWithdrawDialog(true)}>
+                <ArrowDownLeft className="h-4 w-4 mr-1" /> Withdraw Cash from Bank
+              </Button>
+              <Button size="sm" onClick={() => setShowDepositDialog(true)}>
+                <ArrowUpRight className="h-4 w-4 mr-1" /> Deposit Cash to Bank
+              </Button>
             </div>
             <div className="flex items-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={exportBank} disabled={filteredSortedTxns.length === 0}>
@@ -3023,26 +2995,53 @@ function BankSection() {
                 <span>Pagination</span>
                 {showPaginationControls ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
               </Button>
-              {showPaginationControls ? (
+              {showPaginationControls && (
                 <div className="flex items-center gap-2 rounded-md border bg-muted/20 px-2 py-1 text-xs text-muted-foreground">
                   <span>Rows</span>
-                  <select
-                    value={pageSize}
-                    onChange={(e) => setPageSize(Number(e.target.value))}
-                    className="h-7 rounded-md border bg-background px-2 text-xs text-foreground"
-                  >
-                    {[10, 20, 50, 100].map((size) => (
-                      <option key={size} value={size}>
-                        {size}
-                      </option>
-                    ))}
+                  <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="h-7 rounded-md border bg-background px-2 text-xs text-foreground">
+                    {[10, 20, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
                   </select>
                 </div>
-              ) : null}
+              )}
             </div>
           </div>
+          {/* Filter bar */}
+          <div className="flex flex-wrap gap-3 items-end pt-2 mt-1 border-t">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Range</span>
+              <Select value={draftRangePreset} onValueChange={(v) => onDraftRangeChange(v as DateRangePreset)}>
+                <SelectTrigger className="h-9 w-36 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {DATE_RANGE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">From</span>
+              <Input type="date" value={draftStartDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftStartDate(e.target.value) }} className="h-9 w-40 text-xs" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">To</span>
+              <Input type="date" value={draftEndDate} onChange={(e) => { setDraftRangePreset("custom"); setDraftEndDate(e.target.value) }} className="h-9 w-40 text-xs" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Type</span>
+              <Select value={draftTxnTypeFilter} onValueChange={setDraftTxnTypeFilter}>
+                <SelectTrigger className="h-9 w-36 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="SALE">Sale</SelectItem>
+                  <SelectItem value="DEPOSIT">Deposit</SelectItem>
+                  <SelectItem value="WITHDRAWAL">Withdrawal</SelectItem>
+                  <SelectItem value="EXPENSE">Expense</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button variant="outline" size="sm" onClick={resetAllFilters}>Reset Filters</Button>
+            <Button size="sm" onClick={applyFilters} disabled={!hasDraftChanges}>Apply</Button>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-1">
           {showPaginationControls && filteredSortedTxns.length > 0 && (
             <PaginationBar total={filteredSortedTxns.length} page={page} pageSize={pageSize} totalPages={totalPages} onPage={setPage} />
           )}
