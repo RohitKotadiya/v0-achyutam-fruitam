@@ -14,6 +14,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ bill
       where: { billNo },
       include: {
         customer: true,
+        paymentCollections: {
+          select: {
+            amount: true,
+          },
+        },
         lineItems: {
           include: {
             product: true,

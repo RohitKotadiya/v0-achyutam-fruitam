@@ -120,7 +120,7 @@ export default function AdminPage() {
       </div>
       {/* Main Content */}
       <div className="container mx-auto px-4 py-6">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-1">
           <div className="w-full overflow-x-auto pb-1">
             <TabsList className="inline-flex w-max min-w-full flex-nowrap gap-1">
             <TabsTrigger value="inventory" className={tabTriggerClass}>
@@ -179,18 +179,6 @@ export default function AdminPage() {
             <InventoryTab />
           </TabsContent>
 
-          {settings.enableMixDishPrep === "true" && (
-          <TabsContent value="mix-entry" className="space-y-4">
-            <InventoryTab forcedSubTab="prepare-mix" forcedPrepareMixView="entry" hideSubTabList />
-          </TabsContent>
-          )}
-
-          {settings.enableMixDishPrep === "true" && (
-          <TabsContent value="mix-batches" className="space-y-4">
-            <InventoryTab forcedSubTab="prepare-mix" forcedPrepareMixView="batches" hideSubTabList />
-          </TabsContent>
-          )}
-
           <TabsContent value="sku" className="space-y-4">
             <SKUTab />
           </TabsContent>
@@ -224,6 +212,18 @@ export default function AdminPage() {
           <TabsContent value="settings" className="space-y-4">
             <SettingsTab />
           </TabsContent>
+
+          {settings.enableMixDishPrep === "true" && (
+          <TabsContent value="mix-entry" className="space-y-4">
+            <InventoryTab forcedSubTab="prepare-mix" forcedPrepareMixView="entry" hideSubTabList />
+          </TabsContent>
+          )}
+
+          {settings.enableMixDishPrep === "true" && (
+          <TabsContent value="mix-batches" className="space-y-4">
+            <InventoryTab forcedSubTab="prepare-mix" forcedPrepareMixView="batches" hideSubTabList />
+          </TabsContent>
+          )}
         </Tabs>
       </div>
     </div>

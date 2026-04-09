@@ -50,6 +50,12 @@ interface MixBatchRow {
   unitCostPerCostUnit: number
   remarks?: string | null
   ingredients: Array<{ sku: string; name: string; quantity: number }>
+  isOpen: boolean
+}
+
+interface FetchMixBatchesOptions {
+  resetDrafts?: boolean
+  showErrorToast?: boolean
 }
 
 interface StockRowForm {
@@ -85,6 +91,16 @@ interface StockHistoryRow {
   weightedCostAfter: number | null
   remarks: string | null
   isUndone: boolean
+}
+
+interface DamageRecordRow {
+  id: string
+  date: string
+  sku: string
+  name: string
+  category: string
+  quantity: number
+  remarks: string | null
 }
 
 const toLocalDateInputValue = (date: Date) => {
@@ -157,19 +173,14 @@ export function InventoryTab({
   const [mixBatches, setMixBatches] = useState<MixBatchRow[]>([])
   const [batchPreparedQtyDraft, setBatchPreparedQtyDraft] = useState<Record<string, string>>({})
   const [batchUpdateLoadingId, setBatchUpdateLoadingId] = useState<string | null>(null)
+  const [isFetchingMixBatches, setIsFetchingMixBatches] = useState(false)
   const [mixBusyMessage, setMixBusyMessage] = useState("")
-
-  // Batch filters
   const batchToday = toLocalDateInputValue(new Date())
   const batchStartDefault = toLocalDateInputValue(new Date(Date.now() - 29 * 86400000))
   const [draftBatchSearch, setDraftBatchSearch] = useState("")
-  const [draftBatchStatus, setDraftBatchStatus] = useState<"all" | "open" | "closed">("all")
+  const [draftBatchStatus, setDraftBatchStatus] = useState<"all" | "open" | "closed">("open")
   const [draftBatchStart, setDraftBatchStart] = useState(batchStartDefault)
   const [draftBatchEnd, setDraftBatchEnd] = useState(batchToday)
-  const [appliedBatchSearch, setAppliedBatchSearch] = useState("")
-  const [appliedBatchStatus, setAppliedBatchStatus] = useState<"all" | "open" | "closed">("all")
-  const [appliedBatchStart, setAppliedBatchStart] = useState(batchStartDefault)
-  const [appliedBatchEnd, setAppliedBatchEnd] = useState(batchToday)
   const [batchCurrentPage, setBatchCurrentPage] = useState(1)
   const [batchPageSize, setBatchPageSize] = useState(20)
 
@@ -179,11 +190,26 @@ export function InventoryTab({
     reason: "",
   })
   const [damageProductSearch, setDamageProductSearch] = useState("")
+  const [showDamageForm, setShowDamageForm] = useState(true)
+  const [damageRows, setDamageRows] = useState<DamageRecordRow[]>([])
+  const [damageRowsLoading, setDamageRowsLoading] = useState(false)
+  const damageToday = toLocalDateInputValue(new Date())
+  const damageStartDefault = toLocalDateInputValue(new Date(Date.now() - 29 * 86400000))
+  const [draftDamageStartDate, setDraftDamageStartDate] = useState(damageStartDefault)
+  const [draftDamageEndDate, setDraftDamageEndDate] = useState(damageToday)
+  const [draftDamageProductSku, setDraftDamageProductSku] = useState("all")
+  const [draftDamageProductSearch, setDraftDamageProductSearch] = useState("")
+  const [draftDamageReasonQuery, setDraftDamageReasonQuery] = useState("")
+  const [damageStartDate, setDamageStartDate] = useState(damageStartDefault)
+  const [damageEndDate, setDamageEndDate] = useState(damageToday)
+  const [damageProductSku, setDamageProductSku] = useState("all")
+  const [damageReasonQuery, setDamageReasonQuery] = useState("")
   const historyToday = toLocalDateInputValue(new Date())
   const historyStartDefault = toLocalDateInputValue(new Date(Date.now() - 29 * 86400000))
   const [draftHistoryStartDate, setDraftHistoryStartDate] = useState(historyStartDefault)
   const [draftHistoryEndDate, setDraftHistoryEndDate] = useState(historyToday)
-  const [draftHistoryQuery, setDraftHistoryQuery] = useState("")
+  const [draftHistoryProductSku, setDraftHistoryProductSku] = useState("all")
+  const [draftHistoryProductSearch, setDraftHistoryProductSearch] = useState("")
   const [draftHistoryType, setDraftHistoryType] = useState<"all" | "ADD" | "DAMAGE">("all")
   const [draftHistoryStatus, setDraftHistoryStatus] = useState<"all" | "active" | "undone">("all")
   const [draftHistoryCategory, setDraftHistoryCategory] = useState("all")
@@ -191,7 +217,7 @@ export function InventoryTab({
   const [historyDatePreset, setHistoryDatePreset] = useState("30days")
   const [historyStartDate, setHistoryStartDate] = useState(historyStartDefault)
   const [historyEndDate, setHistoryEndDate] = useState(historyToday)
-  const [historyQuery, setHistoryQuery] = useState("")
+  const [historyProductSku, setHistoryProductSku] = useState("all")
   const [historyType, setHistoryType] = useState<"all" | "ADD" | "DAMAGE">("all")
   const [historyStatus, setHistoryStatus] = useState<"all" | "active" | "undone">("all")
   const [historyCategory, setHistoryCategory] = useState("all")
@@ -272,11 +298,17 @@ export function InventoryTab({
   const hasHistoryDraftChanges =
     draftHistoryStartDate !== historyStartDate ||
     draftHistoryEndDate !== historyEndDate ||
-    draftHistoryQuery !== historyQuery ||
+    draftHistoryProductSku !== historyProductSku ||
     draftHistoryType !== historyType ||
     draftHistoryStatus !== historyStatus ||
     draftHistoryCategory !== historyCategory ||
     draftHistoryBatchId !== historyBatchId
+
+  const hasDamageReportDraftChanges =
+    draftDamageStartDate !== damageStartDate ||
+    draftDamageEndDate !== damageEndDate ||
+    draftDamageProductSku !== damageProductSku ||
+    draftDamageReasonQuery !== damageReasonQuery
 
   const sortedHistoryRows = useMemo(() => {
     let rows = [...historyRows]
@@ -369,6 +401,28 @@ export function InventoryTab({
       }))
       .sort((a, b) => a.category.displayName.localeCompare(b.category.displayName))
   }, [categories, products, stockProductSearch])
+
+  const historyProductOptions = useMemo(() => {
+    const query = draftHistoryProductSearch.trim().toLowerCase()
+    return products
+      .filter((product) => {
+        if (!query) return true
+        return product.name.toLowerCase().includes(query) || product.sku.toLowerCase().includes(query)
+      })
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [products, draftHistoryProductSearch])
+
+  const damageProductOptions = useMemo(() => {
+    const query = draftDamageProductSearch.trim().toLowerCase()
+    return products
+      .filter((product) => {
+        if (!query) return true
+        return product.name.toLowerCase().includes(query) || product.sku.toLowerCase().includes(query)
+      })
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [products, draftDamageProductSearch])
 
   const toggleStockCategory = (categoryId: string) => {
     setCollapsedStockCategories((prev) => ({
@@ -591,7 +645,7 @@ export function InventoryTab({
     void fetchProducts()
     void fetchCategories()
     void fetchSettings()
-    void fetchMixBatches()
+    void fetchMixBatches({ resetDrafts: true })
   }, [])
 
   useEffect(() => {
@@ -620,7 +674,12 @@ export function InventoryTab({
   useEffect(() => {
     if (activeSubTab !== "history") return
     void fetchStockHistory()
-  }, [activeSubTab, historyStartDate, historyEndDate, historyQuery, historyType, historyStatus])
+  }, [activeSubTab, historyStartDate, historyEndDate, historyProductSku, historyType, historyStatus])
+
+  useEffect(() => {
+    if (activeSubTab !== "damage") return
+    void fetchDamageRecords()
+  }, [activeSubTab, damageStartDate, damageEndDate, damageProductSku, damageReasonQuery])
 
   useEffect(() => {
     setHistoryCurrentPage(1)
@@ -657,7 +716,7 @@ export function InventoryTab({
   const fetchProducts = async (showSyncIndicator = false) => {
     if (showSyncIndicator) setIsStockSyncing(true)
     try {
-      const res = await fetch("/api/products")
+      const res = await fetch(`/api/products?_=${Date.now()}`, { cache: "no-store" })
       const data = await res.json()
       if (Array.isArray(data)) {
         setProducts(data)
@@ -677,16 +736,22 @@ export function InventoryTab({
     }
   }
 
-  const fetchMixBatches = async () => {
+  const fetchMixBatches = async ({ resetDrafts = false, showErrorToast = false }: FetchMixBatchesOptions = {}) => {
+    setIsFetchingMixBatches(true)
     try {
-      const res = await fetch("/api/inventory/mix-batches")
+      const res = await fetch(`/api/inventory/mix-batches?_=${Date.now()}`, { cache: "no-store" })
       const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to fetch mix batches")
+      }
+
       if (data.success && Array.isArray(data.batches)) {
         setMixBatches(data.batches)
         setBatchPreparedQtyDraft((prev) => {
-          const next = { ...prev }
+          const next = resetDrafts ? {} : { ...prev }
           for (const batch of data.batches as MixBatchRow[]) {
-            if (!next[batch.id]) {
+            if (resetDrafts || !next[batch.id]) {
               next[batch.id] = String(batch.producedUnits)
             }
           }
@@ -695,6 +760,15 @@ export function InventoryTab({
       }
     } catch (error) {
       console.error("Error fetching mix batches:", error)
+      if (showErrorToast) {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to fetch mix batches",
+          variant: "destructive",
+        })
+      }
+    } finally {
+      setIsFetchingMixBatches(false)
     }
   }
 
@@ -705,7 +779,7 @@ export function InventoryTab({
         startDate: historyStartDate,
         endDate: historyEndDate,
       })
-      if (historyQuery.trim()) params.append("sku", historyQuery.trim())
+      if (historyProductSku !== "all") params.append("sku", historyProductSku)
       if (historyType !== "all") params.append("type", historyType)
       if (historyStatus !== "all") params.append("status", historyStatus)
 
@@ -724,20 +798,82 @@ export function InventoryTab({
     }
   }
 
+  const fetchDamageRecords = async () => {
+    setDamageRowsLoading(true)
+    try {
+      const params = new URLSearchParams({
+        type: "DAMAGE",
+        startDate: damageStartDate,
+        endDate: damageEndDate,
+        limit: "100",
+      })
+      if (damageProductSku !== "all") params.append("sku", damageProductSku)
+
+      const res = await fetch(`/api/inventory/history?${params}`)
+      const data = await res.json()
+
+      if (data.success && Array.isArray(data.rows)) {
+        const reasonFilter = damageReasonQuery.trim().toLowerCase()
+        const rows = data.rows
+          .filter((row: StockHistoryRow) => row.type === "DAMAGE")
+          .map((row: StockHistoryRow) => ({
+            id: row.id,
+            date: row.date,
+            sku: row.sku,
+            name: row.name,
+            category: row.category,
+            quantity: row.quantity,
+            remarks: row.remarks,
+          }))
+          .filter((row: DamageRecordRow) => {
+            if (!reasonFilter) return true
+            return (row.remarks || "").toLowerCase().includes(reasonFilter)
+          })
+        setDamageRows(rows)
+      } else {
+        setDamageRows([])
+      }
+    } catch (error) {
+      console.error("Error fetching damage records:", error)
+      setDamageRows([])
+    } finally {
+      setDamageRowsLoading(false)
+    }
+  }
+
   const applyHistoryFilters = () => {
     setHistoryStartDate(draftHistoryStartDate)
     setHistoryEndDate(draftHistoryEndDate)
-    setHistoryQuery(draftHistoryQuery)
+    setHistoryProductSku(draftHistoryProductSku)
     setHistoryType(draftHistoryType)
     setHistoryStatus(draftHistoryStatus)
     setHistoryCategory(draftHistoryCategory)
     setHistoryBatchId(draftHistoryBatchId)
   }
 
+  const applyDamageReportFilters = () => {
+    setDamageStartDate(draftDamageStartDate)
+    setDamageEndDate(draftDamageEndDate)
+    setDamageProductSku(draftDamageProductSku)
+    setDamageReasonQuery(draftDamageReasonQuery)
+  }
+
+  const resetDamageReportFilters = () => {
+    setDraftDamageStartDate(damageStartDefault)
+    setDraftDamageEndDate(damageToday)
+    setDraftDamageProductSku("all")
+    setDraftDamageProductSearch("")
+    setDraftDamageReasonQuery("")
+    setDamageStartDate(damageStartDefault)
+    setDamageEndDate(damageToday)
+    setDamageProductSku("all")
+    setDamageReasonQuery("")
+  }
+
   const resetHistoryFilters = () => {
     setDraftHistoryStartDate(historyStartDefault)
     setDraftHistoryEndDate(historyToday)
-    setDraftHistoryQuery("")
+    setDraftHistoryProductSku("all")
     setDraftHistoryType("all")
     setDraftHistoryStatus("all")
     setDraftHistoryCategory("all")
@@ -745,7 +881,7 @@ export function InventoryTab({
     setHistoryDatePreset("30days")
     setHistoryStartDate(historyStartDefault)
     setHistoryEndDate(historyToday)
-    setHistoryQuery("")
+    setHistoryProductSku("all")
     setHistoryType("all")
     setHistoryStatus("all")
     setHistoryCategory("all")
@@ -942,35 +1078,48 @@ export function InventoryTab({
 
   const filteredBatches = useMemo(() => {
     return mixBatches.filter((batch) => {
-      if (appliedBatchStatus === "open" && batch.producedUnitsRemaining <= 0) return false
-      if (appliedBatchStatus === "closed" && batch.producedUnitsRemaining > 0) return false
-      if (appliedBatchSearch) {
-        const q = appliedBatchSearch.toLowerCase()
-        if (!batch.targetName.toLowerCase().includes(q) && !batch.targetSku.toLowerCase().includes(q)) return false
+      if (draftBatchStatus === "open" && batch.producedUnitsRemaining <= 0) return false
+      if (draftBatchStatus === "closed" && batch.producedUnitsRemaining > 0) return false
+
+      if (draftBatchSearch.trim()) {
+        const query = draftBatchSearch.trim().toLowerCase()
+        if (!batch.targetName.toLowerCase().includes(query) && !batch.targetSku.toLowerCase().includes(query) && !batch.id.toLowerCase().includes(query)) {
+          return false
+        }
       }
-      if (appliedBatchStart) {
-        const d = new Date(batch.date); d.setHours(0, 0, 0, 0)
-        const s = new Date(appliedBatchStart); s.setHours(0, 0, 0, 0)
-        if (d < s) return false
+
+      const batchDate = new Date(batch.date)
+
+      if (draftBatchStart) {
+        const startDate = new Date(draftBatchStart)
+        startDate.setHours(0, 0, 0, 0)
+        if (batchDate < startDate) return false
       }
-      if (appliedBatchEnd) {
-        const d = new Date(batch.date); d.setHours(23, 59, 59, 999)
-        const e = new Date(appliedBatchEnd); e.setHours(23, 59, 59, 999)
-        if (d > e) return false
+
+      if (draftBatchEnd) {
+        const endDate = new Date(draftBatchEnd)
+        endDate.setHours(23, 59, 59, 999)
+        if (batchDate > endDate) return false
       }
+
       return true
     })
-  }, [mixBatches, appliedBatchSearch, appliedBatchStatus, appliedBatchStart, appliedBatchEnd])
+  }, [mixBatches, draftBatchSearch, draftBatchStatus, draftBatchStart, draftBatchEnd])
 
   const batchTotalPages = Math.max(1, Math.ceil(filteredBatches.length / batchPageSize))
+
   const paginatedBatches = useMemo(() => {
-    const start = (batchCurrentPage - 1) * batchPageSize
-    return filteredBatches.slice(start, start + batchPageSize)
+    const startIndex = (batchCurrentPage - 1) * batchPageSize
+    return filteredBatches.slice(startIndex, startIndex + batchPageSize)
   }, [filteredBatches, batchCurrentPage, batchPageSize])
 
-  useEffect(() => { setBatchCurrentPage(1) }, [appliedBatchSearch, appliedBatchStatus, appliedBatchStart, appliedBatchEnd, batchPageSize])
+  useEffect(() => {
+    setBatchCurrentPage(1)
+  }, [draftBatchSearch, draftBatchStatus, draftBatchStart, draftBatchEnd, batchPageSize])
 
-  useEffect(() => { setBatchCurrentPage((p) => Math.min(p, batchTotalPages)) }, [batchTotalPages])
+  useEffect(() => {
+    setBatchCurrentPage((prev) => Math.min(prev, batchTotalPages))
+  }, [batchTotalPages])
 
   useEffect(() => {
     if (targetMixSku && !targetMixProducts.some((product) => product.sku === targetMixSku)) {
@@ -1049,9 +1198,12 @@ export function InventoryTab({
       setIngredientQtyBySku({})
       setMixPreparedQuantity("")
       setMixRemarks("")
+      setTargetMixSku("")
+      setSourceCategoryId("")
+      setTargetCategoryFilterId("all")
       setPrepareMixView("batches")
       await fetchProducts()
-      await fetchMixBatches()
+      await fetchMixBatches({ resetDrafts: true })
     } catch (error) {
       toast({
         title: "Error",
@@ -1090,7 +1242,7 @@ export function InventoryTab({
 
       toast({ title: "Success", description: "Batch prepared qty updated" })
       await fetchProducts()
-      await fetchMixBatches()
+      await fetchMixBatches({ resetDrafts: true })
     } catch (error) {
       toast({
         title: "Error",
@@ -1122,6 +1274,7 @@ export function InventoryTab({
       toast({ title: "Success", description: "Damage recorded successfully" })
       setDamageForm({ sku: "", quantity: "", reason: "" })
       await fetchProducts()
+      await fetchDamageRecords()
     } catch (error) {
       toast({
         title: "Error",
@@ -1134,9 +1287,9 @@ export function InventoryTab({
   }
 
   return (
-    <Tabs value={activeSubTab} onValueChange={(v) => setActiveSubTab(v as InventorySubTab)} className="space-y-4">
+    <Tabs value={activeSubTab} onValueChange={(v) => setActiveSubTab(v as InventorySubTab)} className="space-y-1">
       {!hideSubTabList ? (
-      <div className="w-full overflow-x-auto pb-1">
+      <div className="w-full overflow-x-auto pb-0">
         <TabsList className="inline-flex w-max min-w-full gap-1">
           <TabsTrigger value="add-stock" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Add Stock</TabsTrigger>
           {settings.enableMixDishPrep === "true" && (
@@ -1298,9 +1451,34 @@ export function InventoryTab({
       {settings.enableMixDishPrep === "true" && (
         <TabsContent value="prepare-mix" className="space-y-4">
           <Card>
-            <CardHeader>
-              <CardTitle>Prepare Mix (Dynamic)</CardTitle>
-              <CardDescription>Select target SKU, source category, then enter ingredient quantities directly</CardDescription>
+            <CardHeader className="pb-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <CardTitle>Prepare Mix (Dynamic)</CardTitle>
+                  <CardDescription>Select target SKU, source category, then enter ingredient quantities directly</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Tabs value={prepareMixView} onValueChange={(v) => setPrepareMixView(v as PrepareMixView)}>
+                    <TabsList className="h-8">
+                      <TabsTrigger value="entry" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Entry</TabsTrigger>
+                      <TabsTrigger value="batches" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Mix Batches</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isFetchingMixBatches}
+                    onClick={() => void fetchMixBatches({ resetDrafts: true, showErrorToast: true })}
+                  >
+                    {isFetchingMixBatches ? (
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span>Refreshing...</span></>
+                    ) : (
+                      "Refresh Batches"
+                    )}
+                  </Button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="relative">
               {mixBusyMessage ? (
@@ -1318,20 +1496,6 @@ export function InventoryTab({
                   </div>
                 </div>
               ) : null}
-
-              <div className="sticky top-0 z-10 mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/85">
-                <Tabs value={prepareMixView} onValueChange={(v) => setPrepareMixView(v as PrepareMixView)}>
-                  <TabsList className="h-8">
-                    <TabsTrigger value="entry" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Entry</TabsTrigger>
-                    <TabsTrigger value="batches" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Mix Batches</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-                <div className="flex items-center gap-2">
-                  <Button type="button" size="sm" variant="outline" onClick={() => void fetchMixBatches()}>
-                    Refresh Batches
-                  </Button>
-                </div>
-              </div>
 
               {prepareMixView === "entry" ? (
               <form onSubmit={handlePrepareMix} className="space-y-4">
@@ -1434,7 +1598,7 @@ export function InventoryTab({
                             <Input
                               type="number"
                               min="0"
-                              step="0.01"
+                              step="1"
                               value={ingredientQtyBySku[product.sku] || ""}
                               onChange={(e) => setIngredientQtyBySku((prev) => ({ ...prev, [product.sku]: e.target.value }))}
                               className="h-8 text-right"
@@ -1468,13 +1632,8 @@ export function InventoryTab({
                 </div>
               </form>
               ) : (
-              <div className="space-y-4">
-                <div>
-                  <h4 className="text-sm font-semibold">Open Batch Management</h4>
-                  <p className="text-xs text-muted-foreground">Update prepared qty directly per batch from Action column when actual yield differs from planned yield.</p>
-                </div>
-
-                <div className="rounded border bg-muted/30 px-3 py-3">
+              <div className="space-y-2 pt-0">
+                <div className="rounded border bg-muted/30 px-3 py-2">
                   <div className="flex flex-wrap items-center gap-4 text-sm">
                     <div>
                       <span className="text-muted-foreground">Total available open-batch stock:</span>{" "}
@@ -1498,7 +1657,6 @@ export function InventoryTab({
                 </div>
 
                 <div className="rounded border">
-                  {/* Filter bar */}
                   <div className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-3 py-2">
                     <Input
                       placeholder="Search product / SKU"
@@ -1506,25 +1664,61 @@ export function InventoryTab({
                       onChange={(e) => setDraftBatchSearch(e.target.value)}
                       className="h-8 w-44 text-sm"
                     />
-                    <Select value={draftBatchStatus} onValueChange={(v) => setDraftBatchStatus(v as "all" | "open" | "closed")}>
-                      <SelectTrigger className="h-8 w-32 text-sm"><SelectValue /></SelectTrigger>
+                    <Select value={draftBatchStatus} onValueChange={(value) => setDraftBatchStatus(value as "all" | "open" | "closed")}>
+                      <SelectTrigger className="h-8 w-32 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All</SelectItem>
                         <SelectItem value="open">Open</SelectItem>
                         <SelectItem value="closed">Closed</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Input type="date" value={draftBatchStart} onChange={(e) => setDraftBatchStart(e.target.value)} className="h-8 w-36 text-sm" />
-                    <Input type="date" value={draftBatchEnd} onChange={(e) => setDraftBatchEnd(e.target.value)} className="h-8 w-36 text-sm" />
-                    <Button size="sm" className="h-8" onClick={() => { setAppliedBatchSearch(draftBatchSearch); setAppliedBatchStatus(draftBatchStatus); setAppliedBatchStart(draftBatchStart); setAppliedBatchEnd(draftBatchEnd) }}>Apply</Button>
-                    <Button size="sm" variant="outline" className="h-8" onClick={() => { const s = toLocalDateInputValue(new Date(Date.now() - 29 * 86400000)); const t = toLocalDateInputValue(new Date()); setDraftBatchSearch(""); setDraftBatchStatus("all"); setDraftBatchStart(s); setDraftBatchEnd(t); setAppliedBatchSearch(""); setAppliedBatchStatus("all"); setAppliedBatchStart(s); setAppliedBatchEnd(t) }}><X className="w-3 h-3 mr-1" />Reset</Button>
-                    <span className="ml-auto text-xs text-muted-foreground">{filteredBatches.length} batch{filteredBatches.length !== 1 ? "es" : ""}</span>
-                    <select value={batchPageSize} onChange={(e) => setBatchPageSize(Number(e.target.value))} className="h-8 rounded-md border bg-background px-2 text-xs text-foreground">
-                      {[10, 20, 50, 100].map((n) => <option key={n} value={n}>{n} / page</option>)}
+                    <Input
+                      type="date"
+                      value={draftBatchStart}
+                      onChange={(e) => setDraftBatchStart(e.target.value)}
+                      className="h-8 w-36 text-sm"
+                    />
+                    <Input
+                      type="date"
+                      value={draftBatchEnd}
+                      onChange={(e) => setDraftBatchEnd(e.target.value)}
+                      className="h-8 w-36 text-sm"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8"
+                      onClick={() => {
+                        setDraftBatchSearch("")
+                        setDraftBatchStatus("all")
+                        setDraftBatchStart(batchStartDefault)
+                        setDraftBatchEnd(batchToday)
+                      }}
+                    >
+                      <X className="w-3 h-3 mr-1" />
+                      Reset
+                    </Button>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {filteredBatches.length} batch{filteredBatches.length !== 1 ? "es" : ""}
+                    </span>
+                    <select
+                      value={batchPageSize}
+                      onChange={(e) => setBatchPageSize(Number(e.target.value))}
+                      className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"
+                    >
+                      {[10, 20, 50, 100].map((pageSize) => (
+                        <option key={pageSize} value={pageSize}>
+                          {pageSize} / page
+                        </option>
+                      ))}
                     </select>
                   </div>
-                  <div className="grid grid-cols-[2fr_90px_90px_90px_90px_110px_180px] gap-2 bg-muted/50 px-3 py-2 text-xs font-medium">
-                    <span>Batch Details</span>
+                  <div className="grid grid-cols-[120px_2fr_90px_90px_90px_90px_110px_240px] gap-2 border-b bg-muted/50 px-3 py-2 text-xs font-medium">
+                    <span>Batch ID</span>
+                    <span>Open Batch Details</span>
                     <span className="text-right">Prepared Units</span>
                     <span className="text-right">Sold Units</span>
                     <span className="text-right">Produced Remaining</span>
@@ -1532,71 +1726,112 @@ export function InventoryTab({
                     <span className="text-right">Zero-Cost Remaining</span>
                     <span className="text-center">Action</span>
                   </div>
-                  <div className="max-h-[480px] overflow-y-auto">
+                  <div className="max-h-[360px] overflow-y-auto">
                     {paginatedBatches.length === 0 ? (
                       <div className="px-3 py-6 text-center text-sm text-muted-foreground">No batches found</div>
                     ) : (
-                      paginatedBatches.map((batch) => {
-                        const isClosed = batch.producedUnitsRemaining <= 0
-                        return (
-                          <div key={batch.id} className={`grid grid-cols-[2fr_90px_90px_90px_90px_110px_180px] gap-2 border-b px-3 py-2 text-sm ${isClosed ? "bg-muted/30 opacity-70" : ""}`}>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="truncate font-medium">{batch.targetName}</span>
-                                {isClosed && <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">Closed</span>}
-                              </div>
-                              <div className="text-xs text-muted-foreground">Batch: {new Date(batch.date).toLocaleString()}</div>
-                              <div className="text-xs text-muted-foreground">Source: {batch.sourceCategoryDisplayName}</div>
-                              <div className="mt-1 text-xs text-muted-foreground">
-                                Ingredients: {batch.ingredients.length > 0 ? batch.ingredients.map((ing) => `${ing.name} (${Number(ing.quantity).toFixed(2)})`).join(", ") : "-"}
-                              </div>
-                              {batch.remarks ? <div className="mt-1 text-xs text-muted-foreground">Remarks: {batch.remarks}</div> : null}
-                              <div className="mt-1 text-xs text-muted-foreground">Unit Cost: {batch.unitCostPerCostUnit.toFixed(2)}</div>
+                      paginatedBatches.map((batch) => (
+                        <div key={batch.id} className="grid grid-cols-[120px_2fr_90px_90px_90px_90px_110px_240px] gap-2 border-b px-3 py-2 text-sm">
+                          <div className="min-w-0 text-xs font-mono text-muted-foreground break-all">{batch.id}</div>
+                          <div className="min-w-0">
+                            <div className="truncate font-medium">{batch.targetName}</div>
+                            <div className="text-xs text-muted-foreground">Batch: {new Date(batch.date).toLocaleString()}</div>
+                            <div className="text-xs text-muted-foreground">Source: {batch.sourceCategoryDisplayName}</div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              Ingredients: {batch.ingredients.length > 0 ? batch.ingredients.map((ing) => `${ing.name} (${Number(ing.quantity).toFixed(2)})`).join(", ") : "-"}
                             </div>
-                            <div className="text-right">{batch.producedUnits.toFixed(2)}</div>
-                            <div className="text-right">{batch.soldUnits.toFixed(2)}</div>
-                            <div className="text-right">{batch.producedUnitsRemaining.toFixed(2)}</div>
-                            <div className="text-right">{batch.costUnitsRemaining.toFixed(2)}</div>
-                            <div className="text-right">{batch.zeroCostUnitsRemaining.toFixed(2)}</div>
-                            <div className="flex items-center gap-2">
-                              {isClosed ? (
-                                <span className="w-full text-center text-xs text-muted-foreground italic">All sold out</span>
-                              ) : (
-                                <>
-                                  <Input
-                                    type="number"
-                                    min="0.01"
-                                    step="0.01"
-                                    value={batchPreparedQtyDraft[batch.id] ?? String(batch.producedUnits)}
-                                    onChange={(e) => setBatchPreparedQtyDraft((prev) => ({ ...prev, [batch.id]: e.target.value }))}
-                                    className="h-8 text-right"
-                                  />
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    disabled={batchUpdateLoadingId === batch.id}
-                                    onClick={() => handleUpdateBatchPreparedQty(batch)}
-                                  >
-                                    {batchUpdateLoadingId === batch.id ? "..." : "Update"}
-                                  </Button>
-                                </>
-                              )}
-                            </div>
+                            {batch.remarks ? <div className="mt-1 text-xs text-muted-foreground">Remarks: {batch.remarks}</div> : null}
+                            <div className="mt-1 text-xs text-muted-foreground">Unit Cost: {batch.unitCostPerCostUnit.toFixed(2)}</div>
                           </div>
-                        )
-                      })
+                          <div className="text-right">{batch.producedUnits.toFixed(2)}</div>
+                          <div className="text-right">{batch.soldUnits.toFixed(2)}</div>
+                          <div className="text-right">{batch.producedUnitsRemaining.toFixed(2)}</div>
+                          <div className="text-right">{batch.costUnitsRemaining.toFixed(2)}</div>
+                          <div className="text-right">{batch.zeroCostUnitsRemaining.toFixed(2)}</div>
+                          <div className="flex items-center gap-2">
+                            {batch.producedUnitsRemaining <= 0 ? (
+                              <span className="inline-flex items-center rounded-full border border-muted-foreground/30 bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                                Closed
+                              </span>
+                            ) : (
+                              <>
+                                <Input
+                                  type="number"
+                                  min="0.01"
+                                  step="0.01"
+                                  value={batchPreparedQtyDraft[batch.id] ?? String(batch.producedUnits)}
+                                  onChange={(e) => setBatchPreparedQtyDraft((prev) => ({ ...prev, [batch.id]: e.target.value }))}
+                                  disabled={batchUpdateLoadingId === batch.id}
+                                  className="h-8 text-right"
+                                />
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  disabled={
+                                    batchUpdateLoadingId === batch.id ||
+                                    (batchPreparedQtyDraft[batch.id] ?? String(batch.producedUnits)) === String(batch.producedUnits)
+                                  }
+                                  onClick={() => handleUpdateBatchPreparedQty(batch)}
+                                >
+                                  {batchUpdateLoadingId === batch.id ? (
+                                    <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span>Applying...</span></>
+                                  ) : (
+                                    "Apply"
+                                  )}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={
+                                    batchUpdateLoadingId === batch.id ||
+                                    (batchPreparedQtyDraft[batch.id] ?? String(batch.producedUnits)) === String(batch.producedUnits)
+                                  }
+                                  onClick={() =>
+                                    setBatchPreparedQtyDraft((prev) => ({
+                                      ...prev,
+                                      [batch.id]: String(batch.producedUnits),
+                                    }))
+                                  }
+                                >
+                                  Reset
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))
                     )}
                   </div>
-                  {/* Pagination footer */}
-                  {batchTotalPages > 1 && (
+                  {batchTotalPages > 1 ? (
                     <div className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
-                      <span>Page {batchCurrentPage} of {batchTotalPages} — {filteredBatches.length} total</span>
+                      <span>
+                        Page {batchCurrentPage} of {batchTotalPages} - {filteredBatches.length} total
+                      </span>
                       <div className="flex items-center gap-1">
-                        <Button variant="outline" size="sm" className="h-7 px-2.5" onClick={() => setBatchCurrentPage((p) => Math.max(1, p - 1))} disabled={batchCurrentPage === 1}>Prev</Button>
-                        <Button variant="outline" size="sm" className="h-7 px-2.5" onClick={() => setBatchCurrentPage((p) => Math.min(batchTotalPages, p + 1))} disabled={batchCurrentPage === batchTotalPages}>Next</Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2.5"
+                          onClick={() => setBatchCurrentPage((prev) => Math.max(1, prev - 1))}
+                          disabled={batchCurrentPage === 1}
+                        >
+                          Prev
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2.5"
+                          onClick={() => setBatchCurrentPage((prev) => Math.min(batchTotalPages, prev + 1))}
+                          disabled={batchCurrentPage === batchTotalPages}
+                        >
+                          Next
+                        </Button>
                       </div>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
               )}
@@ -1679,12 +1914,37 @@ export function InventoryTab({
                   onChange={(e) => { setDraftHistoryEndDate(e.target.value); setHistoryDatePreset("custom") }}
                   className="w-full md:w-[150px]"
                 />
-                <Input
-                  placeholder="Search SKU, product, or batch ID"
-                  value={draftHistoryQuery}
-                  onChange={(e) => setDraftHistoryQuery(e.target.value)}
-                  className="w-full min-w-[220px] flex-1"
-                />
+                <Select
+                  value={draftHistoryProductSku}
+                  onValueChange={setDraftHistoryProductSku}
+                  onOpenChange={(open) => {
+                    if (!open) setDraftHistoryProductSearch("")
+                  }}
+                >
+                  <SelectTrigger className="w-full min-w-[220px] md:w-[260px]">
+                    <SelectValue placeholder="Product" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <div className="sticky top-0 z-10 bg-popover px-2 pb-2">
+                      <Input
+                        value={draftHistoryProductSearch}
+                        onChange={(e) => setDraftHistoryProductSearch(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className="h-8"
+                        placeholder="Search product..."
+                      />
+                    </div>
+                    <SelectItem value="all">All Products</SelectItem>
+                    {historyProductOptions.map((product) => (
+                      <SelectItem key={product.id} value={product.sku}>
+                        {product.name} ({product.sku})
+                      </SelectItem>
+                    ))}
+                    {historyProductOptions.length === 0 ? (
+                      <div className="px-2 py-1 text-xs text-muted-foreground">No products found</div>
+                    ) : null}
+                  </SelectContent>
+                </Select>
                 <Select value={draftHistoryType} onValueChange={(value) => setDraftHistoryType(value as "all" | "ADD" | "DAMAGE")}>
                   <SelectTrigger className="w-full md:w-[150px]">
                     <SelectValue placeholder="Type" />
@@ -1819,53 +2079,194 @@ export function InventoryTab({
 
       <TabsContent value="damage" className="space-y-4">
         <Card>
-          <CardHeader>
-            <CardTitle>Stock Damage/Adjustment</CardTitle>
-            <CardDescription>Record stock removal for damage or adjustments</CardDescription>
+          <CardHeader className="pb-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <CardTitle>Stock Damage/Adjustment</CardTitle>
+                <CardDescription>Record stock removal for damage or adjustments</CardDescription>
+              </div>
+              <Button type="button" size="sm" onClick={() => setShowDamageForm((prev) => !prev)}>
+                {showDamageForm ? "Close" : "+ Add"}
+              </Button>
+            </div>
           </CardHeader>
-          <CardContent>
-            <form onSubmit={handleAddDamage} className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="damageSKU">Product</Label>
-                  <Select value={damageForm.sku} onValueChange={(value) => setDamageForm({ ...damageForm, sku: value })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select product" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <div className="p-2 border-b">
-                        <Input
-                          value={damageProductSearch}
-                          onChange={(e) => setDamageProductSearch(e.target.value)}
-                          onKeyDown={(e) => e.stopPropagation()}
-                          placeholder="Search SKU or name"
-                          className="h-8"
-                        />
-                      </div>
-                      {damageSelectableProducts.length === 0 ? (
-                        <div className="px-3 py-2 text-xs text-muted-foreground">No products found</div>
-                      ) : (
-                        damageSelectableProducts.map((product) => (
-                          <SelectItem key={product.sku} value={product.sku}>{product.name}</SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
+          <CardContent className="pt-1">
+            {showDamageForm ? (
+            <form onSubmit={handleAddDamage} className="space-y-3">
+              <div className="rounded-lg border bg-muted/20 p-3 md:p-4">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
+                  <div className="space-y-1.5 md:col-span-6">
+                    <Label htmlFor="damageSKU">Product</Label>
+                    <Select value={damageForm.sku} onValueChange={(value) => setDamageForm({ ...damageForm, sku: value })}>
+                      <SelectTrigger id="damageSKU" className="w-full">
+                        <SelectValue placeholder="Select product" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <div className="border-b p-2">
+                          <Input
+                            value={damageProductSearch}
+                            onChange={(e) => setDamageProductSearch(e.target.value)}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            placeholder="Search SKU or name"
+                            className="h-8"
+                          />
+                        </div>
+                        {damageSelectableProducts.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-muted-foreground">No products found</div>
+                        ) : (
+                          damageSelectableProducts.map((product) => (
+                            <SelectItem key={product.sku} value={product.sku}>{product.name}</SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="damageQty">Quantity to Remove</Label>
-                  <Input id="damageQty" type="number" min="1" step="0.01" value={damageForm.quantity} onChange={(e) => setDamageForm({ ...damageForm, quantity: e.target.value })} required />
-                </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label htmlFor="damageQty">Quantity to Remove</Label>
+                    <Input
+                      id="damageQty"
+                      type="number"
+                      min="1"
+                      step="0.01"
+                      value={damageForm.quantity}
+                      onChange={(e) => setDamageForm({ ...damageForm, quantity: e.target.value })}
+                      required
+                    />
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="damageReason">Reason</Label>
-                  <Input id="damageReason" value={damageForm.reason} onChange={(e) => setDamageForm({ ...damageForm, reason: e.target.value })} required />
+                  <div className="space-y-1.5 md:col-span-4">
+                    <Label htmlFor="damageReason">Reason</Label>
+                    <Input
+                      id="damageReason"
+                      placeholder="e.g. Spoilage / handling damage"
+                      value={damageForm.reason}
+                      onChange={(e) => setDamageForm({ ...damageForm, reason: e.target.value })}
+                      required
+                    />
+                  </div>
                 </div>
               </div>
 
-              <Button type="submit" disabled={loading}>{loading ? "Recording..." : "Record Damage"}</Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="submit" disabled={loading}>{loading ? "Recording..." : "Record Damage"}</Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setDamageForm({ sku: "", quantity: "", reason: "" })
+                    setDamageProductSearch("")
+                  }}
+                >
+                  Clear
+                </Button>
+              </div>
             </form>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle>Recorded Damage Report</CardTitle>
+            <CardDescription>Latest recorded stock damage entries</CardDescription>
+
+            <div className="flex flex-wrap gap-3 items-end pt-2 mt-1 border-t">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">From</span>
+                <Input
+                  type="date"
+                  value={draftDamageStartDate}
+                  onChange={(e) => setDraftDamageStartDate(e.target.value)}
+                  className="h-8 w-36 text-xs"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">To</span>
+                <Input
+                  type="date"
+                  value={draftDamageEndDate}
+                  onChange={(e) => setDraftDamageEndDate(e.target.value)}
+                  className="h-8 w-36 text-xs"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">Product</span>
+                <Select
+                  value={draftDamageProductSku}
+                  onValueChange={setDraftDamageProductSku}
+                  onOpenChange={(open) => {
+                    if (!open) setDraftDamageProductSearch("")
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-64 text-xs">
+                    <SelectValue placeholder="Product" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <div className="sticky top-0 z-10 bg-popover px-2 pb-2">
+                      <Input
+                        value={draftDamageProductSearch}
+                        onChange={(e) => setDraftDamageProductSearch(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className="h-8"
+                        placeholder="Search product..."
+                      />
+                    </div>
+                    <SelectItem value="all">All Products</SelectItem>
+                    {damageProductOptions.map((product) => (
+                      <SelectItem key={product.id} value={product.sku}>
+                        {product.name} ({product.sku})
+                      </SelectItem>
+                    ))}
+                    {damageProductOptions.length === 0 ? (
+                      <div className="px-2 py-1 text-xs text-muted-foreground">No products found</div>
+                    ) : null}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">Reason</span>
+                <Input
+                  value={draftDamageReasonQuery}
+                  onChange={(e) => setDraftDamageReasonQuery(e.target.value)}
+                  placeholder="Reason contains..."
+                  className="h-8 w-48 text-xs"
+                />
+              </div>
+              <Button type="button" size="sm" variant="outline" onClick={resetDamageReportFilters}>
+                Reset
+              </Button>
+              <Button type="button" size="sm" onClick={applyDamageReportFilters} disabled={!hasDamageReportDraftChanges || damageRowsLoading}>
+                Apply
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-1">
+            <div className="rounded border max-h-[420px] overflow-auto">
+              <div className="sticky top-0 z-10 grid grid-cols-[170px_1fr_140px_110px_1.4fr] gap-2 border-b bg-muted/95 px-3 py-2 text-xs font-medium">
+                <span>Date/Time</span>
+                <span>Product</span>
+                <span>Category</span>
+                <span className="text-right">Qty Removed</span>
+                <span>Reason</span>
+              </div>
+
+              {damageRowsLoading ? (
+                <div className="px-3 py-6 text-center text-sm text-muted-foreground">Loading damage records...</div>
+              ) : damageRows.length === 0 ? (
+                <div className="px-3 py-6 text-center text-sm text-muted-foreground">No damage records found</div>
+              ) : (
+                damageRows.map((row) => (
+                  <div key={row.id} className="grid grid-cols-[170px_1fr_140px_110px_1.4fr] gap-2 border-b px-3 py-2 text-sm">
+                    <span className="text-xs text-muted-foreground">{new Date(row.date).toLocaleString()}</span>
+                    <span className="truncate">{row.name} ({row.sku})</span>
+                    <span className="truncate text-xs text-muted-foreground">{row.category || "-"}</span>
+                    <span className="text-right">{Number(row.quantity || 0).toFixed(2)}</span>
+                    <span className="text-xs text-muted-foreground whitespace-normal break-words">{row.remarks || "-"}</span>
+                  </div>
+                ))
+              )}
+            </div>
           </CardContent>
         </Card>
       </TabsContent>

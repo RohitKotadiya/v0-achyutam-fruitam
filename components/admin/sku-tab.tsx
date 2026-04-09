@@ -43,6 +43,7 @@ export function SKUTab() {
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(false)
+  const [showAddSkuForm, setShowAddSkuForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [showEditDialog, setShowEditDialog] = useState(false)
 
@@ -277,9 +278,17 @@ export function SKUTab() {
       {/* Add New SKU */}
       <Card>
         <CardHeader>
-          <CardTitle>Add New Product/SKU</CardTitle>
-          <CardDescription>Quick add with a compact layout</CardDescription>
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <CardTitle>Add New Product/SKU</CardTitle>
+              <CardDescription>Quick add with a compact layout</CardDescription>
+            </div>
+            <Button type="button" size="sm" onClick={() => setShowAddSkuForm((prev) => !prev)}>
+              {showAddSkuForm ? "Close" : "+ Add"}
+            </Button>
+          </div>
         </CardHeader>
+        {showAddSkuForm ? (
         <CardContent>
           <form onSubmit={handleAddSKU} className="space-y-3">
             <div className="rounded-lg border bg-muted/20 p-3 md:p-4">
@@ -378,6 +387,7 @@ export function SKUTab() {
             </div>
           </form>
         </CardContent>
+        ) : null}
       </Card>
 
       {/* Existing SKUs Table */}

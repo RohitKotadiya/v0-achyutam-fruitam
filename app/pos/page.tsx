@@ -801,6 +801,7 @@ export default function POSPage() {
   // Core save — returns saved bill data or null on failure
   const saveBill = async (afterSave?: "print" | "whatsapp") => {
     const actionType: "save" | "print" | "whatsapp" = afterSave === "print" ? "print" : afterSave === "whatsapp" ? "whatsapp" : "save"
+    const isEditingBill = Boolean(editingBillNo)
 
     if (billItems.length === 0) {
       toast({
@@ -848,6 +849,7 @@ export default function POSPage() {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          editBillNo: editingBillNo,
           customerName: customerNameFinal,
           customerMobile: customerMobileFinal,
           paymentMethod,
@@ -869,8 +871,10 @@ export default function POSPage() {
         const savedDisplayBillNo: string | null = data.displayBillNo ?? null
 
         toast({
-          title: "Bill saved",
-          description: `Bill #${savedDisplayBillNo ?? savedBillNo} saved!`,
+          title: isEditingBill ? "Bill updated" : "Bill saved",
+          description: isEditingBill
+            ? `Bill #${savedDisplayBillNo ?? savedBillNo} updated!`
+            : `Bill #${savedDisplayBillNo ?? savedBillNo} saved!`,
           duration: 1000,
         })
 

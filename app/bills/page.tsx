@@ -41,6 +41,7 @@ interface Bill {
   customerId: string | null
   paymentMethod: string
   grandTotal: number
+  refundTotal: number
   collectedAmount: number
   remainingDue: number
   lineItems: any[]
@@ -213,6 +214,13 @@ export default function BillsPage() {
     if (!busyBillAction) return false
     if (busyBillAction.billNo !== billNo) return false
     return action ? busyBillAction.action === action : true
+  }
+
+  const isBillFullyReturned = (bill: Bill) => {
+    const refundTotal = Number(bill.refundTotal) || 0
+    const grandTotal = Number(bill.grandTotal) || 0
+    const remainingDue = Number(bill.remainingDue) || 0
+    return remainingDue <= 0 && refundTotal >= grandTotal - 0.0001
   }
 
   const toDateStr = (d: Date) => toLocalDateString(d)
@@ -882,8 +890,8 @@ export default function BillsPage() {
                                   size="icon"
                                   className="h-8 w-8"
                                   onClick={() => setReturnBill({ id: bill.id, billNo: bill.billNo, displayBillNo: bill.displayBillNo })}
-                                  disabled={isBillActionBusy(bill.billNo)}
-                                  title="Return"
+                                  disabled={isBillActionBusy(bill.billNo) || isBillFullyReturned(bill)}
+                                  title={isBillFullyReturned(bill) ? "Fully returned" : "Return"}
                                 >
                                   <RotateCcw className="w-3.5 h-3.5 text-orange-500" />
                                 </Button>
@@ -1019,7 +1027,14 @@ export default function BillsPage() {
                         <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => editBill(bill.billNo)} disabled={isBillActionBusy(bill.billNo)}>
                           {isBillActionBusy(bill.billNo, "edit") ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Edit3 className="w-3 h-3" />}
                         </Button>
-                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => setReturnBill({ id: bill.id, billNo: bill.billNo, displayBillNo: bill.displayBillNo })} disabled={isBillActionBusy(bill.billNo)}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2"
+                          onClick={() => setReturnBill({ id: bill.id, billNo: bill.billNo, displayBillNo: bill.displayBillNo })}
+                          disabled={isBillActionBusy(bill.billNo) || isBillFullyReturned(bill)}
+                          title={isBillFullyReturned(bill) ? "Fully returned" : "Return"}
+                        >
                           <RotateCcw className="w-3 h-3 text-orange-500" />
                         </Button>
                         <Button

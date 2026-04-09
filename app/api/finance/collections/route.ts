@@ -173,7 +173,7 @@ export async function POST(request: Request) {
         })
         const bill = await tx.bill.findUnique({ where: { id: resolvedBillId } })
 
-        if (bill && (totalCollected._sum.amount || 0) >= bill.grandTotal) {
+        if (bill && (totalCollected._sum.amount || 0) >= Math.max(0, (bill.grandTotal || 0) - (bill.refundTotal || 0))) {
           // Fully paid — update bill payment method
           await tx.bill.update({
             where: { id: resolvedBillId },

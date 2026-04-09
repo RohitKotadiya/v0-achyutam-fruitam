@@ -64,14 +64,19 @@ export function ReturnDialog({ open, onOpenChange, billNo, displayBillNo, billId
   const [fetching, setFetching] = useState(false)
   const [entries, setEntries] = useState<ReturnEntry[]>([])
   const [paymentMethod, setPaymentMethod] = useState("CASH")
+  const [isUnpaidPendingBill, setIsUnpaidPendingBill] = useState(false)
 
   useEffect(() => {
     if (open && billNo > 0) {
       setEntries([])
+      setIsUnpaidPendingBill(false)
+      setPaymentMethod("CASH")
       fetchBillDetails()
     }
     if (!open) {
       setEntries([])
+      setIsUnpaidPendingBill(false)
+      setPaymentMethod("CASH")
     }
   }, [open, billNo])
 
@@ -89,6 +94,12 @@ export function ReturnDialog({ open, onOpenChange, billNo, displayBillNo, billId
       }
 
       const bill = data.bill
+      const totalCollected = Array.isArray(bill.paymentCollections)
+        ? bill.paymentCollections.reduce((sum: number, row: { amount?: number | null }) => sum + Number(row?.amount || 0), 0)
+        : 0
+      const unpaidPending = bill.paymentMethod === "PENDING" && totalCollected <= 0.0001
+      setIsUnpaidPendingBill(unpaidPending)
+      setPaymentMethod(unpaidPending ? "PENDING" : "CASH")
       const existingReturns: ExistingReturn[] = bill.returns || []
 
       // Build returned qty map
@@ -206,7 +217,7 @@ export function ReturnDialog({ open, onOpenChange, billNo, displayBillNo, billId
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl min-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[98vw] !max-w-[98vw] sm:!max-w-[98vw] xl:!max-w-[800px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <RotateCcw className="h-5 w-5" />
@@ -317,17 +328,26 @@ export function ReturnDialog({ open, onOpenChange, billNo, displayBillNo, billId
             {/* Footer */}
             <div className="flex items-center justify-between border-t pt-4">
               <div className="flex items-center gap-3">
-                <Label>Refund via:</Label>
-                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                  <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="CASH">Cash</SelectItem>
-                    <SelectItem value="ONLINE">Online</SelectItem>
-                  </SelectContent>
-                </Select>
+                {isUnpaidPendingBill ? (
+                  <div className="space-y-1">
+                    <Label>Refund mode</Label>
+                    <p className="text-xs text-muted-foreground">Adjust Due (bill is pending and unpaid)</p>
+                  </div>
+                ) : (
+                  <>
+                    <Label>Refund via:</Label>
+                    <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                      <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CASH">Cash</SelectItem>
+                        <SelectItem value="ONLINE">Online</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </>
+                )}
               </div>
               <div className="text-right">
-                <p className="text-sm text-muted-foreground">Total Refund</p>
+                <p className="text-sm text-muted-foreground">{isUnpaidPendingBill ? "Total Due Adjustment" : "Total Refund"}</p>
                 <p className="text-2xl font-bold text-red-600">{formatCurrency(totalRefund)}</p>
               </div>
             </div>
@@ -337,7 +357,7 @@ export function ReturnDialog({ open, onOpenChange, billNo, displayBillNo, billId
                 Cancel
               </Button>
               <Button type="submit" disabled={loading || selectedEntries.length === 0}>
-                {loading ? "Processing..." : `Process Return (${formatCurrency(totalRefund)})`}
+                {loading ? "Processing..." : `${isUnpaidPendingBill ? "Adjust Due" : "Process Return"} (${formatCurrency(totalRefund)})`}
               </Button>
             </div>
           </form>

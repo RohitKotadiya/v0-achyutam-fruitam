@@ -156,6 +156,7 @@ model MixPreparation {
   costUnitsRemaining     Float                      @default(0)
   totalIngredientCost    Float                      @default(0)
   unitCostPerCostUnit    Float                      @default(0)
+  isOpen                 Boolean                    @default(true)
   sourceCategory         ProductCategory            @relation(fields: [sourceCategoryId], references: [id])
   targetProduct          Product                    @relation("MixPreparationTarget", fields: [targetProductId], references: [id])
   ingredients            MixPreparationIngredient[]
@@ -164,6 +165,7 @@ model MixPreparation {
   @@index([targetProductId])
   @@index([sourceCategoryId])
   @@index([producedUnitsRemaining])
+  @@index([isOpen])
 }
 
 model MixPreparationIngredient {

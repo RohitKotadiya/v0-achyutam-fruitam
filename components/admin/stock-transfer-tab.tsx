@@ -441,7 +441,7 @@ export function StockTransferTab() {
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <CardTitle>Transfer Outlets</CardTitle>
+              <CardTitle>Manage Outlets</CardTitle>
               <CardDescription>Manage outlets that receive or send stock</CardDescription>
             </div>
             <Button
@@ -450,7 +450,7 @@ export function StockTransferTab() {
               onClick={() => setShowOutletManager((prev) => !prev)}
             >
               <Plus className="mr-2 h-4 w-4" />
-              {showOutletManager ? "Hide Outlet Form" : "Manage Outlets"}
+              {showOutletManager ? "Close" : "Add Outlet"}
             </Button>
           </div>
         </CardHeader>

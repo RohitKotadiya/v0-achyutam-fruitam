@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import type { PaymentMethod } from "@prisma/client"
 
 const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
 
@@ -62,6 +61,8 @@ export async function POST(request: Request) {
       paymentMethod: string
     }
 
+    const requestedPaymentMethod = String(paymentMethod || "CASH").toUpperCase()
+
     if (!billId || !items || items.length === 0) {
       return NextResponse.json({ error: "billId and items are required" }, { status: 400 })
     }
@@ -72,12 +73,23 @@ export async function POST(request: Request) {
       include: {
         lineItems: { include: { product: true } },
         returns: true,
+        paymentCollections: {
+          select: {
+            amount: true,
+          },
+        },
       },
     })
 
     if (!bill) {
       return NextResponse.json({ error: "Bill not found" }, { status: 404 })
     }
+
+    const totalCollected = (bill.paymentCollections || []).reduce((sum, row) => sum + Number(row.amount || 0), 0)
+    const isUnpaidPendingBill = bill.paymentMethod === "PENDING" && totalCollected <= 0.0001
+    const normalizedPaymentMethod = isUnpaidPendingBill
+      ? "PENDING"
+      : (requestedPaymentMethod === "ONLINE" || requestedPaymentMethod === "BANK" ? "ONLINE" : "CASH")
 
     // Build map of already-returned quantities per billItemId
     const returnedQtyMap = new Map<string, number>()
@@ -137,7 +149,7 @@ export async function POST(request: Request) {
             costAmount,
             reason: item.reason,
             status: item.status,
-            paymentMethod: (paymentMethod || "CASH") as PaymentMethod,
+            paymentMethod: normalizedPaymentMethod,
           },
         })
         returnLogs.push(returnLog)
@@ -182,6 +194,20 @@ export async function POST(request: Request) {
         })
       }
 
+      // Track refund outflow so Finance reports include returns.
+      if (totalRefund > 0 && normalizedPaymentMethod !== "PENDING") {
+        await tx.cashTransaction.create({
+          data: {
+            date: new Date(),
+            fromLocation: normalizedPaymentMethod === "CASH" ? "COUNTER" : "BANK",
+            toLocation: "CUSTOMER",
+            amount: totalRefund,
+            category: "RETURN",
+            note: `Bill return refund #${bill.displayBillNo ?? bill.billNo} (${normalizedPaymentMethod})`,
+          },
+        })
+      }
+
       // Audit log
       await tx.billEditLog.create({
         data: {
@@ -193,12 +219,18 @@ export async function POST(request: Request) {
         },
       })
 
-      return { returnLogs, totalRefund }
+      return {
+        returnLogs,
+        totalRefund,
+        dueAdjusted: normalizedPaymentMethod === "PENDING",
+      }
     })
 
     return NextResponse.json({
       success: true,
-      message: `Return processed. Refund: ${result.totalRefund}`,
+      message: result.dueAdjusted
+        ? `Return processed. Due adjusted: ${result.totalRefund}`
+        : `Return processed. Refund: ${result.totalRefund}`,
       ...result,
     }, { status: 201 })
   } catch (error) {

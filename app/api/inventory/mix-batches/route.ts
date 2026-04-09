@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
+export const dynamic = "force-dynamic"
+
 export async function GET() {
   try {
     const batches = await prisma.$queryRaw<Array<{
@@ -19,6 +21,7 @@ export async function GET() {
       remarks: string | null
       ingredients: unknown
       soldUnits: number
+      isOpen: boolean
     }>>`
       SELECT
         mp."id",
@@ -35,7 +38,8 @@ export async function GET() {
         mp."unitCostPerCostUnit",
         mp."remarks",
         COALESCE(ing."ingredients", '[]'::json) AS "ingredients",
-        COALESCE(sold."soldQty", 0) AS "soldUnits"
+        GREATEST(0, mp."producedUnits" - mp."producedUnitsRemaining") AS "soldUnits",
+        mp."isOpen"
       FROM "MixPreparation" mp
       JOIN "Product" p ON p."id" = mp."targetProductId"
       JOIN "ProductCategory" pc ON pc."id" = mp."sourceCategoryId"
@@ -54,19 +58,6 @@ export async function GET() {
         JOIN "Product" ip ON ip."id" = mpi."productId"
         GROUP BY mpi."preparationId"
       ) ing ON ing."preparationId" = mp."id"
-      LEFT JOIN (
-        SELECT
-          bi."productId",
-          mp2."id" AS "preparationId",
-          SUM(bi."quantity") AS "soldQty"
-        FROM "BillItem" bi
-        JOIN "Bill" b ON b."id" = bi."billId"
-        JOIN "MixPreparation" mp2
-          ON mp2."targetProductId" = bi."productId"
-        WHERE bi."isMixDish" = true
-          AND b."dateTime" >= mp2."date"
-        GROUP BY bi."productId", mp2."id"
-      ) sold ON sold."preparationId" = mp."id"
       WHERE 1=1
       ORDER BY mp."producedUnitsRemaining" DESC, mp."date" DESC, mp."createdAt" DESC
     `
@@ -94,10 +85,20 @@ export async function GET() {
         unitCostPerCostUnit: batch.unitCostPerCostUnit,
         remarks: batch.remarks,
         ingredients: Array.isArray(batch.ingredients) ? batch.ingredients : [],
+        isOpen: batch.isOpen,
       }
     })
 
-    return NextResponse.json({ success: true, batches: rows })
+    return NextResponse.json(
+      { success: true, batches: rows },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      },
+    )
   } catch (error) {
     console.error("[inventory/mix-batches] error:", error)
     return NextResponse.json({ success: false, error: "Failed to fetch mix batches" }, { status: 500 })
