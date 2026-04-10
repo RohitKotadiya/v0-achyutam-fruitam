@@ -68,16 +68,13 @@ export default function AdminPage() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4">
+        <div className="container mx-auto px-3 md:px-4 py-1.5 md:py-2">
           <div className="flex items-center justify-between gap-4">
             {/* Left: Back + Title */}
             <div className="flex items-center gap-4">
               <BackButton />
               <div>
-                <h1 className="text-xl md:text-2xl font-bold">Admin Dashboard</h1>
-                <p className="text-xs md:text-sm text-muted-foreground">
-                  Manage inventory, products, operations
-                </p>
+                <h1 className="text-sm md:text-base font-bold leading-tight">Admin Dashboard</h1>
               </div>
             </div>
 
@@ -119,7 +116,7 @@ export default function AdminPage() {
         </div>
       </div>
       {/* Main Content */}
-      <div className="container mx-auto px-4 py-6">
+      <div className="container mx-auto px-3 md:px-4 py-3 md:py-4">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-1">
           <div className="w-full overflow-x-auto pb-1">
             <TabsList className="inline-flex w-max min-w-full flex-nowrap gap-1">

@@ -552,12 +552,12 @@ export default function BillsPage() {
 
         {/* ─── Header Card ─── */}
         <Card>
-          <CardHeader className="px-2.5 pt-0.5 pb-1.5 md:px-4 md:pt-1 md:pb-2">
+          <CardHeader className="px-2 pt-0.5 pb-1 md:px-3 md:pt-1 md:pb-1.5">
             {/* Top row */}
             <div className="flex items-center justify-between mb-1 gap-2">
               <div className="flex items-center gap-2 md:gap-4">
                 <BackButton />
-                <CardTitle className="text-base md:text-xl">Bills History</CardTitle>
+                <CardTitle className="text-sm md:text-base leading-tight">Bills History</CardTitle>
               </div>
               <div className="flex items-center gap-1.5">
                 <Button
@@ -819,8 +819,12 @@ export default function BillsPage() {
                     <tbody>
                       {paginatedBills.map((bill) => (
                         <React.Fragment key={bill.id}>
+                          {(() => {
+                            const refundAmount = Number(bill.refundTotal) || 0
+                            const netAmount = Math.max(0, (Number(bill.grandTotal) || 0) - refundAmount)
+                            return (
                           <tr className={`border-b hover:bg-muted/30 transition-colors ${expandedBillId === bill.id ? "bg-muted/20" : ""}`}>
-                            <td className="p-2.5 font-medium text-sm">#{bill.displayBillNo ?? bill.billNo}</td>
+                            <td className={`p-2.5 font-medium text-sm ${isBillFullyReturned(bill) ? "line-through text-muted-foreground" : ""}`}>#{bill.displayBillNo ?? bill.billNo}</td>
                             <td className="p-2.5 text-sm">{formatIndianDateTime(new Date(bill.dateTime))}</td>
                             {showUpdatedAt && (
                               <td className="p-2.5 text-sm">{formatIndianDateTime(new Date(bill.updatedAt))}</td>
@@ -833,6 +837,12 @@ export default function BillsPage() {
                             <td className="p-2.5 text-center">{getPaymentBadge(bill.paymentMethod)}</td>
                             <td className="p-2.5 text-right font-medium text-sm">
                               <div>{formatCurrency(bill.grandTotal)}</div>
+                              {refundAmount > 0 && (
+                                <div className="text-[11px] font-semibold text-red-600">Refunded: -{formatCurrency(refundAmount)}</div>
+                              )}
+                              {refundAmount > 0 && (
+                                <div className="text-[11px] font-semibold text-primary">Actual: {formatCurrency(netAmount)}</div>
+                              )}
                               {(bill.remainingDue || 0) > 0 && (
                                 <div className="text-[11px] font-semibold text-orange-600">
                                   Due: {formatCurrency(bill.remainingDue)}
@@ -922,6 +932,8 @@ export default function BillsPage() {
                               </div>
                             </td>
                           </tr>
+                            )
+                          })()}
                           {expandedBillId === bill.id && (
                             <tr>
                               <td colSpan={10} className="bg-muted/10 border-b p-0">
@@ -968,11 +980,15 @@ export default function BillsPage() {
                 {/* ── Mobile Cards ── */}
                 <div className="md:hidden divide-y max-h-[calc(100vh-400px)] overflow-y-auto">
                   {paginatedBills.map((bill) => (
+                    (() => {
+                      const refundAmount = Number(bill.refundTotal) || 0
+                      const netAmount = Math.max(0, (Number(bill.grandTotal) || 0) - refundAmount)
+                      return (
                     <div key={bill.id} className="p-2.5 space-y-1.5">
                       {/* Row 1: Bill info */}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm">#{bill.displayBillNo ?? bill.billNo}</span>
+                          <span className={`font-bold text-sm ${isBillFullyReturned(bill) ? "line-through text-muted-foreground" : ""}`}>#{bill.displayBillNo ?? bill.billNo}</span>
                           {getPaymentBadge(bill.paymentMethod)}
                         </div>
                         <span className="text-xs text-muted-foreground">{formatIndianDateTime(new Date(bill.dateTime))}</span>
@@ -995,6 +1011,12 @@ export default function BillsPage() {
                         </div>
                         <div className="text-right shrink-0">
                           <p className="text-sm font-bold text-primary">{formatCurrency(bill.grandTotal)}</p>
+                          {refundAmount > 0 && (
+                            <p className="text-[11px] font-semibold text-red-600">Refunded: -{formatCurrency(refundAmount)}</p>
+                          )}
+                          {refundAmount > 0 && (
+                            <p className="text-[11px] font-semibold text-primary">Actual: {formatCurrency(netAmount)}</p>
+                          )}
                           {(bill.remainingDue || 0) > 0 && (
                             <p className="text-[11px] font-semibold text-orange-600">Due: {formatCurrency(bill.remainingDue)}</p>
                           )}
@@ -1071,6 +1093,8 @@ export default function BillsPage() {
                         </div>
                       )}
                     </div>
+                      )
+                    })()
                   ))}
                 </div>
 

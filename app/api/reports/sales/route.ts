@@ -47,6 +47,11 @@ export async function GET(request: Request) {
     const bills = await prisma.bill.findMany({
       where,
       include: {
+        paymentCollections: {
+          select: {
+            amount: true,
+          },
+        },
         lineItems: {
           include: {
             product: {
@@ -82,6 +87,7 @@ export async function GET(request: Request) {
         quantity: item.quantity,
         price: item.price,
       })),
+      collectedFromCollections: (bill.paymentCollections || []).reduce((sum, row) => sum + Number(row.amount || 0), 0),
       grandTotal: bill.grandTotal,
       totalCost: bill.totalCost,
       totalProfit: bill.totalProfit,
@@ -92,14 +98,16 @@ export async function GET(request: Request) {
         const subtotalBeforeDiscount = Number(bill.subtotalBeforeDiscount) || 0
         const grandTotal = Number(bill.grandTotal) || 0
         const refundTotal = Number(bill.refundTotal) || 0
-        const cashAmount = Number(bill.cashAmount) || (bill.paymentMethod === "CASH" ? grandTotal : 0)
-        const onlineAmount = Number(bill.onlineAmount) || (bill.paymentMethod === "ONLINE" ? grandTotal : 0)
+        const netGrandTotal = Math.max(0, grandTotal - refundTotal)
+        const salesRatio = grandTotal > 0 ? netGrandTotal / grandTotal : 0
+        const cashAmount = (Number(bill.cashAmount) || (bill.paymentMethod === "CASH" ? grandTotal : 0)) * salesRatio
+        const onlineAmount = (Number(bill.onlineAmount) || (bill.paymentMethod === "ONLINE" ? grandTotal : 0)) * salesRatio
 
-        acc.totalSales += grandTotal
+        acc.totalSales += netGrandTotal
         acc.totalBillsGenerated += 1
         acc.paymentBreakdown.cash += cashAmount
         acc.paymentBreakdown.upi += onlineAmount
-        acc.paymentBreakdown.credit += bill.paymentMethod === "PENDING" ? grandTotal : 0
+        acc.paymentBreakdown.credit += bill.paymentMethod === "PENDING" ? Math.max(0, netGrandTotal - (Number(bill.collectedFromCollections) || 0)) : 0
         acc.discountsGiven += Math.max(subtotalBeforeDiscount - grandTotal, 0)
         acc.returnsRefunds += refundTotal
         return acc
@@ -118,7 +126,7 @@ export async function GET(request: Request) {
       }
     )
 
-    const netSales = summary.totalSales - summary.returnsRefunds
+    const netSales = summary.totalSales
 
     const productMap = new Map<string, { name: string; qty: number; sales: number }>()
     const categoryMap = new Map<string, { category: string; revenue: number; qty: number }>()
@@ -135,16 +143,20 @@ export async function GET(request: Request) {
         pendingAmount: 0,
       }
       customerRow.bills += 1
-      customerRow.sales += Number(bill.grandTotal) || 0
-      customerRow.refunds += Number(bill.refundTotal) || 0
+      const billGross = Number(bill.grandTotal) || 0
+      const billRefund = Number(bill.refundTotal) || 0
+      const billNet = Math.max(0, billGross - billRefund)
+      const salesRatio = billGross > 0 ? billNet / billGross : 0
+      customerRow.sales += billGross
+      customerRow.refunds += billRefund
       if (bill.paymentMethod === "PENDING") {
-        customerRow.pendingAmount += Number(bill.grandTotal) || 0
+        customerRow.pendingAmount += Math.max(0, billNet - (Number(bill.collectedFromCollections) || 0))
       }
       customerMap.set(customerKey, customerRow)
 
       for (const item of bill.items) {
         const qty = Number(item.quantity) || 0
-        const sales = (Number(item.price) || 0) * qty
+        const sales = (Number(item.price) || 0) * qty * salesRatio
         const productRow = productMap.get(item.product) || { name: item.product, qty: 0, sales: 0 }
         productRow.qty += qty
         productRow.sales += sales
