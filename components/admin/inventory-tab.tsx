@@ -1290,14 +1290,14 @@ export function InventoryTab({
     <Tabs value={activeSubTab} onValueChange={(v) => setActiveSubTab(v as InventorySubTab)} className="space-y-1">
       {!hideSubTabList ? (
       <div className="w-full overflow-x-auto pb-0">
-        <TabsList className="inline-flex w-max min-w-full gap-1">
-          <TabsTrigger value="add-stock" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Add Stock</TabsTrigger>
+        <TabsList className="inline-flex h-9 w-max min-w-full flex-nowrap gap-1 rounded-xl bg-muted/40 p-1 shadow-sm">
+          <TabsTrigger value="add-stock" className="!flex-none h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Add Stock</TabsTrigger>
           {settings.enableMixDishPrep === "true" && (
-            <TabsTrigger value="prepare-mix" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Prepare Mix</TabsTrigger>
+            <TabsTrigger value="prepare-mix" className="!flex-none h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Prepare Mix</TabsTrigger>
           )}
-          <TabsTrigger value="report" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Inventory Report</TabsTrigger>
-          <TabsTrigger value="damage" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Damage Record</TabsTrigger>
-          <TabsTrigger value="history" className="!flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Stock History</TabsTrigger>
+          <TabsTrigger value="report" className="!flex-none h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Inventory Report</TabsTrigger>
+          <TabsTrigger value="damage" className="!flex-none h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Damage Record</TabsTrigger>
+          <TabsTrigger value="history" className="!flex-none h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Stock History</TabsTrigger>
         </TabsList>
       </div>
       ) : null}
@@ -1459,9 +1459,9 @@ export function InventoryTab({
                 </div>
                 <div className="flex items-center gap-2">
                   <Tabs value={prepareMixView} onValueChange={(v) => setPrepareMixView(v as PrepareMixView)}>
-                    <TabsList className="h-8">
-                      <TabsTrigger value="entry" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Entry</TabsTrigger>
-                      <TabsTrigger value="batches" className="text-xs px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Mix Batches</TabsTrigger>
+                    <TabsList className="h-9 rounded-xl bg-muted/40 p-1 shadow-sm">
+                      <TabsTrigger value="entry" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Entry</TabsTrigger>
+                      <TabsTrigger value="batches" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Mix Batches</TabsTrigger>
                     </TabsList>
                   </Tabs>
                   <Button

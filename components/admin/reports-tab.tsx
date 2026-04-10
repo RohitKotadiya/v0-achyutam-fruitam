@@ -389,15 +389,17 @@ export function ReportsTab() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <Tabs value={subTab} onValueChange={setSubTab}>
-        <TabsList className="grid w-full grid-cols-5 lg:w-auto">
-          <TabsTrigger value="overview" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Overview</TabsTrigger>
-          <TabsTrigger value="pl" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">P&L</TabsTrigger>
-          <TabsTrigger value="sales-charts" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Charts</TabsTrigger>
-          <TabsTrigger value="sales-grid" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Sales Grid</TabsTrigger>
-          <TabsTrigger value="sales-products" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Product Analytics</TabsTrigger>
-        </TabsList>
+        <div className="w-full overflow-x-auto pb-1">
+          <TabsList className="inline-flex h-9 w-max min-w-full flex-nowrap gap-1 rounded-xl bg-muted/40 p-1 shadow-sm">
+            <TabsTrigger value="overview" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Overview</TabsTrigger>
+            <TabsTrigger value="pl" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">P&L</TabsTrigger>
+            <TabsTrigger value="sales-charts" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Charts</TabsTrigger>
+            <TabsTrigger value="sales-grid" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Sales Grid</TabsTrigger>
+            <TabsTrigger value="sales-products" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Product Analytics</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="overview"><ReportsOverviewSection onNavigate={navigateToSubReport} /></TabsContent>
         <TabsContent value="pl"><PLSection /></TabsContent>

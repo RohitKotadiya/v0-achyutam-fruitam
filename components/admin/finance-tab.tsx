@@ -306,17 +306,19 @@ export function FinanceTab() {
   }, [subTab, isSubTabRestored])
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <Tabs value={subTab} onValueChange={setSubTab}>
-        <TabsList className="flex flex-wrap gap-1 h-auto w-full">
-          <TabsTrigger value="overview" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Overview</TabsTrigger>
-          <TabsTrigger value="counter" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Counter (Galla)</TabsTrigger>
-          <TabsTrigger value="safe" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Safe (Tizori)</TabsTrigger>
-          <TabsTrigger value="expenses" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Expenses</TabsTrigger>
-          <TabsTrigger value="bank" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Bank Tracker</TabsTrigger>
-          <TabsTrigger value="dues" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Customer Dues</TabsTrigger>
-          <TabsTrigger value="adjustments" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Cash Adjustments</TabsTrigger>
-        </TabsList>
+        <div className="w-full overflow-x-auto pb-1">
+          <TabsList className="inline-flex h-9 w-max min-w-full flex-nowrap gap-1 rounded-xl bg-muted/40 p-1 shadow-sm">
+            <TabsTrigger value="overview" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Overview</TabsTrigger>
+            <TabsTrigger value="counter" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Counter (Galla)</TabsTrigger>
+            <TabsTrigger value="safe" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Safe (Tizori)</TabsTrigger>
+            <TabsTrigger value="expenses" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Expenses</TabsTrigger>
+            <TabsTrigger value="bank" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Bank Tracker</TabsTrigger>
+            <TabsTrigger value="dues" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Customer Dues</TabsTrigger>
+            <TabsTrigger value="adjustments" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Cash Adjustments</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="overview"><OverviewSection /></TabsContent>
         <TabsContent value="counter"><CashRegisterSection /></TabsContent>
