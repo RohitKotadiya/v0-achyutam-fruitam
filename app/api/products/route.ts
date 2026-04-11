@@ -82,7 +82,16 @@ export async function GET(request: Request) {
       orderBy: [{ category: { sortOrder: "asc" } }, { name: "asc" }],
     })
 
-    return NextResponse.json(products)
+    // Map private Vercel Blob URLs to the server-side proxy endpoint so <img> tags work
+    const mapped = products.map((p) => ({
+      ...p,
+      imageUrl:
+        p.imageUrl && p.imageUrl.includes("blob.vercel-storage.com")
+          ? `/api/products/${p.id}/image`
+          : p.imageUrl,
+    }))
+
+    return NextResponse.json(mapped)
   } catch (error) {
     console.error("[v0] Error fetching products:", error)
     return NextResponse.json({ error: "Failed to fetch products" }, { status: 500 })
