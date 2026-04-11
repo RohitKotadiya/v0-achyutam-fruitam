@@ -8,7 +8,7 @@ const MAX_SIZE = 2 * 1024 * 1024 // 2MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"]
 
 // GET /api/products/[id]/image
-// Serves the product image. For private Vercel Blob URLs, generates a signed redirect.
+// Serves the product image. For private Vercel Blob, fetches server-side with token and streams bytes.
 // For local paths, redirects directly.
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -25,17 +25,25 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.redirect(new URL(imageUrl, _req.url))
     }
 
-    // Vercel Blob private URL — generate a temporary signed URL (1 hour)
+    // Vercel Blob private URL — fetch server-side with token and stream back to browser
     if (imageUrl.includes("blob.vercel-storage.com") && process.env.BLOB_READ_WRITE_TOKEN) {
-      const { generateSignedUrl } = await import("@vercel/blob")
-      const signedUrl = await generateSignedUrl(imageUrl, {
-        expiresIn: 3600,
-        token: process.env.BLOB_READ_WRITE_TOKEN,
+      const blobRes = await fetch(imageUrl, {
+        headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
       })
-      return NextResponse.redirect(signedUrl)
+      if (!blobRes.ok) {
+        return new NextResponse("Image fetch failed", { status: blobRes.status })
+      }
+      const contentType = blobRes.headers.get("content-type") ?? "image/webp"
+      return new NextResponse(blobRes.body, {
+        status: 200,
+        headers: {
+          "Content-Type": contentType,
+          "Cache-Control": "public, max-age=3600",
+        },
+      })
     }
 
-    // Fallback: redirect to the URL as-is (e.g. public blob URL)
+    // Fallback: redirect to the URL as-is
     return NextResponse.redirect(imageUrl)
   } catch (error) {
     console.error("Error serving image:", error)
