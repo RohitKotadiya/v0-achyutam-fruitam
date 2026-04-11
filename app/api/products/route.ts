@@ -82,13 +82,10 @@ export async function GET(request: Request) {
       orderBy: [{ category: { sortOrder: "asc" } }, { name: "asc" }],
     })
 
-    // Map private Vercel Blob URLs to the server-side proxy endpoint so <img> tags work
+    // Route all product images through server-side proxy so every storage type works consistently.
     const mapped = products.map((p) => ({
       ...p,
-      imageUrl:
-        p.imageUrl && p.imageUrl.includes("blob.vercel-storage.com")
-          ? `/api/products/${p.id}/image`
-          : p.imageUrl,
+      imageUrl: p.imageUrl ? `/api/products/${p.id}/image` : p.imageUrl,
     }))
 
     return NextResponse.json(mapped)

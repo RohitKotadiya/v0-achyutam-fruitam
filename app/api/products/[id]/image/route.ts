@@ -20,27 +20,50 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     const { imageUrl } = product
 
-    // Local path — redirect directly
-    if (imageUrl.startsWith("/")) {
-      return NextResponse.redirect(new URL(imageUrl, _req.url))
+    const canReadPrivateBlob = Boolean(process.env.BLOB_READ_WRITE_TOKEN)
+
+    if (canReadPrivateBlob) {
+      const { get } = await import("@vercel/blob")
+
+      // Legacy DB values like /products/<file>.webp: try Blob pathname first.
+      if (imageUrl.startsWith("/products/")) {
+        const byPath = await get(imageUrl.slice(1), {
+          access: "private",
+          token: process.env.BLOB_READ_WRITE_TOKEN,
+        })
+        if (byPath?.statusCode === 200) {
+          return new NextResponse(byPath.stream, {
+            status: 200,
+            headers: {
+              "Content-Type": byPath.blob.contentType,
+              "Cache-Control": "public, max-age=3600",
+            },
+          })
+        }
+      }
+
+      // Private blob full URL in DB.
+      if (imageUrl.includes("blob.vercel-storage.com")) {
+        const byUrl = await get(imageUrl, {
+          access: "private",
+          token: process.env.BLOB_READ_WRITE_TOKEN,
+        })
+        if (byUrl?.statusCode === 200) {
+          return new NextResponse(byUrl.stream, {
+            status: 200,
+            headers: {
+              "Content-Type": byUrl.blob.contentType,
+              "Cache-Control": "public, max-age=3600",
+            },
+          })
+        }
+        return new NextResponse("Not found", { status: 404 })
+      }
     }
 
-    // Vercel Blob private URL — fetch server-side with token and stream back to browser
-    if (imageUrl.includes("blob.vercel-storage.com") && process.env.BLOB_READ_WRITE_TOKEN) {
-      const blobRes = await fetch(imageUrl, {
-        headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
-      })
-      if (!blobRes.ok) {
-        return new NextResponse("Image fetch failed", { status: blobRes.status })
-      }
-      const contentType = blobRes.headers.get("content-type") ?? "image/webp"
-      return new NextResponse(blobRes.body, {
-        status: 200,
-        headers: {
-          "Content-Type": contentType,
-          "Cache-Control": "public, max-age=3600",
-        },
-      })
+    // Local path — redirect directly (local dev / existing public files)
+    if (imageUrl.startsWith("/")) {
+      return NextResponse.redirect(new URL(imageUrl, _req.url))
     }
 
     // Fallback: redirect to the URL as-is
