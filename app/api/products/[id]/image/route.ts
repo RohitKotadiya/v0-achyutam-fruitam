@@ -30,20 +30,29 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ success: false, error: "Image must be under 2MB" }, { status: 400 })
     }
 
-    // Determine extension
     const ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg"
     const fileName = `${id}.${ext}`
 
-    // Ensure directory exists
-    const uploadDir = path.join(process.cwd(), "public", "products")
-    await mkdir(uploadDir, { recursive: true })
+    let imageUrl: string
 
-    // Write file
-    const buffer = Buffer.from(await file.arrayBuffer())
-    await writeFile(path.join(uploadDir, fileName), buffer)
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      // Production / Vercel: store in Vercel Blob (read-only filesystem safe)
+      const { put } = await import("@vercel/blob")
+      const blob = await put(`products/${fileName}`, file, {
+        access: "public",
+        contentType: file.type,
+        token: process.env.BLOB_READ_WRITE_TOKEN,
+      })
+      imageUrl = blob.url
+    } else {
+      // Local dev: write to public/products as before
+      const uploadDir = path.join(process.cwd(), "public", "products")
+      await mkdir(uploadDir, { recursive: true })
+      const buffer = Buffer.from(await file.arrayBuffer())
+      await writeFile(path.join(uploadDir, fileName), buffer)
+      imageUrl = `/products/${fileName}`
+    }
 
-    // Update product imageUrl
-    const imageUrl = `/products/${fileName}`
     await prisma.product.update({
       where: { id },
       data: { imageUrl },
