@@ -42,6 +42,7 @@ import {
   ChevronDown,
   ChevronUp,
   CalendarDays,
+  RefreshCw,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrency, formatIndianDate, formatIndianDateTime } from "@/lib/client-helpers"
@@ -114,7 +115,49 @@ interface DashboardData {
     expenses: number
     netProfit: number
     billCount: number
+    collections?: number
     difference: number | null
+  }
+  month: {
+    sales: number
+    cost: number
+    grossProfit: number
+    expenses: number
+    netProfit: number
+    billCount: number
+    safeWithdrawals: number
+    safeDeposits: number
+  }
+  period?: {
+    startDate: string
+    endDate: string
+    sales: number
+    cost: number
+    grossProfit: number
+    expenses: number
+    netProfit: number
+    billCount: number
+    collections: number
+    cashIn: number
+    cashOut: number
+    ownerDrawings: number
+    capitalAdded: number
+    returnsRefunds: number
+  }
+  outstanding: {
+    total: number
+    count: number
+    dues: Array<{
+      id: string
+      billNo: number
+      displayBillNo: string | null
+      customerName: string
+      customerId: string | null
+      dateTime: string
+      grandTotal: number
+      collected: number
+      remaining: number
+    }>
   }
 }
 
@@ -263,17 +306,19 @@ export function FinanceTab() {
   }, [subTab, isSubTabRestored])
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <Tabs value={subTab} onValueChange={setSubTab}>
-        <TabsList className="flex flex-wrap gap-1 h-auto w-full">
-          <TabsTrigger value="overview" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Overview</TabsTrigger>
-          <TabsTrigger value="counter" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Counter (Galla)</TabsTrigger>
-          <TabsTrigger value="safe" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Safe (Tizori)</TabsTrigger>
-          <TabsTrigger value="expenses" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Expenses</TabsTrigger>
-          <TabsTrigger value="bank" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Bank Tracker</TabsTrigger>
-          <TabsTrigger value="dues" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Customer Dues</TabsTrigger>
-          <TabsTrigger value="adjustments" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Cash Adjustments</TabsTrigger>
-        </TabsList>
+        <div className="w-full overflow-x-auto pb-1">
+          <TabsList className="inline-flex h-9 w-max min-w-full flex-nowrap gap-1 rounded-xl bg-muted/40 p-1 shadow-sm">
+            <TabsTrigger value="overview" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Overview</TabsTrigger>
+            <TabsTrigger value="counter" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Counter (Galla)</TabsTrigger>
+            <TabsTrigger value="safe" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Safe (Tizori)</TabsTrigger>
+            <TabsTrigger value="expenses" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Expenses</TabsTrigger>
+            <TabsTrigger value="bank" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Bank Tracker</TabsTrigger>
+            <TabsTrigger value="dues" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Customer Dues</TabsTrigger>
+            <TabsTrigger value="adjustments" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Cash Adjustments</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="overview"><OverviewSection /></TabsContent>
         <TabsContent value="counter"><CashRegisterSection /></TabsContent>
@@ -562,6 +607,12 @@ function OverviewSection() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [outstandingLoading, setOutstandingLoading] = useState(true)
+  const [draftRangePreset, setDraftRangePreset] = useState<DateRangePreset>("today")
+  const [draftStartDate, setDraftStartDate] = useState(getDateRangeForPreset("today").start)
+  const [draftEndDate, setDraftEndDate] = useState(getDateRangeForPreset("today").end)
+  const [appliedRangePreset, setAppliedRangePreset] = useState<DateRangePreset>("today")
+  const [appliedStartDate, setAppliedStartDate] = useState(getDateRangeForPreset("today").start)
+  const [appliedEndDate, setAppliedEndDate] = useState(getDateRangeForPreset("today").end)
 
   const isDashboardData = (value: unknown): value is DashboardData => {
     if (!value || typeof value !== "object") return false
@@ -569,8 +620,32 @@ function OverviewSection() {
     return Boolean(v.today && v.month && v.outstanding)
   }
 
-  useEffect(() => {
-    fetch("/api/finance/dashboard")
+  const applyOverviewRange = (preset: DateRangePreset) => {
+    if (preset === "custom") {
+      setDraftRangePreset("custom")
+      return
+    }
+    const { start, end } = getDateRangeForPreset(preset)
+    setDraftRangePreset(preset)
+    setDraftStartDate(start)
+    setDraftEndDate(end)
+  }
+
+  const hasDraftChanges = useMemo(() => {
+    return (
+      draftStartDate !== appliedStartDate ||
+      draftEndDate !== appliedEndDate ||
+      draftRangePreset !== appliedRangePreset
+    )
+  }, [draftStartDate, appliedStartDate, draftEndDate, appliedEndDate, draftRangePreset, appliedRangePreset])
+
+  const fetchDashboard = useCallback((startDate: string, endDate: string) => {
+    setLoading(true)
+    const params = new URLSearchParams()
+    if (startDate) params.set("startDate", startDate)
+    if (endDate) params.set("endDate", endDate)
+
+    fetch(`/api/finance/dashboard?${params.toString()}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((json) => {
         if (isDashboardData(json)) {
@@ -588,6 +663,10 @@ function OverviewSection() {
       })
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchDashboard(appliedStartDate, appliedEndDate)
+  }, [fetchDashboard, appliedStartDate, appliedEndDate])
 
   useEffect(() => {
     fetch("/api/finance/outstanding", { cache: "no-store" })
@@ -616,80 +695,102 @@ function OverviewSection() {
   if (loading) return <div className="text-center py-8">Loading dashboard...</div>
   if (!data) return <div className="text-center py-8 text-muted-foreground">{error || "Failed to load data"}</div>
 
-  return (
-    <div className="space-y-6">
-      {/* Today's Summary */}
-      <div>
-        <h3 className="text-lg font-semibold mb-3">Today&apos;s Summary</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <SummaryCard
-            label="Sales"
-            value={data.today.sales}
-            sub={`${data.today.billCount} bills`}
-            icon={<TrendingUp className="h-4 w-4 text-green-600" />}
-            gradient="from-green-500/10 to-emerald-500/10"
-          />
-          <SummaryCard
-            label="Gross Profit"
-            value={data.today.grossProfit}
-            sub="Before expenses"
-            icon={<DollarSign className="h-4 w-4 text-blue-600" />}
-            gradient="from-blue-500/10 to-cyan-500/10"
-          />
-          <SummaryCard
-            label="Expenses"
-            value={data.today.expenses}
-            sub="Today's spend"
-            icon={<TrendingDown className="h-4 w-4 text-red-600" />}
-            gradient="from-red-500/10 to-orange-500/10"
-          />
-          <SummaryCard
-            label="Net Profit"
-            value={data.today.netProfit}
-            sub={data.today.netProfit >= 0 ? "Positive" : "Negative"}
-            icon={<Wallet className="h-4 w-4 text-purple-600" />}
-            gradient="from-purple-500/10 to-pink-500/10"
-          />
-        </div>
-      </div>
+  const period = data.period || {
+    startDate: new Date().toISOString(),
+    endDate: new Date().toISOString(),
+    sales: data.today.sales,
+    cost: data.today.cost,
+    grossProfit: data.today.grossProfit,
+    expenses: data.today.expenses,
+    netProfit: data.today.netProfit,
+    billCount: data.today.billCount,
+    collections: Number(data.today.collections) || 0,
+    cashIn: 0,
+    cashOut: 0,
+    ownerDrawings: data.month.safeWithdrawals,
+    capitalAdded: data.month.safeDeposits,
+    returnsRefunds: 0,
+  }
 
-      {/* This Month */}
-      <div>
-        <h3 className="text-lg font-semibold mb-3">This Month</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <SummaryCard
-            label="Revenue"
-            value={data.month.sales}
-            sub={`${data.month.billCount} bills`}
-            icon={<TrendingUp className="h-4 w-4 text-green-600" />}
-            gradient="from-green-500/10 to-emerald-500/10"
-          />
-          <SummaryCard
-            label="Net Profit"
-            value={data.month.netProfit}
-            sub={`After ₹${Math.round(data.month.expenses)} expenses`}
-            icon={<DollarSign className="h-4 w-4 text-blue-600" />}
-            gradient="from-blue-500/10 to-cyan-500/10"
-          />
-          <SummaryCard
-            label="Owner Drawings"
-            value={data.month.safeWithdrawals}
-            sub="Owner took from Safe"
-            icon={<ArrowUpRight className="h-4 w-4 text-orange-600" />}
-            gradient="from-orange-500/10 to-amber-500/10"
-          />
-          <SummaryCard
-            label="Capital Added"
-            value={data.month.safeDeposits}
-            sub="Owner added to Safe"
-            icon={<ArrowDownLeft className="h-4 w-4 text-teal-600" />}
-            gradient="from-teal-500/10 to-cyan-500/10"
-          />
-        </div>
-        {outstandingLoading ? (
-          <p className="mt-2 text-xs text-muted-foreground">Outstanding dues syncing...</p>
-        ) : null}
-      </div>
+  const rangeLabel = appliedRangePreset === "custom"
+    ? `${appliedStartDate || "-"} to ${appliedEndDate || "-"}`
+    : appliedRangePreset === "today"
+      ? "Today"
+      : appliedRangePreset === "this-week"
+        ? "This Week"
+        : appliedRangePreset === "this-month"
+          ? "This Month"
+          : appliedRangePreset === "last-7"
+            ? "Last 7 Days"
+            : "Last 30 Days"
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <CardTitle className="text-sm">Finance Overview</CardTitle>
+              <CardDescription className="text-xs">{rangeLabel} performance snapshot</CardDescription>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-3 items-end pt-2 mt-1 border-t">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Range</span>
+              <Select value={draftRangePreset} onValueChange={(v) => applyOverviewRange(v as DateRangePreset)}>
+                <SelectTrigger className="h-8 w-40 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="this-week">This Week</SelectItem>
+                  <SelectItem value="this-month">This Month</SelectItem>
+                  <SelectItem value="last-7">Last 7 Days</SelectItem>
+                  <SelectItem value="last-30">Last 30 Days</SelectItem>
+                  <SelectItem value="custom">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Start</span>
+              <Input type="date" value={draftStartDate} onChange={(e) => { setDraftStartDate(e.target.value); setDraftRangePreset("custom") }} className="h-8 w-40 text-xs" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">End</span>
+              <Input type="date" value={draftEndDate} onChange={(e) => { setDraftEndDate(e.target.value); setDraftRangePreset("custom") }} className="h-8 w-40 text-xs" />
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => {
+              const d = getDateRangeForPreset("today")
+              setDraftRangePreset("today")
+              setDraftStartDate(d.start)
+              setDraftEndDate(d.end)
+              setAppliedRangePreset("today")
+              setAppliedStartDate(d.start)
+              setAppliedEndDate(d.end)
+            }}>Reset</Button>
+            <Button type="button" size="sm" onClick={() => {
+              setAppliedRangePreset(draftRangePreset)
+              setAppliedStartDate(draftStartDate)
+              setAppliedEndDate(draftEndDate)
+            }} disabled={!hasDraftChanges}>Apply</Button>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-1">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <SummaryCard label="Net Sales" value={period.sales} sub={`${period.billCount} bills`} icon={<TrendingUp className="h-4 w-4 text-green-600" />} gradient="from-green-500/10 to-emerald-500/10" />
+            <SummaryCard label="Gross Profit" value={period.grossProfit} sub="Before expenses" icon={<DollarSign className="h-4 w-4 text-blue-600" />} gradient="from-blue-500/10 to-cyan-500/10" />
+            <SummaryCard label="Expenses" value={period.expenses} sub="Counter paid" icon={<TrendingDown className="h-4 w-4 text-red-600" />} gradient="from-red-500/10 to-orange-500/10" />
+            <SummaryCard label="Net Profit" value={period.netProfit} sub={period.netProfit >= 0 ? "Positive" : "Negative"} icon={<Wallet className="h-4 w-4 text-indigo-600" />} gradient="from-indigo-500/10 to-blue-500/10" />
+            <SummaryCard label="Cash In" value={period.cashIn} sub="Counter inflow" icon={<ArrowDownLeft className="h-4 w-4 text-emerald-600" />} gradient="from-emerald-500/10 to-teal-500/10" />
+            <SummaryCard label="Cash Out" value={period.cashOut} sub="Counter outflow" icon={<ArrowUpRight className="h-4 w-4 text-rose-600" />} gradient="from-rose-500/10 to-red-500/10" />
+            <SummaryCard label="Outstanding Dues" value={data.outstanding.total} sub={`${data.outstanding.count} bills pending`} icon={<AlertCircle className="h-4 w-4 text-amber-600" />} gradient="from-amber-500/10 to-orange-500/10" />
+            <SummaryCard label="Due Collections" value={period.collections} sub="Received in range" icon={<Users className="h-4 w-4 text-cyan-600" />} gradient="from-cyan-500/10 to-sky-500/10" />
+            <SummaryCard label="Owner Drawings" value={period.ownerDrawings} sub="Safe to owner" icon={<ArrowUpRight className="h-4 w-4 text-orange-600" />} gradient="from-orange-500/10 to-amber-500/10" />
+            <SummaryCard label="Capital Added" value={period.capitalAdded} sub="Owner to safe" icon={<ArrowDownLeft className="h-4 w-4 text-teal-600" />} gradient="from-teal-500/10 to-cyan-500/10" />
+          </div>
+          {outstandingLoading ? (
+            <p className="mt-2 text-xs text-muted-foreground">Outstanding dues syncing...</p>
+          ) : null}
+        </CardContent>
+      </Card>
 
       {/* Outstanding Dues */}
       {data.outstanding.count > 0 && (
@@ -1057,6 +1158,16 @@ function CashRegisterDailySection({
             onChange={(e) => setSelectedDate(e.target.value)}
             className="w-40"
           />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchRegister(selectedDate)}
+            disabled={loading}
+            className="gap-1.5"
+            title="Refresh cash register"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+          </Button>
         </div>
         {/* Safe transfer quick actions */}
         <div className="flex gap-2 lg:mx-auto">
@@ -1128,12 +1239,12 @@ function CashRegisterDailySection({
       </Dialog>
 
       {/* Opening / Closing */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Open Day</CardTitle>
+          <CardHeader className="px-2 pt-1 pb-0 space-y-0">
+            <CardTitle className="text-sm leading-none">Open Day</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-2 p-2 pt-1">
             <div>
               <Label>Opening Balance (Cash in Drawer)</Label>
               <Input
@@ -1154,14 +1265,34 @@ function CashRegisterDailySection({
             <Button onClick={() => handleSave("open")} disabled={isClosed}>
               {data?.register ? "Update Opening" : "Open Register"}
             </Button>
+
+            {s && (
+              <div className="border-t pt-2 space-y-1 text-sm">
+                <p className="font-semibold text-green-700 flex items-center gap-1.5">
+                  <ArrowDownLeft className="h-4 w-4" /> Cash In — {formatCurrency(s.cashIn.total)}
+                </p>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Cash Sales:</span>
+                  <span>{formatCurrency(s.cashIn.sales)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Collection (from customer dues):</span>
+                  <span>{formatCurrency(s.cashIn.collections)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Transfers from Safe/Bank:</span>
+                  <span>{formatCurrency(s.cashIn.transfersIn)}</span>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Close Day</CardTitle>
+          <CardHeader className="px-2 pt-1 pb-0 space-y-0">
+            <CardTitle className="text-sm leading-none">Close Day</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-2 p-2 pt-1">
             <div>
               <Label>Actual Cash Count</Label>
               <Input
@@ -1202,57 +1333,29 @@ function CashRegisterDailySection({
                 onSuccess={handleAdjustmentSuccess}
               />
             )}
+
+            {s && (
+              <div className="border-t pt-2 space-y-1 text-sm">
+                <p className="font-semibold text-red-700 flex items-center gap-1.5">
+                  <ArrowUpRight className="h-4 w-4" /> Cash Out — {formatCurrency(s.cashOut.total)}
+                </p>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Expenses (Counter):</span>
+                  <span>{formatCurrency(s.cashOut.expenses)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Transfers to Safe/Bank:</span>
+                  <span>{formatCurrency(s.cashOut.transfersOut)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Bill return refund:</span>
+                  <span>{formatCurrency(s.cashOut.billReturnRefund || 0)}</span>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
-
-      {/* Cash Flow Breakdown */}
-      {s && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base text-green-700 flex items-center gap-2">
-                <ArrowDownLeft className="h-4 w-4" /> Cash In — {formatCurrency(s.cashIn.total)}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Cash Sales:</span>
-                <span>{formatCurrency(s.cashIn.sales)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Collection (from customer dues):</span>
-                <span>{formatCurrency(s.cashIn.collections)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Transfers from Safe/Bank:</span>
-                <span>{formatCurrency(s.cashIn.transfersIn)}</span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base text-red-700 flex items-center gap-2">
-                <ArrowUpRight className="h-4 w-4" /> Cash Out — {formatCurrency(s.cashOut.total)}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Expenses (Counter):</span>
-                <span>{formatCurrency(s.cashOut.expenses)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Transfers to Safe/Bank:</span>
-                <span>{formatCurrency(s.cashOut.transfersOut)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Bill return refund:</span>
-                <span>{formatCurrency(s.cashOut.billReturnRefund || 0)}</span>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
 
       {/* Daily Report */}
       {s && (

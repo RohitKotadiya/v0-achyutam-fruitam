@@ -389,15 +389,17 @@ export function ReportsTab() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <Tabs value={subTab} onValueChange={setSubTab}>
-        <TabsList className="grid w-full grid-cols-5 lg:w-auto">
-          <TabsTrigger value="overview" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Overview</TabsTrigger>
-          <TabsTrigger value="pl" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">P&L</TabsTrigger>
-          <TabsTrigger value="sales-charts" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Charts</TabsTrigger>
-          <TabsTrigger value="sales-grid" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Sales Grid</TabsTrigger>
-          <TabsTrigger value="sales-products" className="text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">Product Analytics</TabsTrigger>
-        </TabsList>
+        <div className="w-full overflow-x-auto pb-1">
+          <TabsList className="inline-flex h-9 w-max min-w-full flex-nowrap gap-1 rounded-xl bg-muted/40 p-1 shadow-sm">
+            <TabsTrigger value="overview" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Overview</TabsTrigger>
+            <TabsTrigger value="pl" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">P&L</TabsTrigger>
+            <TabsTrigger value="sales-charts" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Charts</TabsTrigger>
+            <TabsTrigger value="sales-grid" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Sales Grid</TabsTrigger>
+            <TabsTrigger value="sales-products" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Product Analytics</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="overview"><ReportsOverviewSection onNavigate={navigateToSubReport} /></TabsContent>
         <TabsContent value="pl"><PLSection /></TabsContent>
@@ -1495,7 +1497,9 @@ function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "char
     return rows
   }, [data, gridAppliedSearch, gridAppliedPaymentFilter, sortField, sortDir])
 
-  const totalSales = filtered.reduce((s, r) => s + r.grandTotal, 0)
+  const getNetSalesAmount = (row: SaleRow) => Math.max(0, (Number(row.grandTotal) || 0) - (Number(row.refundTotal) || 0))
+
+  const totalSales = filtered.reduce((s, r) => s + getNetSalesAmount(r), 0)
   const totalProfit = filtered.reduce((s, r) => s + r.totalProfit, 0)
 
   const pieColors = ["#16a34a", "#0284c7", "#f59e0b", "#7c3aed", "#ef4444", "#0d9488", "#db2777", "#ea580c"]
@@ -1576,7 +1580,7 @@ function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "char
   const overallSalesPie = useMemo(() => {
     const map = new Map<string, number>()
     for (const row of chartFilteredSales) {
-      map.set(row.paymentMethod, (map.get(row.paymentMethod) || 0) + row.grandTotal)
+      map.set(row.paymentMethod, (map.get(row.paymentMethod) || 0) + getNetSalesAmount(row))
     }
     return Array.from(map.entries()).map(([name, value]) => ({ name, value }))
   }, [chartFilteredSales])
@@ -1604,7 +1608,7 @@ function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "char
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
       if (!map.has(key)) map.set(key, { period: key, sales: 0, profit: 0 })
       const p = map.get(key)!
-      p.sales += row.grandTotal
+      p.sales += getNetSalesAmount(row)
       p.profit += row.totalProfit
     }
     return Array.from(map.values()).sort((a, b) => (a.period > b.period ? 1 : -1))
@@ -1741,14 +1745,14 @@ function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "char
       <TabsContent value="charts" className="space-y-3">
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <Card className="bg-muted/30"><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Sales (Charts)</p><p className="text-xl font-bold">{formatCurrency(chartFilteredSales.reduce((s, r) => s + r.grandTotal, 0))}</p><p className="text-[11px] text-muted-foreground">From chart filters</p></CardContent></Card>
+              <Card className="bg-muted/30"><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Net Sales (Charts)</p><p className="text-xl font-bold">{formatCurrency(chartFilteredSales.reduce((s, r) => s + getNetSalesAmount(r), 0))}</p><p className="text-[11px] text-muted-foreground">After refunds in chart filters</p></CardContent></Card>
               <Card className="bg-muted/30"><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Profit (Charts)</p><p className="text-xl font-bold">{formatCurrency(chartFilteredSales.reduce((s, r) => s + r.totalProfit, 0))}</p><p className="text-[11px] text-muted-foreground">From chart filters</p></CardContent></Card>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <Card className="border-dashed">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Overall Sales Split by Payment</CardTitle>
+                  <CardTitle className="text-base">Overall Net Sales Split by Payment</CardTitle>
                   <CardDescription>Based on chart filters above</CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -1802,7 +1806,7 @@ function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "char
 
             <Card className="border-dashed">
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Period-wise Sales & Profit Trend</CardTitle>
+                <CardTitle className="text-base">Period-wise Net Sales & Profit Trend</CardTitle>
                   <CardDescription>Grouped by month based on applied chart filters</CardDescription>
               </CardHeader>
               <CardContent>

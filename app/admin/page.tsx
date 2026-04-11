@@ -11,7 +11,7 @@ import { SuppliersTab } from "@/components/admin/suppliers-tab"
 import { SettingsTab } from "@/components/admin/settings-tab"
 import { FinanceTab } from "@/components/admin/finance-tab"
 import { StockTransferTab } from "@/components/admin/stock-transfer-tab"
-import { Package, ShoppingCart, FolderKanban, BarChart3, Users, Truck, Settings, Wallet, FlaskConical, LogOut, FileText } from "lucide-react"
+import { ShoppingCart, LogOut, FileText } from "lucide-react"
 import { BackButton } from "@/components/ui/back-button"
 import { useRouter } from "next/navigation"
 import { signOut, useSession } from "next-auth/react"
@@ -26,7 +26,7 @@ export default function AdminPage() {
   const [settings, setSettings] = useState<Record<string,string>>({ enableStockTransfer: "true" })
   const router = useRouter()
   const tabTriggerClass =
-    "flex items-center gap-2 !flex-none px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:shadow-sm"
+    "!flex-none h-10 rounded-none border-0 border-b-[3px] border-transparent bg-transparent px-3 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:border-x-0 data-[state=active]:border-t-0 data-[state=active]:border-b-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
 
   useEffect(() => {
     async function loadSettings() {
@@ -67,17 +67,14 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4">
+      <div className="border-b border-border/70 bg-card/95 shadow-sm">
+        <div className="container mx-auto px-3 md:px-4 py-1.5">
           <div className="flex items-center justify-between gap-4">
             {/* Left: Back + Title */}
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               <BackButton />
               <div>
-                <h1 className="text-xl md:text-2xl font-bold">Admin Dashboard</h1>
-                <p className="text-xs md:text-sm text-muted-foreground">
-                  Manage inventory, products, operations
-                </p>
+                <h1 className="text-sm md:text-base font-bold leading-tight">Admin Dashboard</h1>
               </div>
             </div>
 
@@ -87,19 +84,22 @@ export default function AdminPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => router.push("/bills")}
-                className="hidden md:flex"
+                className="h-7 px-2 md:px-2.5"
+                title="Bills"
               >
-                <FileText className="w-4 h-4 mr-2" />
-                Bills
+                <FileText className="w-4 h-4 md:mr-1.5" />
+                <span className="hidden md:inline text-xs">Bills</span>
               </Button>
 
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => router.push("/pos")}
+                className="h-7 px-2 md:px-2.5"
+                title="POS"
               >
-                <ShoppingCart className="w-4 h-4 mr-2" />
-                POS
+                <ShoppingCart className="w-4 h-4 md:mr-1.5" />
+                <span className="hidden md:inline text-xs">POS</span>
               </Button>
 
               {session && (
@@ -111,6 +111,8 @@ export default function AdminPage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => signOut({ callbackUrl: "/login" })}
+                className="h-7 w-7 p-0"
+                title="Logout"
               >
                 <LogOut className="w-4 h-4" />
               </Button>
@@ -119,58 +121,48 @@ export default function AdminPage() {
         </div>
       </div>
       {/* Main Content */}
-      <div className="container mx-auto px-4 py-6">
+      <div className="container mx-auto px-3 md:px-4 py-3 md:py-4">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-1">
           <div className="w-full overflow-x-auto pb-1">
-            <TabsList className="inline-flex w-max min-w-full flex-nowrap gap-1">
+            <TabsList className="inline-flex h-10 w-max min-w-full flex-nowrap gap-1 rounded-none border-b bg-transparent p-0">
             <TabsTrigger value="inventory" className={tabTriggerClass}>
-              <Package className="h-4 w-4" />
-              <span className="hidden sm:inline">Inventory</span>
+              Inventory
             </TabsTrigger>
             {settings.enableMixDishPrep === "true" && (
             <TabsTrigger value="mix-entry" className={tabTriggerClass}>
-              <FlaskConical className="h-4 w-4" />
-              <span className="hidden sm:inline">Mix Entry</span>
+              Mix Entry
             </TabsTrigger>
             )}
             {settings.enableMixDishPrep === "true" && (
             <TabsTrigger value="mix-batches" className={tabTriggerClass}>
-              <FlaskConical className="h-4 w-4" />
-              <span className="hidden sm:inline">Mix Batches</span>
+              Mix Batches
             </TabsTrigger>
             )}
             <TabsTrigger value="sku" className={tabTriggerClass}>
-              <ShoppingCart className="h-4 w-4" />
-              <span className="hidden sm:inline">SKU</span>
+              SKU
             </TabsTrigger>
             <TabsTrigger value="categories" className={tabTriggerClass}>
-              <FolderKanban className="h-4 w-4" />
-              <span className="hidden sm:inline">Categories</span>
+              Categories
             </TabsTrigger>
             {settings.enableStockTransfer === "true" && (
             <TabsTrigger value="stock-transfer" className={tabTriggerClass}>
-              <Truck className="h-4 w-4" />
-              <span className="hidden sm:inline">Stock Transfer</span>
+              Stock Transfer
             </TabsTrigger>
             )}
             <TabsTrigger value="finance" className={tabTriggerClass}>
-              <Wallet className="h-4 w-4" />
-              <span className="hidden sm:inline">Finance</span>
+              Finance
             </TabsTrigger>
             <TabsTrigger value="reports" className={tabTriggerClass}>
-              <BarChart3 className="h-4 w-4" />
-              <span className="hidden sm:inline">Sales</span>
+              Sales
             </TabsTrigger>
             <TabsTrigger value="customers" className={tabTriggerClass}>
-              <Users className="h-4 w-4" />
-              <span className="hidden sm:inline">Customers</span>
+              Customers
             </TabsTrigger>
             <TabsTrigger value="suppliers" className={tabTriggerClass}>
-              <Truck className="h-4 w-4" />
-              <span className="hidden sm:inline">Suppliers</span>
+              Suppliers
             </TabsTrigger>
             <TabsTrigger value="settings" className={tabTriggerClass}>
-              <Settings className="h-4 w-4" />
+              Settings
             </TabsTrigger>
             </TabsList>
           </div>

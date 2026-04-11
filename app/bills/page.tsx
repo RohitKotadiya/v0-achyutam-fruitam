@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import {
@@ -20,7 +19,7 @@ import { BackButton } from "@/components/ui/back-button"
 import {
   Search, Eye, Trash2, RefreshCw, Edit3, RotateCcw,
   Printer, MessageCircle, ArrowUp, ArrowDown, ArrowUpDown,
-  ChevronDown, ChevronUp, ShoppingCart, Settings, X,
+  ChevronUp, ShoppingCart, Settings, X,
   HandCoins, LogOut,
 } from "lucide-react"
 import { useSession, signOut } from "next-auth/react"
@@ -110,7 +109,6 @@ export default function BillsPage() {
   const [sortDir, setSortDir] = useState<SortDir>("desc")
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
-  const [showPaginationControls, setShowPaginationControls] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshingBills, setRefreshingBills] = useState(false)
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null)
@@ -182,7 +180,6 @@ export default function BillsPage() {
       setSortDir(parsed.sortDir === "asc" ? "asc" : "desc")
       setPageSize([10, 20, 50, 100].includes(Number(parsed.pageSize)) ? Number(parsed.pageSize) : 20)
       setCurrentPage(Number(parsed.currentPage) > 0 ? Number(parsed.currentPage) : 1)
-      setShowPaginationControls(Boolean(parsed.showPaginationControls))
       // Recompute date range from the preset so "Today" always means the current day,
       // not a stale date string from a previous session.
       const savedPreset = typeof parsed.datePreset === "string" ? parsed.datePreset : "today"
@@ -205,10 +202,9 @@ export default function BillsPage() {
         datePreset,
         pageSize,
         currentPage,
-        showPaginationControls,
       }),
     )
-  }, [searchTerm, startDate, endDate, paymentFilter, sortKey, sortDir, datePreset, pageSize, currentPage, showPaginationControls])
+  }, [searchTerm, startDate, endDate, paymentFilter, sortKey, sortDir, datePreset, pageSize, currentPage])
 
   const isBillActionBusy = (billNo: number, action?: "edit" | "delete") => {
     if (!busyBillAction) return false
@@ -402,7 +398,6 @@ export default function BillsPage() {
     setDatePreset("today")
     setPageSize(20)
     setCurrentPage(1)
-    setShowPaginationControls(false)
     localStorage.removeItem(BILLS_FILTERS_STORAGE_KEY)
   }
 
@@ -547,18 +542,16 @@ export default function BillsPage() {
   )
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-50 px-2 pt-1 pb-2 md:px-4 md:pt-2 md:pb-4">
-      <div className="max-w-7xl mx-auto space-y-2">
-
-        {/* ─── Header Card ─── */}
-        <Card>
-          <CardHeader className="px-2.5 pt-0.5 pb-1.5 md:px-4 md:pt-1 md:pb-2">
-            {/* Top row */}
-            <div className="flex items-center justify-between mb-1 gap-2">
-              <div className="flex items-center gap-2 md:gap-4">
-                <BackButton />
-                <CardTitle className="text-base md:text-xl">Bills History</CardTitle>
+    <div className="min-h-screen bg-background">
+      <div className="border-b border-border/70 bg-card/95 shadow-sm">
+        <div className="container mx-auto px-3 md:px-4 py-1.5">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <BackButton />
+              <div>
+                <h1 className="text-sm md:text-base font-bold leading-tight">Bills</h1>
               </div>
+            </div>
               <div className="flex items-center gap-1.5">
                 <Button
                   variant="outline"
@@ -598,147 +591,130 @@ export default function BillsPage() {
                 </Button>
               </div>
             </div>
+          </div>
+        </div>
 
-            <div className="sticky top-2 z-20 -mx-1 rounded-xl border bg-background/95 px-1 py-1.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85 md:mx-0 md:px-2">
-              <div className="flex flex-col gap-1.5">
-                <div className="flex flex-col gap-1.5 md:flex-row md:items-center">
-                  <div className="relative flex-1 min-w-0">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                    <Input
-                      placeholder="Search bill no, customer, mobile, customer id..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="h-9 w-full pl-8 pr-9 text-xs md:text-sm"
-                    />
-                    {searchTerm && (
-                      <button
-                        type="button"
-                        onClick={() => setSearchTerm("")}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                        aria-label="Clear search"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-1 overflow-x-auto">
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={handleRefreshBills}
-                      disabled={refreshingBills}
-                      className="h-9 px-3 text-xs shrink-0"
+      <div className="container mx-auto px-3 md:px-4 py-3 md:py-4">
+        <div className="space-y-2">
+          <div className="px-0 py-2">
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3 flex-nowrap">
+                <div className="relative flex-1 min-w-0">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search bill no, customer, mobile, customer id..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="h-10 w-full pl-9 pr-10 text-sm"
+                  />
+                  {searchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchTerm("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      aria-label="Clear search"
                     >
-                      <RefreshCw className={`w-4 h-4 mr-1 ${refreshingBills ? "animate-spin" : ""}`} />
-                      Refresh
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={resetFilters}
-                      disabled={!hasActiveFilters}
-                      className="h-9 px-3 text-xs shrink-0"
-                    >
-                      Reset
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowPaginationControls((prev) => !prev)}
-                      className="h-9 px-3 text-xs shrink-0"
-                    >
-                      <span>Pagination</span>
-                      {showPaginationControls ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
-                    </Button>
-                    <Button
-                      variant={showUpdatedAt ? "default" : "outline"}
-                      size="sm"
-                      className="h-9 px-2 text-xs shrink-0"
-                      onClick={() => setShowUpdatedAt((prev) => !prev)}
-                      title={showUpdatedAt ? "Hide Updated Date & Time" : "Show Updated Date & Time"}
-                    >
-                      {showUpdatedAt ? "Hide Updated" : "Show Updated"}
-                    </Button>
-                  </div>
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
 
-                <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-                  <div className="flex gap-1 overflow-x-auto pb-0.5">
-                    {([
-                      ["all", "All"],
-                      ["today", "Today"],
-                      ["yesterday", "Yesterday"],
-                      ["week", "This Week"],
-                      ["month", "This Month"],
-                    ] as const).map(([key, label]) => (
-                      <Button
-                        key={key}
-                        variant={datePreset === key ? "default" : "outline"}
-                        size="sm"
-                        className="h-8 text-xs px-2.5 shrink-0"
-                        onClick={() => applyDatePreset(key)}
-                      >
-                        {label}
-                      </Button>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground md:justify-end">
-                    <span>{filteredBills.length} bills</span>
-                    <span>
-                      Updated {lastRefreshedAt ? lastRefreshedAt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }) : "--:--"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5 lg:flex-row">
-                  <div className="flex gap-1.5 flex-1">
-                    <Input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => {
-                        setStartDate(e.target.value)
-                        setDatePreset("custom")
-                      }}
-                      className="flex-1 h-8 text-xs"
-                    />
-                    <Input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => {
-                        setEndDate(e.target.value)
-                        setDatePreset("custom")
-                      }}
-                      className="flex-1 h-8 text-xs"
-                    />
-                  </div>
-
-                  <div className="flex gap-1 overflow-x-auto pb-0.5 lg:justify-end">
-                    {["ALL", "CASH", "ONLINE", "SPLIT", "PENDING"].map((m) => (
-                      <Button
-                        key={m}
-                        variant={paymentFilter === m ? "default" : "outline"}
-                        size="sm"
-                        className="h-8 text-xs px-2.5 shrink-0"
-                        onClick={() => setPaymentFilter(m)}
-                      >
-                        {m === "ALL" ? "All Payments" : m.charAt(0) + m.slice(1).toLowerCase()}
-                      </Button>
-                    ))}
-                  </div>
+                <div className="flex items-center gap-3 flex-nowrap">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={handleRefreshBills}
+                    disabled={refreshingBills}
+                    className="h-10 px-4 text-sm shrink-0"
+                  >
+                    <RefreshCw className={`w-4 h-4 mr-1.5 ${refreshingBills ? "animate-spin" : ""}`} />
+                    Refresh
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={resetFilters}
+                    disabled={!hasActiveFilters}
+                    className="h-10 px-4 text-sm shrink-0"
+                  >
+                    Reset
+                  </Button>
+                  <Button
+                    variant={showUpdatedAt ? "default" : "outline"}
+                    size="sm"
+                    className="h-10 px-4 text-sm shrink-0"
+                    onClick={() => setShowUpdatedAt((prev) => !prev)}
+                    title={showUpdatedAt ? "Hide Updated At" : "Show Updated At"}
+                  >
+                    {showUpdatedAt ? "Hide Updated At" : "Show Updated At"}
+                  </Button>
                 </div>
               </div>
-            </div>
 
-            {showPaginationControls && (
-              <div className="mt-1 border rounded-lg bg-muted/20 px-2.5 py-1.5 flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
-                  <span>Rows per page</span>
+              <div className="flex items-center justify-between gap-4 flex-nowrap">
+                <div className="flex items-center gap-2 overflow-x-auto">
+                  {([
+                    ["all", "All"],
+                    ["today", "Today"],
+                    ["yesterday", "Yesterday"],
+                    ["week", "This Week"],
+                    ["month", "This Month"],
+                  ] as const).map(([key, label]) => (
+                    <Button
+                      key={key}
+                      variant={datePreset === key ? "default" : "outline"}
+                      size="sm"
+                      className="h-8 px-3 text-xs shrink-0"
+                      onClick={() => applyDatePreset(key)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0">
+                  <Input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => {
+                      setStartDate(e.target.value)
+                      setDatePreset("custom")
+                    }}
+                    className="h-8 w-[150px] text-xs"
+                  />
+                  <Input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => {
+                      setEndDate(e.target.value)
+                      setDatePreset("custom")
+                    }}
+                    className="h-8 w-[150px] text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-4 flex-nowrap">
+                <div className="flex items-center gap-2 overflow-x-auto">
+                  {["ALL", "CASH", "ONLINE", "SPLIT", "PENDING"].map((m) => (
+                    <Button
+                      key={m}
+                      variant={paymentFilter === m ? "default" : "outline"}
+                      size="sm"
+                      className="h-8 px-3 text-xs shrink-0"
+                      onClick={() => setPaymentFilter(m)}
+                    >
+                      {m === "ALL" ? "All Payments" : m.charAt(0) + m.slice(1).toLowerCase()}
+                    </Button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
+                  <span>Rows</span>
                   <select
                     value={pageSize}
                     onChange={(e) => setPageSize(Number(e.target.value))}
-                    className="h-7 rounded-md border bg-background px-2 text-xs text-foreground"
+                    className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"
                   >
                     {[10, 20, 50, 100].map((size) => (
                       <option key={size} value={size}>
@@ -746,42 +722,33 @@ export default function BillsPage() {
                       </option>
                     ))}
                   </select>
-                  <span>
-                    {pageStart}-{pageEnd} of {filteredBills.length}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2 justify-end">
-                  <span className="text-xs text-muted-foreground">
-                    Page {currentPage} of {totalPages}
-                  </span>
+                  <span>{pageStart}-{pageEnd} of {filteredBills.length}</span>
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                     disabled={currentPage === 1}
-                    className="h-7 px-2.5 text-xs"
+                    className="h-8 px-2.5 text-xs"
                   >
                     Prev
                   </Button>
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
                     disabled={currentPage === totalPages || filteredBills.length === 0}
-                    className="h-7 px-2.5 text-xs"
+                    className="h-8 px-2.5 text-xs"
                   >
                     Next
                   </Button>
+                  <span>Page {currentPage}/{totalPages}</span>
                 </div>
               </div>
-            )}
-          </CardHeader>
-        </Card>
+            </div>
+          </div>
 
         {/* ─── Bills List ─── */}
-        <Card>
-          <CardContent className="p-0">
+        <div>
             {loading ? (
               <div className="text-center py-12 text-muted-foreground">Loading bills...</div>
             ) : filteredBills.length === 0 ? (
@@ -819,8 +786,12 @@ export default function BillsPage() {
                     <tbody>
                       {paginatedBills.map((bill) => (
                         <React.Fragment key={bill.id}>
+                          {(() => {
+                            const refundAmount = Number(bill.refundTotal) || 0
+                            const netAmount = Math.max(0, (Number(bill.grandTotal) || 0) - refundAmount)
+                            return (
                           <tr className={`border-b hover:bg-muted/30 transition-colors ${expandedBillId === bill.id ? "bg-muted/20" : ""}`}>
-                            <td className="p-2.5 font-medium text-sm">#{bill.displayBillNo ?? bill.billNo}</td>
+                            <td className={`p-2.5 font-medium text-sm ${isBillFullyReturned(bill) ? "line-through text-muted-foreground" : ""}`}>#{bill.displayBillNo ?? bill.billNo}</td>
                             <td className="p-2.5 text-sm">{formatIndianDateTime(new Date(bill.dateTime))}</td>
                             {showUpdatedAt && (
                               <td className="p-2.5 text-sm">{formatIndianDateTime(new Date(bill.updatedAt))}</td>
@@ -833,6 +804,12 @@ export default function BillsPage() {
                             <td className="p-2.5 text-center">{getPaymentBadge(bill.paymentMethod)}</td>
                             <td className="p-2.5 text-right font-medium text-sm">
                               <div>{formatCurrency(bill.grandTotal)}</div>
+                              {refundAmount > 0 && (
+                                <div className="text-[11px] font-semibold text-red-600">Refunded: -{formatCurrency(refundAmount)}</div>
+                              )}
+                              {refundAmount > 0 && (
+                                <div className="text-[11px] font-semibold text-primary">Actual: {formatCurrency(netAmount)}</div>
+                              )}
                               {(bill.remainingDue || 0) > 0 && (
                                 <div className="text-[11px] font-semibold text-orange-600">
                                   Due: {formatCurrency(bill.remainingDue)}
@@ -922,6 +899,8 @@ export default function BillsPage() {
                               </div>
                             </td>
                           </tr>
+                            )
+                          })()}
                           {expandedBillId === bill.id && (
                             <tr>
                               <td colSpan={10} className="bg-muted/10 border-b p-0">
@@ -968,11 +947,15 @@ export default function BillsPage() {
                 {/* ── Mobile Cards ── */}
                 <div className="md:hidden divide-y max-h-[calc(100vh-400px)] overflow-y-auto">
                   {paginatedBills.map((bill) => (
+                    (() => {
+                      const refundAmount = Number(bill.refundTotal) || 0
+                      const netAmount = Math.max(0, (Number(bill.grandTotal) || 0) - refundAmount)
+                      return (
                     <div key={bill.id} className="p-2.5 space-y-1.5">
                       {/* Row 1: Bill info */}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm">#{bill.displayBillNo ?? bill.billNo}</span>
+                          <span className={`font-bold text-sm ${isBillFullyReturned(bill) ? "line-through text-muted-foreground" : ""}`}>#{bill.displayBillNo ?? bill.billNo}</span>
                           {getPaymentBadge(bill.paymentMethod)}
                         </div>
                         <span className="text-xs text-muted-foreground">{formatIndianDateTime(new Date(bill.dateTime))}</span>
@@ -995,6 +978,12 @@ export default function BillsPage() {
                         </div>
                         <div className="text-right shrink-0">
                           <p className="text-sm font-bold text-primary">{formatCurrency(bill.grandTotal)}</p>
+                          {refundAmount > 0 && (
+                            <p className="text-[11px] font-semibold text-red-600">Refunded: -{formatCurrency(refundAmount)}</p>
+                          )}
+                          {refundAmount > 0 && (
+                            <p className="text-[11px] font-semibold text-primary">Actual: {formatCurrency(netAmount)}</p>
+                          )}
                           {(bill.remainingDue || 0) > 0 && (
                             <p className="text-[11px] font-semibold text-orange-600">Due: {formatCurrency(bill.remainingDue)}</p>
                           )}
@@ -1071,13 +1060,15 @@ export default function BillsPage() {
                         </div>
                       )}
                     </div>
+                      )
+                    })()
                   ))}
                 </div>
 
               </>
             )}
-          </CardContent>
-        </Card>
+        </div>
+        </div>
       </div>
 
       {/* ─── Return Dialog ─── */}
