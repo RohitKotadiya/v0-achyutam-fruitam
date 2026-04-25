@@ -112,7 +112,11 @@ const toLocalDateInputValue = (date: Date) => {
 
 type HistorySortKey = "date" | "type" | "sku" | "category" | "quantity" | "weightedCostBefore" | "weightedCostAfter" | "costPrice"
 
-const UNDO_WINDOW_MS = 120000
+const getUndoWindowMs = (settings: Record<string, string>) => {
+  const seconds = Number(settings.inventoryUndoSeconds) || 120
+  return seconds * 1000
+}
+
 const INVENTORY_ACTIVE_SUB_TAB_KEY = "inventory-active-sub-tab-v1"
 const INVENTORY_PREPARE_MIX_VIEW_KEY = "inventory-prepare-mix-view-v1"
 const INVENTORY_PREPARE_MIX_PREFS_KEY = "inventory-prepare-mix-prefs-v1"
@@ -141,6 +145,7 @@ export function InventoryTab({
   const [settings, setSettings] = useState<Record<string, string>>({
     enableMixDishPrep: "true",
     mixPreparationTargetCategoryId: "",
+    inventoryUndoSeconds: "120",
   })
   const [stockProductSearch, setStockProductSearch] = useState("")
   const [collapsedStockCategories, setCollapsedStockCategories] = useState<Record<string, boolean>>({})
@@ -554,7 +559,7 @@ export function InventoryTab({
           inventoryLogId: String(undoPayload.inventoryLogId),
           previousStock: Number(undoPayload.previousStock) || 0,
           previousWeightedAvgCost: Number(undoPayload.previousWeightedAvgCost) || 0,
-          expiresAt: Date.now() + UNDO_WINDOW_MS,
+          expiresAt: Date.now() + getUndoWindowMs(settings),
         }
 
         setStockUndoBySku((prev) => ({
@@ -569,7 +574,7 @@ export function InventoryTab({
             const { [sku]: _removed, ...rest } = prev
             return rest
           })
-        }, UNDO_WINDOW_MS)
+        }, getUndoWindowMs(settings))
       }
 
       // Keep UI responsive: sync full product + stock data in background.

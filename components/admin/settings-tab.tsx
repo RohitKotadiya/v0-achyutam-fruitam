@@ -42,6 +42,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   enableSilentPrinting: "false",
   thermalPrinterAddress: "",
   businessDayCutoffHour: "0",
+  inventoryUndoSeconds: "120",
 }
 
 export function SettingsTab() {
@@ -361,6 +362,20 @@ export function SettingsTab() {
               max="23"
               value={settings.businessDayCutoffHour}
               onChange={(e) => updateSetting("businessDayCutoffHour", e.target.value)}
+              className="max-w-[140px]"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="inventoryUndoSeconds">Inventory Undo Window (seconds)</Label>
+            <p className="text-sm text-muted-foreground">How long users can undo inventory additions (default: 120 seconds)</p>
+            <Input
+              id="inventoryUndoSeconds"
+              type="number"
+              min="30"
+              max="3600"
+              value={settings.inventoryUndoSeconds}
+              onChange={(e) => updateSetting("inventoryUndoSeconds", e.target.value)}
               className="max-w-[140px]"
             />
           </div>

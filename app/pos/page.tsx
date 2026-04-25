@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo } from "react"
-import { Search, RefreshCw, FileText, Settings, Trash2, Save, Printer, Plus, Minus, MessageCircle, X, AlertTriangle, ChevronDown, ChevronUp, LogOut } from "lucide-react"
+import { Search, RefreshCw, FileText, Settings, Trash2, Save, Printer, Plus, Minus, MessageCircle, X, AlertTriangle, ChevronDown, ChevronUp, LogOut, Check } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -119,6 +119,9 @@ export default function POSPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false)
   const [isMixDishModalOpen, setIsMixDishModalOpen] = useState(false)
+
+  const [editingPriceItemId, setEditingPriceItemId] = useState<string | null>(null)
+  const [tempPrice, setTempPrice] = useState("")
 
   useEffect(() => {
     setMounted(true)
@@ -618,6 +621,25 @@ export default function POSPage() {
         item.id === itemId ? { ...item, price: newPrice, total: newPrice * item.quantity } : item,
       ),
     )
+  }
+
+  const startEditingPrice = (itemId: string, currentPrice: number) => {
+    setEditingPriceItemId(itemId)
+    setTempPrice(currentPrice.toString())
+  }
+
+  const confirmPriceEdit = () => {
+    if (editingPriceItemId) {
+      const newPrice = Number(tempPrice) || 0
+      updatePrice(editingPriceItemId, newPrice)
+      setEditingPriceItemId(null)
+      setTempPrice("")
+    }
+  }
+
+  const cancelPriceEdit = () => {
+    setEditingPriceItemId(null)
+    setTempPrice("")
   }
 
   const removeItem = (itemId: string) => {
@@ -1380,6 +1402,51 @@ export default function POSPage() {
                                 <Plus className="w-3 h-3" />
                               </Button>
                             </div>
+
+                            {/* Price */}
+                            {editingPriceItemId === item.id ? (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={tempPrice}
+                                  onChange={(e) => setTempPrice(e.target.value)}
+                                  className="w-12 md:w-14 h-6 text-center text-xs p-0"
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      confirmPriceEdit()
+                                    } else if (e.key === 'Escape') {
+                                      cancelPriceEdit()
+                                    }
+                                  }}
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-green-600"
+                                  onClick={confirmPriceEdit}
+                                >
+                                  <Check className="w-3 h-3" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-red-600"
+                                  onClick={cancelPriceEdit}
+                                >
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <span
+                                className="text-xs md:text-sm w-12 md:w-14 text-center shrink-0 cursor-pointer hover:bg-muted rounded px-1"
+                                onClick={() => startEditingPrice(item.id, item.price)}
+                              >
+                                ₹{(Number(item.price) || 0).toFixed(0)}
+                              </span>
+                            )}
 
                             {/* Total */}
                             <span className="text-xs md:text-sm font-semibold w-12 md:w-14 text-right shrink-0">₹{(Number(item.total) || 0).toFixed(0)}</span>

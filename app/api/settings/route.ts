@@ -18,6 +18,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   enableSilentPrinting: "false",
   thermalPrinterAddress: "",
   businessDayCutoffHour: "0",
+  inventoryUndoSeconds: "120",
 }
 
 export async function GET() {
