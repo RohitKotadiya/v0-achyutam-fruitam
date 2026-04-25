@@ -112,6 +112,7 @@ const toLocalDateInputValue = (date: Date) => {
 
 type HistorySortKey = "date" | "type" | "sku" | "category" | "quantity" | "weightedCostBefore" | "weightedCostAfter" | "costPrice"
 
+// Get the configurable undo window duration in milliseconds from settings
 const getUndoWindowMs = (settings: Record<string, string>) => {
   const seconds = Number(settings.inventoryUndoSeconds) || 120
   return seconds * 1000
@@ -145,7 +146,7 @@ export function InventoryTab({
   const [settings, setSettings] = useState<Record<string, string>>({
     enableMixDishPrep: "true",
     mixPreparationTargetCategoryId: "",
-    inventoryUndoSeconds: "120",
+    inventoryUndoSeconds: "120", // Default undo window for inventory additions (2 minutes)
   })
   const [stockProductSearch, setStockProductSearch] = useState("")
   const [collapsedStockCategories, setCollapsedStockCategories] = useState<Record<string, boolean>>({})

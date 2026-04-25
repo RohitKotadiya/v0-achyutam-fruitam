@@ -18,7 +18,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   enableSilentPrinting: "false",
   thermalPrinterAddress: "",
   businessDayCutoffHour: "0",
-  inventoryUndoSeconds: "120",
+  inventoryUndoSeconds: "120", // Time window in seconds for undoing inventory additions (default: 2 minutes)
 }
 
 export async function GET() {
