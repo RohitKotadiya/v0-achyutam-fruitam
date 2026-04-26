@@ -34,8 +34,8 @@ Continue building your app on:
 1. move to project folder
 2. create .env.local  - duplicate same file with only .env / or just create .env
 
-DATABASE_URL="postgresql://neondb_owner:npg_Lj2qKZyTmOJ6@ep-odd-frog-a4u692tl-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
-NEXTAUTH_SECRET="aJ8kL9mN2pQ5rS7tU0vW3xY6zA1bC4dE"
+DATABASE_URL="postgresql://USER:PASSWORD@HOST/neondb_dev?sslmode=require"
+NEXTAUTH_SECRET="any-random-local-secret"
 NEXTAUTH_URL="http://localhost:3000"
 
 3. run this command on project folder 
@@ -60,7 +60,7 @@ Install psql if not installed.
 From project root, run:
 bash
 # For Windows PowerShell:
-psql "postgresql://neondb_owner:npg_Lj2qKZyTmOJ6@ep-odd-frog-a4u692tl-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require" -f scripts/001_initial_seed.sql
+psql "YOUR_DATABASE_URL" -f scripts/001_initial_seed.sql
 
 Adjust the scripts/ path if your files are in a different folder.
 
