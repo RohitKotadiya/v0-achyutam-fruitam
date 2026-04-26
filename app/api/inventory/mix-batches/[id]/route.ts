@@ -21,9 +21,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       targetProductId: string
       producedUnits: number
       producedUnitsRemaining: number
+      costUnits: number
+      costUnitsRemaining: number
+      totalIngredientCost: number
       remarks: string | null
     }>>`
-      SELECT "id", "targetProductId", "producedUnits", "producedUnitsRemaining", "remarks"
+      SELECT "id", "targetProductId", "producedUnits", "producedUnitsRemaining", "costUnits", "costUnitsRemaining", "totalIngredientCost", "remarks"
       FROM "MixPreparation"
       WHERE "id" = ${id}
       LIMIT 1
@@ -37,6 +40,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const currentProduced = Number(batch.producedUnits) || 0
     const currentRemaining = Number(batch.producedUnitsRemaining) || 0
     const consumedUnits = currentProduced - currentRemaining
+    const batchTotalCost = Number(batch.totalIngredientCost) || 0
 
     // Prevent updates if batch is fully sold
     if (currentRemaining <= 0) {
@@ -59,6 +63,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     const newRemaining = producedUnits - consumedUnits
     const deltaRemaining = newRemaining - currentRemaining
+    const newUnitCostPerCostUnit = batchTotalCost / producedUnits
+    const newCostRemaining = newRemaining
 
     await prisma.$transaction(async (tx) => {
       const currentStockRow = await tx.stockCurrent.findUnique({ where: { productId: batch.targetProductId } })
@@ -73,7 +79,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         SET
           "producedUnits" = ${producedUnits},
           "preparedQuantity" = ${producedUnits},
+          "costUnits" = ${producedUnits},
           "producedUnitsRemaining" = ${newRemaining},
+          "costUnitsRemaining" = ${newCostRemaining},
+          "unitCostPerCostUnit" = ${newUnitCostPerCostUnit},
           "remarks" = CASE
             WHEN ${remarks} = '' THEN "remarks"
             WHEN "remarks" IS NULL OR "remarks" = '' THEN ${remarks}

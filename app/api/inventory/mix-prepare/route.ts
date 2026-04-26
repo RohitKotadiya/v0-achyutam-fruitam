@@ -51,7 +51,6 @@ export async function POST(request: Request) {
 
     const ingredientMap = new Map(ingredientProducts.map((p) => [p.sku, p]))
     let totalIngredientCost = 0
-    let costUnits = 0
 
     for (const ingredient of normalizedIngredients) {
       const product = ingredientMap.get(ingredient.sku)
@@ -78,14 +77,9 @@ export async function POST(request: Request) {
 
       const sourceUnitCost = product.currentStock?.weightedAvgCost ?? product.originalCost
       totalIngredientCost += ingredient.qty * sourceUnitCost
-      costUnits += ingredient.qty
     }
 
-    if (costUnits <= 0) {
-      return NextResponse.json({ error: "Cost units must be greater than 0" }, { status: 400 })
-    }
-
-    const unitCostPerCostUnit = totalIngredientCost / costUnits
+    const unitCostPerCostUnit = totalIngredientCost / producedUnits
 
     await prisma.$transaction(async (tx) => {
       const preparationId = crypto.randomUUID()
@@ -117,9 +111,8 @@ export async function POST(request: Request) {
             ${sourceCategoryId},
             ${producedUnits},
             ${producedUnits},
-            ${costUnits},
             ${producedUnits},
-            ${costUnits},
+            ${producedUnits},
             ${totalIngredientCost},
             ${unitCostPerCostUnit},
             ${remarks || null},
@@ -167,7 +160,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       producedUnits,
-      costUnits,
+      costUnits: producedUnits,
       totalIngredientCost,
       unitCostPerCostUnit,
     })
