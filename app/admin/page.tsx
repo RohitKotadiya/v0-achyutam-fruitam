@@ -56,6 +56,7 @@ export default function AdminPage() {
   }, [activeTab, isActiveTabRestored])
 
   useEffect(() => {
+    // temp
     if (activeTab === "stock-transfer" && settings.enableStockTransfer !== "true") {
       setActiveTab("inventory")
     }
