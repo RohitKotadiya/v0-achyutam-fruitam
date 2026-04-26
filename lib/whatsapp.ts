@@ -27,6 +27,8 @@ function formatPaymentMethod(value?: string) {
       return "Online"
     case "SPLIT":
       return "Split"
+    case "PENDING":
+      return "Pending"
     case "CASH":
     default:
       return "Cash"

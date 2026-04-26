@@ -14,6 +14,7 @@ import { generateWhatsAppMessage, openWhatsAppWithFallback } from "@/lib/whatsap
 import { generatePrintHTML } from "@/lib/print"
 import { canUseSilentThermalPrint, printBillSilently } from "@/lib/thermal-print"
 import { useSession, signOut } from "next-auth/react"
+import { formatIndianDateTime } from "@/lib/client-helpers"
 
 interface Category {
   id: string
@@ -69,6 +70,30 @@ interface LastSavedBill {
   remarks: string
 }
 
+const formatBillDateTimeInput = (dateTime: string) => {
+  const d = new Date(dateTime)
+  if (Number.isNaN(d.getTime())) return ""
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  const hours = String(d.getHours()).padStart(2, "0")
+  const minutes = String(d.getMinutes()).padStart(2, "0")
+  return `${year}-${month}-${day} ${hours}:${minutes}`
+}
+
+const parseBillDateTimeInput = (value: string): Date | null => {
+  const normalized = value.trim().replace(/\s+/g, " ")
+  const isoAttempt = new Date(normalized.replace(" ", "T"))
+  if (!Number.isNaN(isoAttempt.getTime())) return isoAttempt
+
+  const match = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/)
+  if (!match) return null
+
+  const [, day, month, year, hour, minute] = match
+  const parsed = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute))
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
 export default function POSPage() {
   const [mounted, setMounted] = useState(false)
 
@@ -102,6 +127,11 @@ export default function POSPage() {
   const receiptPrintCopies = Math.max(1, Math.min(Number(posSettings.receiptPrintCopies) || 1, 5))
 
   const [editingBillNo, setEditingBillNo] = useState<number | null>(null)
+  const [billDateTimeOriginal, setBillDateTimeOriginal] = useState<string>("")
+  const [billDateTimeDisplay, setBillDateTimeDisplay] = useState<string>("")
+  const [billDateTimeInput, setBillDateTimeInput] = useState<string>("")
+  const [isEditingBillDateTime, setIsEditingBillDateTime] = useState(false)
+  const [billDateTimeOverride, setBillDateTimeOverride] = useState<string | null>(null)
 
   const [customerIdInput, setCustomerIdInput] = useState("")
   const [customerNo, setCustomerNo] = useState<number | null>(null)
@@ -154,6 +184,11 @@ export default function POSPage() {
           : "CASH"
       )
       setRemarks(bill.remarks || '')
+      const loadedDateTime = bill.dateTime ? String(bill.dateTime) : new Date().toISOString()
+      setBillDateTimeOriginal(loadedDateTime)
+      setBillDateTimeDisplay(loadedDateTime)
+      setBillDateTimeInput(formatBillDateTimeInput(loadedDateTime))
+      setBillDateTimeOverride(null)
       sessionStorage.removeItem('editBill')
       localStorage.removeItem('editBill')
       toast({
@@ -667,6 +702,11 @@ export default function POSPage() {
       setOnlineAmount("")
       setCashReceived("")
       setEditingBillNo(null)
+      setBillDateTimeOriginal("")
+      setBillDateTimeDisplay("")
+      setBillDateTimeInput("")
+      setIsEditingBillDateTime(false)
+      setBillDateTimeOverride(null)
       toast({
         title: editingBillNo ? "Edit cancelled" : "Bill cleared",
         description: editingBillNo ? "Returned to new bill mode" : "All items have been removed",
@@ -880,6 +920,7 @@ export default function POSPage() {
           remarks,
           lineItems: billItems,
           grandTotal,
+          dateTime: billDateTimeOverride ?? undefined,
         }),
       })
 
@@ -957,6 +998,11 @@ export default function POSPage() {
         setOnlineAmount("")
         setCashReceived("")
         setEditingBillNo(null)
+        setBillDateTimeOriginal("")
+        setBillDateTimeDisplay("")
+        setBillDateTimeInput("")
+        setIsEditingBillDateTime(false)
+        setBillDateTimeOverride(null)
 
         // Instant stock feedback: update local stock first, then silently re-sync.
         const soldByProductId = new Map<string, number>()
@@ -1223,12 +1269,66 @@ export default function POSPage() {
               {/* Bill Header */}
               {editingBillNo && (
               <CardHeader className="pb-1.5 px-3 md:px-4 pt-2 shrink-0">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base md:text-lg">
-                    <span className="flex items-center gap-2">
-                      Editing Bill <Badge variant="outline" className="text-sm font-bold">#{editingBillNo}</Badge>
-                    </span>
-                  </CardTitle>
+                <div className="flex flex-col gap-2 md:gap-0 md:flex-row md:items-center md:justify-between">
+                  <div className="space-y-1">
+                    <CardTitle className="text-base md:text-lg">
+                      <span className="flex items-center gap-2">
+                        Editing Bill <Badge variant="outline" className="text-sm font-bold">#{editingBillNo}</Badge>
+                      </span>
+                    </CardTitle>
+                    {billDateTimeDisplay && (
+                      <div className="text-xs text-muted-foreground">
+                        {isEditingBillDateTime ? (
+                          <div className="flex items-center gap-1">
+                            <Input
+                              size="sm"
+                              className="h-8 w-[140px] text-xs"
+                              value={billDateTimeInput}
+                              onChange={(e) => setBillDateTimeInput(e.target.value)}
+                              placeholder="YYYY-MM-DD HH:mm"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const parsed = parseBillDateTimeInput(billDateTimeInput)
+                                if (!parsed) {
+                                  toast({ title: "Invalid date", description: "Enter YYYY-MM-DD HH:mm or DD/MM/YYYY HH:mm", variant: "destructive" })
+                                  return
+                                }
+                                const iso = parsed.toISOString()
+                                setBillDateTimeDisplay(iso)
+                                setBillDateTimeOverride(iso !== billDateTimeOriginal ? iso : null)
+                                setIsEditingBillDateTime(false)
+                              }}
+                              className="h-8 w-8 flex items-center justify-center text-green-600 hover:text-green-700 hover:bg-green-50 rounded"
+                              title="Save"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBillDateTimeInput(formatBillDateTimeInput(billDateTimeDisplay))
+                                setIsEditingBillDateTime(false)
+                              }}
+                              className="h-8 w-8 flex items-center justify-center text-red-600 hover:text-red-700 hover:bg-red-50 rounded"
+                              title="Cancel"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setIsEditingBillDateTime(true)}
+                            className="text-xs text-muted-foreground hover:text-primary underline decoration-dotted"
+                          >
+                            Created: {formatIndianDateTime(new Date(billDateTimeDisplay))}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   {editingBillNo && (
                     <Button
                       variant="outline"

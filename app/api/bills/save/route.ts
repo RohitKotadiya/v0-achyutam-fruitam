@@ -27,11 +27,20 @@ export async function POST(request: Request) {
       onlineAmount,
       remarks,
       lineItems,
-      grandTotal
+      grandTotal,
+      dateTime,
     } = data
 
     const grandTotalNum = Number(grandTotal) || 0
     const parsedEditBillNo = Number(editBillNo)
+    const requestedDateTime = dateTime ? new Date(String(dateTime)) : null
+
+    if (dateTime && Number.isNaN(requestedDateTime?.getTime())) {
+      return NextResponse.json(
+        { success: false, error: "Invalid bill date/time provided" },
+        { status: 400 },
+      )
+    }
     const targetEditBillNo = Number.isFinite(parsedEditBillNo) && parsedEditBillNo > 0
       ? Math.trunc(parsedEditBillNo)
       : null
@@ -122,6 +131,7 @@ export async function POST(request: Request) {
                   productId: true,
                   quantity: true,
                   consumptionRate: true,
+                  unitCost: true,
                 },
               },
             },
@@ -229,6 +239,21 @@ export async function POST(request: Request) {
         }
       }
 
+      const existingBillRequiredByProduct = new Map<string, number>()
+      const existingBillItemCostByProduct = new Map<string, number>()
+      if (existingBill) {
+        for (const item of existingBill.lineItems) {
+          const reqUnits = (Number(item.quantity) || 0) * (Number(item.consumptionRate) || 1)
+          existingBillRequiredByProduct.set(
+            item.productId,
+            (existingBillRequiredByProduct.get(item.productId) || 0) + reqUnits,
+          )
+          if (item.unitCost != null && !existingBillItemCostByProduct.has(item.productId)) {
+            existingBillItemCostByProduct.set(item.productId, item.unitCost)
+          }
+        }
+      }
+
       const requiredByProduct = new Map<string, number>()
       const productNameById = new Map<string, string>()
       const mixCostByProduct = new Map<string, number>()
@@ -240,7 +265,73 @@ export async function POST(request: Request) {
         }
       }
 
+      const unchangedProductRequirements = existingBill
+        ? requiredByProduct.size === existingBillRequiredByProduct.size &&
+          Array.from(requiredByProduct.entries()).every(
+            ([productId, required]) =>
+              Math.abs(required - (existingBillRequiredByProduct.get(productId) || 0)) < 1e-9,
+          )
+        : false
+
+      const skipStockAndBatchConsumption = Boolean(existingBill && unchangedProductRequirements)
+
       const productIds = Array.from(requiredByProduct.keys())
+      if (skipStockAndBatchConsumption) {
+        const totalCost = existingBill.totalCost
+        const totalProfit = grandTotalNum - totalCost
+
+        const savedBill = await tx.bill.update({
+          where: { id: existingBill.id },
+          data: {
+            customerName: customerNameFinal,
+            mobile: customerMobileFinal,
+            customerId: resolvedCustomerId,
+            paymentMethod: paymentMethod || "CASH",
+            cashAmount: cashAmount || null,
+            onlineAmount: onlineAmount || null,
+            remarks: remarks || null,
+            grandTotal: grandTotalNum,
+            totalCost,
+            totalProfit,
+            ...(requestedDateTime ? { dateTime: requestedDateTime, createdAt: requestedDateTime } : {}),
+          },
+        })
+
+        await tx.billItem.deleteMany({ where: { billId: existingBill.id } })
+        await tx.billItem.createMany({
+          data: validItems.map((item) => {
+            const requiredUnits = item.quantity * item.consumptionRate
+            const unitCost = existingBillItemCostByProduct.get(item.productId) ?? item.costForProfit
+            return {
+              billId: existingBill.id,
+              productId: item.productId,
+              productName: item.productName,
+              quantity: item.quantity,
+              price: item.price,
+              consumptionRate: item.consumptionRate,
+              isMixDish: item.isMixDish,
+              unitCost,
+              lineCost: unitCost * requiredUnits,
+            }
+          }),
+        })
+
+        await tx.billEditLog.create({
+          data: {
+            billId: existingBill.id,
+            action: "UPDATED",
+            fieldChanged: "lineItems+totals",
+            oldValue: String(existingBill.grandTotal),
+            newValue: String(grandTotalNum),
+          },
+        })
+
+        return {
+          bill: savedBill,
+          totalProfit,
+        }
+      }
+
       const stockRows = await tx.stockCurrent.findMany({
         where: { productId: { in: productIds } },
         select: { productId: true, currentStock: true },
@@ -379,6 +470,7 @@ export async function POST(request: Request) {
             grandTotal: grandTotalNum,
             totalCost,
             totalProfit,
+            ...(requestedDateTime ? { dateTime: requestedDateTime, createdAt: requestedDateTime } : {}),
           },
         })
 
@@ -421,6 +513,7 @@ export async function POST(request: Request) {
             totalCost,
             totalProfit,
             displayBillNo,
+            ...(requestedDateTime ? { dateTime: requestedDateTime, createdAt: requestedDateTime } : {}),
           },
         })
       }
