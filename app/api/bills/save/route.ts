@@ -546,7 +546,7 @@ export async function POST(request: Request) {
           }
         }
       }
-
+      // changed this billno to fix  issue above 999 billdisplayno
       await tx.billItem.createMany({
         data: validItems.map((item) => {
           const requiredUnits = item.quantity * item.consumptionRate
