@@ -52,7 +52,9 @@ export async function POST(request: Request) {
       }, { status: 400 })
     }
 
-    if (paymentMethod === "PENDING" && (!customerMobile || String(customerMobile).length !== 10)) {
+    const pendingMobileSetting = await prisma.systemConfig.findUnique({ where: { key: "pendingMobileRequired" } })
+    const pendingMobileRequired = pendingMobileSetting ? pendingMobileSetting.value !== "false" : true
+    if (paymentMethod === "PENDING" && pendingMobileRequired && (!customerMobile || String(customerMobile).length !== 10)) {
       return NextResponse.json(
         {
           success: false,

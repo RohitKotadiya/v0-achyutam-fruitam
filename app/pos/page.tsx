@@ -883,7 +883,7 @@ export default function POSPage() {
       return
     }
 
-    if (paymentMethod === "PENDING" && (!customerMobile || customerMobile.length !== 10)) {
+    if (paymentMethod === "PENDING" && posSettings.pendingMobileRequired !== "false" && (!customerMobile || customerMobile.length !== 10)) {
       toast({
         title: "Customer mobile required",
         description: "Pending bills require a valid 10-digit mobile number for dues tracking",

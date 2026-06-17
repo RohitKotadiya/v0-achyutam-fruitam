@@ -43,6 +43,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   thermalPrinterAddress: "",
   businessDayCutoffHour: "0",
   inventoryUndoSeconds: "120", // Time window in seconds for undoing inventory additions (default: 2 minutes)
+  pendingMobileRequired: "true",
 }
 
 export function SettingsTab() {
@@ -377,6 +378,17 @@ export function SettingsTab() {
               value={settings.inventoryUndoSeconds}
               onChange={(e) => updateSetting("inventoryUndoSeconds", e.target.value)}
               className="max-w-[140px]"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Require Mobile for Pending Bills</Label>
+              <p className="text-sm text-muted-foreground">Block saving a PENDING bill if no 10-digit mobile number is entered</p>
+            </div>
+            <Switch
+              checked={settings.pendingMobileRequired !== "false"}
+              onCheckedChange={(checked) => updateSetting("pendingMobileRequired", checked ? "true" : "false")}
             />
           </div>
         </CardContent>
