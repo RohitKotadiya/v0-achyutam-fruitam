@@ -15,11 +15,12 @@ export async function DELETE(
     }
 
     await prisma.$transaction(async (tx) => {
-      // Reverse the customer totalSpent increment
-      await tx.customer.update({
-        where: { id: collection.customerId },
-        data: { totalSpent: { decrement: collection.amount } },
-      })
+      if (collection.customerId) {
+        await tx.customer.update({
+          where: { id: collection.customerId },
+          data: { totalSpent: { decrement: collection.amount } },
+        })
+      }
 
       await tx.paymentCollection.delete({ where: { id } })
     })

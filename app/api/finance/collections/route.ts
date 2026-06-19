@@ -71,7 +71,7 @@ export async function POST(request: Request) {
     }
 
     const collection = await prisma.$transaction(async (tx) => {
-      let resolvedCustomerId = ""
+      let resolvedCustomerId: string | null = null
       let resolvedBillId: string | null = null
 
       if (rawBillRef) {
@@ -146,27 +146,35 @@ export async function POST(request: Request) {
         }
       }
 
-      if (!resolvedCustomerId) {
-        throw new Error("No customer linked to this bill. Add customer mobile and retry.")
-      }
-
       // Create collection record
-      const col = await tx.paymentCollection.create({
-        data: {
-          customerId: resolvedCustomerId,
-          billId: resolvedBillId,
-          amount: parsedAmount,
-          paymentMethod: paymentMethod || "CASH",
-          remarks: remarks || null,
-        },
-        include: {
-          customer: { select: { name: true, mobile: true } },
-        },
-      })
+      let col: any
+      if (resolvedCustomerId) {
+        col = await tx.paymentCollection.create({
+          data: {
+            customerId: resolvedCustomerId,
+            billId: resolvedBillId,
+            amount: parsedAmount,
+            paymentMethod: paymentMethod || "CASH",
+            remarks: remarks || null,
+          },
+          include: {
+            customer: { select: { name: true, mobile: true } },
+          },
+        })
+      } else {
+        // No customer linked — insert via raw SQL to bypass client required-field validation
+        const { randomUUID } = await import("crypto")
+        const colId = randomUUID()
+        const pm = (paymentMethod || "CASH") as string
+        await tx.$executeRaw`
+          INSERT INTO "PaymentCollection" (id, "customerId", "billId", amount, "paymentMethod", remarks, date, "createdAt")
+          VALUES (${colId}, NULL, ${resolvedBillId}, ${parsedAmount}, ${pm}::"PaymentMethod", ${remarks || null}, NOW(), NOW())
+        `
+        col = { id: colId, customerId: null, billId: resolvedBillId, amount: parsedAmount, paymentMethod: pm, remarks: remarks || null, customer: null }
+      }
 
       // If linked to a specific bill, update its payment status
       if (resolvedBillId) {
-        // Get total collected for this bill
         const totalCollected = await tx.paymentCollection.aggregate({
           where: { billId: resolvedBillId },
           _sum: { amount: true },
@@ -174,7 +182,6 @@ export async function POST(request: Request) {
         const bill = await tx.bill.findUnique({ where: { id: resolvedBillId } })
 
         if (bill && (totalCollected._sum.amount || 0) >= Math.max(0, (bill.grandTotal || 0) - (bill.refundTotal || 0))) {
-          // Fully paid — update bill payment method
           await tx.bill.update({
             where: { id: resolvedBillId },
             data: { paymentMethod: paymentMethod || "CASH" },
@@ -182,13 +189,13 @@ export async function POST(request: Request) {
         }
       }
 
-      // Update customer totalSpent
-      await tx.customer.update({
-        where: { id: resolvedCustomerId },
-        data: {
-          totalSpent: { increment: parsedAmount },
-        },
-      })
+      // Update customer totalSpent if customer exists
+      if (resolvedCustomerId) {
+        await tx.customer.update({
+          where: { id: resolvedCustomerId },
+          data: { totalSpent: { increment: parsedAmount } },
+        })
+      }
 
       return col
     }, { maxWait: 10000, timeout: 20000 })

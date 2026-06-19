@@ -1921,7 +1921,7 @@ function CustomerDuesSection() {
                 {collections.slice(0, 20).map((col) => (
                   <TableRow key={col.id}>
                     <TableCell>{formatIndianDate(new Date(col.date))}</TableCell>
-                    <TableCell>{col.customer.name}</TableCell>
+                    <TableCell>{col.customer?.name ?? "—"}</TableCell>
                     <TableCell>{col.bill ? `#${col.bill.displayBillNo ?? col.bill.billNo}` : "—"}</TableCell>
                     <TableCell>{col.paymentMethod}</TableCell>
                     <TableCell className="text-right font-semibold text-green-600">

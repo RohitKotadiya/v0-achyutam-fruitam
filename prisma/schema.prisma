@@ -526,7 +526,7 @@ model PurchaseOrder {
 
 model PaymentCollection {
   id            String        @id @default(cuid())
-  customerId    String
+  customerId    String?
   billId        String?
   amount        Float
   date          DateTime      @default(now())
@@ -534,7 +534,7 @@ model PaymentCollection {
   remarks       String?
   createdAt     DateTime      @default(now())
   bill          Bill?         @relation(fields: [billId], references: [id])
-  customer      Customer      @relation(fields: [customerId], references: [id])
+  customer      Customer?     @relation(fields: [customerId], references: [id])
 
   @@index([customerId])
   @@index([billId])
