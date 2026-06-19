@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { Prisma } from "@prisma/client"
 
 export async function GET(request: Request, { params }: { params: Promise<{ billNo: string }> }) {
   try {
@@ -78,6 +79,54 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ b
             },
           },
         })
+      }
+
+      // Restore mix batch quantities for products managed by MixPreparation batches
+      const allProductIds = bill.lineItems.map((item) => item.productId)
+      if (allProductIds.length > 0) {
+        const batchManagedRows = await tx.$queryRaw<Array<{ targetProductId: string }>>`
+          SELECT DISTINCT "targetProductId"
+          FROM "MixPreparation"
+          WHERE "targetProductId" IN (${Prisma.join(allProductIds)})
+        `
+        const batchManagedSet = new Set(batchManagedRows.map((r) => r.targetProductId))
+
+        const unitsToRestoreByProduct = new Map<string, number>()
+        for (const item of bill.lineItems) {
+          if (!batchManagedSet.has(item.productId)) continue
+          const units = item.quantity * item.consumptionRate
+          unitsToRestoreByProduct.set(item.productId, (unitsToRestoreByProduct.get(item.productId) || 0) + units)
+        }
+
+        for (const [productId, unitsToRestore] of unitsToRestoreByProduct) {
+          let remaining = unitsToRestore
+          // Restore in reverse FIFO order (newest batch first)
+          const batches = await tx.$queryRaw<Array<{
+            id: string
+            producedUnits: number
+            producedUnitsRemaining: number
+          }>>`
+            SELECT "id", "producedUnits", "producedUnitsRemaining"
+            FROM "MixPreparation"
+            WHERE "targetProductId" = ${productId}
+            ORDER BY "date" DESC, "createdAt" DESC
+          `
+          for (const batch of batches) {
+            if (remaining <= 0) break
+            const consumed = Number(batch.producedUnits) - Number(batch.producedUnitsRemaining)
+            if (consumed <= 0) continue
+            const restore = Math.min(remaining, consumed)
+            await tx.$executeRaw`
+              UPDATE "MixPreparation"
+              SET
+                "producedUnitsRemaining" = "producedUnitsRemaining" + ${restore},
+                "costUnitsRemaining" = "costUnitsRemaining" + ${restore},
+                "isOpen" = true
+              WHERE "id" = ${batch.id}
+            `
+            remaining -= restore
+          }
+        }
       }
 
       // Update customer stats

@@ -11,6 +11,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   taxRate: "0",
   lowStockThreshold: "10",
   mixPreparationTargetCategoryId: "",
+  mixDefaultTargetProductSku: "",
+  mixDefaultSourceCategoryId: "",
   enableMixDishPrep: "true",
   enableMixDishPopup: "true",
   enableStockTransfer: "true",

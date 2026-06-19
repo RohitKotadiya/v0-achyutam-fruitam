@@ -279,6 +279,16 @@ export async function POST(request: Request) {
 
       const productIds = Array.from(requiredByProduct.keys())
       if (skipStockAndBatchConsumption) {
+        // Stock was restored above unconditionally — re-deduct it since items haven't changed
+        for (const item of existingBill.lineItems) {
+          const stockUnits = (Number(item.quantity) || 0) * (Number(item.consumptionRate) || 1)
+          if (stockUnits <= 0) continue
+          await tx.stockCurrent.updateMany({
+            where: { productId: item.productId },
+            data: { currentStock: { decrement: stockUnits } },
+          })
+        }
+
         const totalCost = existingBill.totalCost
         const totalProfit = grandTotalNum - totalCost
 

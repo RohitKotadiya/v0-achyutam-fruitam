@@ -17,6 +17,12 @@ interface CategoryOption {
   name: string
 }
 
+interface ProductOption {
+  sku: string
+  name: string
+  categoryId: string
+}
+
 interface UserRow {
   id: string
   name: string | null
@@ -33,6 +39,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   taxRate: "0",
   lowStockThreshold: "10",
   mixPreparationTargetCategoryId: "",
+  mixDefaultTargetProductSku: "",
+  mixDefaultSourceCategoryId: "",
   showProductImages: "false",
   showProductSKU: "false",
   enableMixDishPrep: "true",
@@ -52,6 +60,7 @@ export function SettingsTab() {
   const [fetching, setFetching] = useState(true)
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
   const [categories, setCategories] = useState<CategoryOption[]>([])
+  const [products, setProducts] = useState<ProductOption[]>([])
   const [users, setUsers] = useState<UserRow[]>([])
   const [editingUser, setEditingUser] = useState<string | null>(null)
   const [editUserData, setEditUserData] = useState({ name: "", email: "", role: "STAFF" })
@@ -67,6 +76,7 @@ export function SettingsTab() {
     fetchSettings()
     fetchCategories()
     fetchUsers()
+    fetchProducts()
   }, [])
 
   const fetchCategories = async () => {
@@ -78,6 +88,18 @@ export function SettingsTab() {
       }
     } catch {
       setCategories([])
+    }
+  }
+
+  const fetchProducts = async () => {
+    try {
+      const res = await fetch("/api/products")
+      const data = await res.json()
+      if (Array.isArray(data)) {
+        setProducts(data.map((p: { sku: string; name: string; categoryId: string }) => ({ sku: p.sku, name: p.name, categoryId: p.categoryId })))
+      }
+    } catch {
+      setProducts([])
     }
   }
 
@@ -283,6 +305,46 @@ export function SettingsTab() {
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select target category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Not set</SelectItem>
+                {categories.map((category) => (
+                  <SelectItem key={category.id} value={category.id}>{category.displayName}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Default Target Product</Label>
+            <p className="text-sm text-muted-foreground">Pre-select this product when opening Prepare Mix</p>
+            <Select
+              value={settings.mixDefaultTargetProductSku || "none"}
+              onValueChange={(value) => updateSetting("mixDefaultTargetProductSku", value === "none" ? "" : value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select default product" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Not set</SelectItem>
+                {products
+                  .filter((p) => !settings.mixPreparationTargetCategoryId || p.categoryId === settings.mixPreparationTargetCategoryId)
+                  .map((p) => (
+                    <SelectItem key={p.sku} value={p.sku}>{p.name}</SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Default Source Ingredient Category</Label>
+            <p className="text-sm text-muted-foreground">Pre-select this source category when opening Prepare Mix</p>
+            <Select
+              value={settings.mixDefaultSourceCategoryId || "none"}
+              onValueChange={(value) => updateSetting("mixDefaultSourceCategoryId", value === "none" ? "" : value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select default source category" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Not set</SelectItem>

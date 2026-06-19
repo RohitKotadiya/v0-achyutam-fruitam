@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { InventorySection } from "@/components/admin/reports-tab"
-import { Loader2, ChevronDown, ChevronRight, ChevronUp, X } from "lucide-react"
+import { Loader2, ChevronDown, ChevronRight, ChevronUp, X, Pencil } from "lucide-react"
 
 interface Product {
   id: string
@@ -179,6 +179,7 @@ export function InventoryTab({
   const [mixBatches, setMixBatches] = useState<MixBatchRow[]>([])
   const [batchPreparedQtyDraft, setBatchPreparedQtyDraft] = useState<Record<string, string>>({})
   const [batchUpdateLoadingId, setBatchUpdateLoadingId] = useState<string | null>(null)
+  const [batchEditingId, setBatchEditingId] = useState<string | null>(null)
   const [isFetchingMixBatches, setIsFetchingMixBatches] = useState(false)
   const [mixBusyMessage, setMixBusyMessage] = useState("")
   const batchToday = toLocalDateInputValue(new Date())
@@ -701,6 +702,12 @@ export function InventoryTab({
       const data = await res.json()
       if (data.success) {
         setSettings(data.settings)
+        if (data.settings.mixDefaultTargetProductSku) {
+          setTargetMixSku((prev) => prev || data.settings.mixDefaultTargetProductSku)
+        }
+        if (data.settings.mixDefaultSourceCategoryId) {
+          setSourceCategoryId((prev) => prev || data.settings.mixDefaultSourceCategoryId)
+        }
       }
     } catch (error) {
       console.error("Error fetching settings:", error)
@@ -1128,10 +1135,11 @@ export function InventoryTab({
   }, [batchTotalPages])
 
   useEffect(() => {
+    if (!products.length) return
     if (targetMixSku && !targetMixProducts.some((product) => product.sku === targetMixSku)) {
       setTargetMixSku("")
     }
-  }, [targetMixSku, targetMixProducts])
+  }, [targetMixSku, targetMixProducts, products.length])
 
   useEffect(() => {
     const defaultFilter = targetCategoryId || "all"
@@ -1247,6 +1255,7 @@ export function InventoryTab({
       }
 
       toast({ title: "Success", description: "Batch prepared qty updated" })
+      setBatchEditingId(null)
       await fetchProducts()
       await fetchMixBatches({ resetDrafts: true })
     } catch (error) {
@@ -1504,28 +1513,28 @@ export function InventoryTab({
               ) : null}
 
               {prepareMixView === "entry" ? (
-              <form onSubmit={handlePrepareMix} className="space-y-4">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Target Mix Category Filter</Label>
+              <form onSubmit={handlePrepareMix} className="mx-auto max-w-xl space-y-3">
+                {/* Row 1: All 3 dropdowns */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Target Category</p>
                     <Select value={targetCategoryFilterId} onValueChange={setTargetCategoryFilterId}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Filter target category" />
+                        <SelectValue placeholder="All categories" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Categories</SelectItem>
+                        <SelectItem value="all">All categories</SelectItem>
                         {targetFilterCategories.map((category) => (
                           <SelectItem key={category.id} value={category.id}>{category.displayName}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
-
-                  <div className="space-y-2">
-                    <Label>Target Product</Label>
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Target Product</p>
                     <Select value={targetMixSku} onValueChange={setTargetMixSku}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select product" />
+                        <SelectValue placeholder="Select product..." />
                       </SelectTrigger>
                       <SelectContent>
                         <div className="p-2 border-b">
@@ -1549,9 +1558,8 @@ export function InventoryTab({
                       </SelectContent>
                     </Select>
                   </div>
-
-                  <div className="space-y-2">
-                    <Label>Source Ingredient Category</Label>
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Source Category</p>
                     <Select
                       value={sourceCategoryId}
                       onValueChange={(value) => {
@@ -1560,7 +1568,7 @@ export function InventoryTab({
                       }}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select source category" />
+                        <SelectValue placeholder="Select source category..." />
                       </SelectTrigger>
                       <SelectContent>
                         {categories
@@ -1571,76 +1579,108 @@ export function InventoryTab({
                       </SelectContent>
                     </Select>
                   </div>
-
-                  <div className="space-y-2">
-                    <Label>Prepared Quantity (target SKU units)</Label>
-                    <Input type="number" min="0.01" step="0.01" value={mixPreparedQuantity} onChange={(e) => setMixPreparedQuantity(e.target.value)} required />
-                    <p className="text-xs text-muted-foreground">Auto-defaults to total selected ingredient qty ({autoPreparedQuantity || "0"}). You can still edit it.</p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Search Ingredients</Label>
-                    <Input value={ingredientSearch} onChange={(e) => setIngredientSearch(e.target.value)} placeholder="Search by name or SKU" />
-                  </div>
                 </div>
 
+                {/* Ingredients section */}
                 <div className="rounded border">
-                  <div className="grid grid-cols-[1.3fr_90px_110px] gap-2 border-b bg-muted/50 px-3 py-2 text-xs font-medium">
+                  <div className="border-b px-3 py-2">
+                    <Input
+                      value={ingredientSearch}
+                      onChange={(e) => setIngredientSearch(e.target.value)}
+                      placeholder="Search by name..."
+                      className="h-8 border-0 p-0 shadow-none focus-visible:ring-0 text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_80px_132px] border-b bg-muted/50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     <span>Ingredient</span>
                     <span className="text-right">Available</span>
-                    <span className="text-right">Deduct Qty</span>
+                    <span className="pl-4 text-center">Deduct Qty</span>
                   </div>
-                  <div className="max-h-[320px] overflow-y-auto">
+                  <div className="max-h-[300px] overflow-y-auto">
                     {ingredientCandidates.length === 0 ? (
                       <div className="px-3 py-6 text-center text-sm text-muted-foreground">Select source category to load ingredients</div>
                     ) : (
-                      ingredientCandidates.map((product) => (
-                        <div key={product.sku} className="grid grid-cols-[1.3fr_90px_110px] gap-2 border-b px-3 py-2 text-sm">
-                          <div className="min-w-0">
+                      ingredientCandidates.map((product, idx) => {
+                        const qty = Number(ingredientQtyBySku[product.sku]) || 0
+                        return (
+                          <div key={product.sku} className={`grid grid-cols-[minmax(0,1fr)_80px_132px] items-center border-b px-3 py-2 text-sm last:border-b-0 ${idx % 2 === 1 ? "bg-muted/30" : ""}`}>
                             <div className="truncate font-medium">{product.name}</div>
+                            <div className="text-right text-muted-foreground">{(stockInfo[product.sku]?.currentStock || 0).toFixed(2)}</div>
+                            <div className="flex items-center justify-end gap-1 pl-4">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-7 w-7 shrink-0 text-base"
+                                onClick={() => setIngredientQtyBySku((prev) => ({ ...prev, [product.sku]: String(Math.max(0, qty - 1)) }))}
+                                disabled={qty <= 0}
+                              >−</Button>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={ingredientQtyBySku[product.sku] ?? "0"}
+                                onChange={(e) => setIngredientQtyBySku((prev) => ({ ...prev, [product.sku]: e.target.value }))}
+                                onBlur={(e) => {
+                                  const v = Math.max(0, Number(e.target.value) || 0)
+                                  setIngredientQtyBySku((prev) => ({ ...prev, [product.sku]: String(v) }))
+                                }}
+                                className="h-7 w-10 px-1 text-center tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-7 w-7 shrink-0 text-base"
+                                onClick={() => setIngredientQtyBySku((prev) => ({ ...prev, [product.sku]: String(qty + 1) }))}
+                              >+</Button>
+                            </div>
                           </div>
-                          <div className="text-right text-muted-foreground">{(stockInfo[product.sku]?.currentStock || 0).toFixed(2)}</div>
-                          <div>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={ingredientQtyBySku[product.sku] || ""}
-                              onChange={(e) => setIngredientQtyBySku((prev) => ({ ...prev, [product.sku]: e.target.value }))}
-                              className="h-8 text-right"
-                            />
-                          </div>
-                        </div>
-                      ))
+                        )
+                      })
                     )}
                   </div>
                 </div>
 
-                <div className="rounded border bg-muted/30 px-3 py-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span>Selected ingredients</span>
-                    <span className="font-medium">{selectedIngredients.length}</span>
+                {/* Prepared Qty + Remarks */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Prepared Qty</p>
+                    <Input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      placeholder="Auto from total"
+                      value={mixPreparedQuantity}
+                      onChange={(e) => setMixPreparedQuantity(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">Leave blank to auto-total</p>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span>Total deduction qty</span>
-                    <span className="font-medium">{selectedIngredients.reduce((sum, item) => sum + item.qty, 0).toFixed(2)}</span>
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Remarks (optional)</p>
+                    <Input placeholder="Add a note..." value={mixRemarks} onChange={(e) => setMixRemarks(e.target.value)} />
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Remarks (optional)</Label>
-                  <Input value={mixRemarks} onChange={(e) => setMixRemarks(e.target.value)} />
-                </div>
-
-                <div className="sticky bottom-0 z-10 flex flex-wrap gap-2 rounded-md border bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/85">
-                  <Button type="submit" disabled={loading}>{loading ? "Preparing..." : "Prepare Mix"}</Button>
-                  <Button type="button" variant="outline" onClick={() => setPrepareMixView("batches")}>Mix Batches</Button>
+                {/* Footer */}
+                <div className="flex items-center justify-between rounded border bg-muted/30 px-3 py-2">
+                  <div className="flex gap-4 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Selected </span>
+                      <span className="font-semibold">{selectedIngredients.length}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Total deducted </span>
+                      <span className="font-semibold">{selectedIngredients.reduce((sum, item) => sum + item.qty, 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <Button type="submit" disabled={loading}>{loading ? "Preparing..." : "Prepare mix"}</Button>
                 </div>
               </form>
               ) : (
               <div className="space-y-2 pt-0">
-                <div className="rounded border bg-muted/30 px-3 py-2">
-                  <div className="flex flex-wrap items-center gap-4 text-sm">
+                <div className="flex items-center gap-4 rounded border bg-muted/30 px-3 py-2 text-sm">
+                  <div className="flex items-center gap-4 flex-1">
                     <div>
                       <span className="text-muted-foreground">Total available open-batch stock:</span>{" "}
                       <span className="font-semibold">{openBatchStockSummary.totalAvailable.toFixed(2)}</span>
@@ -1650,9 +1690,8 @@ export function InventoryTab({
                       <span className="font-semibold">{openBatchStockSummary.productCount}</span>
                     </div>
                   </div>
-
                   {openBatchStockSummary.products.length > 0 ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
                       {openBatchStockSummary.products.map((p) => (
                         <div key={p.sku} className="rounded border bg-background px-2 py-1 text-xs">
                           <span className="font-medium">{p.name}</span>: {p.qty.toFixed(2)}
@@ -1722,22 +1761,23 @@ export function InventoryTab({
                       ))}
                     </select>
                   </div>
-                  <div className="grid grid-cols-[120px_2fr_90px_90px_90px_90px_110px_240px] gap-2 border-b bg-muted/50 px-3 py-2 text-xs font-medium">
-                    <span>Batch ID</span>
-                    <span>Open Batch Details</span>
-                    <span className="text-right">Prepared Units</span>
-                    <span className="text-right">Sold Units</span>
-                    <span className="text-right">Produced Remaining</span>
-                    <span className="text-right">Cost Remaining</span>
-                    <span className="text-right">Zero-Cost Remaining</span>
-                    <span className="text-center">Action</span>
+                  <div className="grid grid-cols-[120px_2fr_90px_90px_80px_80px_80px_200px] gap-2 border-b bg-muted/50 px-3 text-xs font-medium">
+                    <div className="row-start-1 col-start-1 py-2">Batch ID</div>
+                    <div className="row-start-1 col-start-2 py-2">Open Batch Details</div>
+                    <div className="row-start-1 col-start-3 py-2 text-right">Prepared</div>
+                    <div className="row-start-1 col-start-4 py-2 text-right">Sold</div>
+                    <div className="row-start-1 col-start-5 col-end-8 pt-2 pb-1 text-center border-b border-border/40">Remaining</div>
+                    <div className="row-start-1 col-start-8 py-2 text-center">Action</div>
+                    <div className="row-start-2 col-start-5 pb-2 text-right text-muted-foreground">Produced</div>
+                    <div className="row-start-2 col-start-6 pb-2 text-right text-muted-foreground">Cost</div>
+                    <div className="row-start-2 col-start-7 pb-2 text-right text-muted-foreground">Zero-Cost</div>
                   </div>
                   <div className="max-h-[360px] overflow-y-auto">
                     {paginatedBatches.length === 0 ? (
                       <div className="px-3 py-6 text-center text-sm text-muted-foreground">No batches found</div>
                     ) : (
                       paginatedBatches.map((batch) => (
-                        <div key={batch.id} className="grid grid-cols-[120px_2fr_90px_90px_90px_90px_110px_240px] gap-2 border-b px-3 py-2 text-sm">
+                        <div key={batch.id} className="grid grid-cols-[120px_2fr_90px_90px_80px_80px_80px_200px] gap-2 border-b px-3 py-2 text-sm items-center">
                           <div className="min-w-0 text-xs font-mono text-muted-foreground break-all">{batch.id}</div>
                           <div className="min-w-0">
                             <div className="truncate font-medium">{batch.targetName}</div>
@@ -1751,15 +1791,15 @@ export function InventoryTab({
                           </div>
                           <div className="text-right">{batch.producedUnits.toFixed(2)}</div>
                           <div className="text-right">{batch.soldUnits.toFixed(2)}</div>
-                          <div className="text-right">{batch.producedUnitsRemaining.toFixed(2)}</div>
+                          <div className="text-right font-medium">{batch.producedUnitsRemaining.toFixed(2)}</div>
                           <div className="text-right">{batch.costUnitsRemaining.toFixed(2)}</div>
                           <div className="text-right">{batch.zeroCostUnitsRemaining.toFixed(2)}</div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-center gap-2">
                             {batch.producedUnitsRemaining <= 0 ? (
                               <span className="inline-flex items-center rounded-full border border-muted-foreground/30 bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
                                 Closed
                               </span>
-                            ) : (
+                            ) : batchEditingId === batch.id ? (
                               <>
                                 <Input
                                   type="number"
@@ -1768,7 +1808,8 @@ export function InventoryTab({
                                   value={batchPreparedQtyDraft[batch.id] ?? String(batch.producedUnits)}
                                   onChange={(e) => setBatchPreparedQtyDraft((prev) => ({ ...prev, [batch.id]: e.target.value }))}
                                   disabled={batchUpdateLoadingId === batch.id}
-                                  className="h-8 text-right"
+                                  className="h-8 w-24 text-right"
+                                  autoFocus
                                 />
                                 <Button
                                   type="button"
@@ -1789,20 +1830,27 @@ export function InventoryTab({
                                   type="button"
                                   size="sm"
                                   variant="outline"
-                                  disabled={
-                                    batchUpdateLoadingId === batch.id ||
-                                    (batchPreparedQtyDraft[batch.id] ?? String(batch.producedUnits)) === String(batch.producedUnits)
-                                  }
-                                  onClick={() =>
-                                    setBatchPreparedQtyDraft((prev) => ({
-                                      ...prev,
-                                      [batch.id]: String(batch.producedUnits),
-                                    }))
-                                  }
+                                  disabled={batchUpdateLoadingId === batch.id}
+                                  onClick={() => {
+                                    setBatchEditingId(null)
+                                    setBatchPreparedQtyDraft((prev) => ({ ...prev, [batch.id]: String(batch.producedUnits) }))
+                                  }}
                                 >
-                                  Reset
+                                  Cancel
                                 </Button>
                               </>
+                            ) : (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setBatchEditingId(batch.id)
+                                  setBatchPreparedQtyDraft((prev) => ({ ...prev, [batch.id]: String(batch.producedUnits) }))
+                                }}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
                             )}
                           </div>
                         </div>

@@ -113,6 +113,7 @@ export async function POST(request: Request) {
             ${producedUnits},
             ${producedUnits},
             ${producedUnits},
+            ${producedUnits},
             ${totalIngredientCost},
             ${unitCostPerCostUnit},
             ${remarks || null},
