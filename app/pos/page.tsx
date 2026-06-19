@@ -1109,7 +1109,7 @@ export default function POSPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => window.open("/bills", "_blank", "noopener,noreferrer")}
+                onClick={() => window.open("/bills", "afm-bills")}
                 className="h-7 px-2 md:px-2.5"
               >
                 <FileText className="w-4 h-4 md:mr-1.5" />
@@ -1119,7 +1119,7 @@ export default function POSPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => window.open("/admin", "_blank", "noopener,noreferrer")}
+                onClick={() => window.open("/admin", "afm-admin")}
                 className="h-7 px-2 md:px-2.5"
               >
                 <Settings className="w-4 h-4 md:mr-1.5" />

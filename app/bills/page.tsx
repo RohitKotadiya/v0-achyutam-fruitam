@@ -367,7 +367,7 @@ export default function BillsPage() {
       if (data.success) {
         sessionStorage.setItem("editBill", JSON.stringify(data.bill))
         localStorage.setItem("editBill", JSON.stringify(data.bill))
-        window.open("/pos", "_blank", "noopener,noreferrer")
+        window.open("/pos", "afm-pos")
       } else {
         toast({ title: "Error", description: data.error || "Failed to load bill", variant: "destructive" })
       }
@@ -556,7 +556,7 @@ export default function BillsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.open("/pos", "_blank", "noopener,noreferrer")}
+                  onClick={() => window.open("/pos", "afm-pos")}
                   className="h-7 px-2 md:px-2.5 text-xs"
                 >
                   <ShoppingCart className="w-4 h-4 md:mr-1" />
@@ -566,7 +566,7 @@ export default function BillsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.open("/admin", "_blank", "noopener,noreferrer")}
+                  onClick={() => window.open("/admin", "afm-admin")}
                   className="h-7 px-2 md:px-2.5 text-xs"
                 >
                   <Settings className="w-4 h-4 md:mr-1" />

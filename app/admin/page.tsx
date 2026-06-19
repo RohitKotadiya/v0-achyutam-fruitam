@@ -84,7 +84,7 @@ export default function AdminPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => router.push("/bills")}
+                onClick={() => window.open("/bills", "afm-bills")}
                 className="h-7 px-2 md:px-2.5"
                 title="Bills"
               >
@@ -95,7 +95,7 @@ export default function AdminPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => router.push("/pos")}
+                onClick={() => window.open("/pos", "afm-pos")}
                 className="h-7 px-2 md:px-2.5"
                 title="POS"
               >
