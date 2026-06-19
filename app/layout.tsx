@@ -11,7 +11,7 @@ const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
 
 export const metadata: Metadata = {
-  title: "Achyutam Fruitam - POS",
+  title: "POS | Achyutam Fruitam",
   description: "Point of Sale system for Achyutam Fruitam fruit shop",
   generator: "v0.app",
   robots: {

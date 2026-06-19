@@ -367,7 +367,7 @@ export default function BillsPage() {
       if (data.success) {
         sessionStorage.setItem("editBill", JSON.stringify(data.bill))
         localStorage.setItem("editBill", JSON.stringify(data.bill))
-        window.open("/pos", "afm-pos")
+        window.open("/pos", "_blank", "noopener,noreferrer")
       } else {
         toast({ title: "Error", description: data.error || "Failed to load bill", variant: "destructive" })
       }
