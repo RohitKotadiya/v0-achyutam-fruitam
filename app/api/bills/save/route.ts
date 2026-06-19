@@ -52,7 +52,9 @@ export async function POST(request: Request) {
       }, { status: 400 })
     }
 
-    if (paymentMethod === "PENDING" && (!customerMobile || String(customerMobile).length !== 10)) {
+    const pendingMobileSetting = await prisma.systemConfig.findUnique({ where: { key: "pendingMobileRequired" } })
+    const pendingMobileRequired = pendingMobileSetting ? pendingMobileSetting.value !== "false" : true
+    if (paymentMethod === "PENDING" && pendingMobileRequired && (!customerMobile || String(customerMobile).length !== 10)) {
       return NextResponse.json(
         {
           success: false,
@@ -490,34 +492,63 @@ export async function POST(request: Request) {
         const istNow = new Date(Date.now() + IST_OFFSET_MS)
         const yy = String(istNow.getUTCFullYear()).slice(-2)
         const prefix = `${yy}-`
-        const lastBill = await tx.bill.findFirst({
-          where: { displayBillNo: { startsWith: prefix } },
-          orderBy: { displayBillNo: "desc" },
-          select: { displayBillNo: true },
-        })
-        const lastSeq = lastBill?.displayBillNo
-          ? parseInt(lastBill.displayBillNo.split("-")[1], 10)
-          : 0
-        const displayBillNo = `${prefix}${String(lastSeq + 1).padStart(3, "0")}`
+        
+        let displayBillNo: string | null = null
+        const maxRetries = 10
 
-        savedBill = await tx.bill.create({
-          data: {
-            customerName: customerNameFinal,
-            mobile: customerMobileFinal,
-            customerId: resolvedCustomerId,
-            paymentMethod: paymentMethod || "CASH",
-            cashAmount: cashAmount || null,
-            onlineAmount: onlineAmount || null,
-            remarks: remarks || null,
-            grandTotal: grandTotalNum,
-            totalCost,
-            totalProfit,
-            displayBillNo,
-            ...(requestedDateTime ? { dateTime: requestedDateTime, createdAt: requestedDateTime } : {}),
-          },
-        })
+        // Retry logic to handle race conditions
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          const maxDisplayBillNo = await tx.$queryRaw<Array<{ max_seq: number | null }>>(
+            Prisma.sql`
+              SELECT MAX(CAST(split_part("displayBillNo", '-', 2) AS INTEGER)) AS max_seq
+              FROM "Bill"
+              WHERE "displayBillNo" LIKE ${prefix} || '%'
+            `,
+          )
+
+          const currentMaxSeq = maxDisplayBillNo[0]?.max_seq ?? 0
+          const nextSeq = currentMaxSeq + 1 + attempt
+
+          // Use plain numeric suffix to match existing displayBillNo format
+          displayBillNo = `${prefix}${nextSeq}`
+
+          try {
+            savedBill = await tx.bill.create({
+              data: {
+                customerName: customerNameFinal,
+                mobile: customerMobileFinal,
+                customerId: resolvedCustomerId,
+                paymentMethod: paymentMethod || "CASH",
+                cashAmount: cashAmount || null,
+                onlineAmount: onlineAmount || null,
+                remarks: remarks || null,
+                grandTotal: grandTotalNum,
+                totalCost,
+                totalProfit,
+                displayBillNo,
+                ...(requestedDateTime ? { dateTime: requestedDateTime, createdAt: requestedDateTime } : {}),
+              },
+            })
+            break // Successfully created, exit retry loop
+          } catch (error) {
+            // Check if it's a unique constraint violation
+            if (
+              error instanceof Prisma.PrismaClientKnownRequestError &&
+              error.code === "P2002" &&
+              error.meta?.target?.includes("displayBillNo")
+            ) {
+              if (attempt === maxRetries - 1) {
+                throw new Error(`Failed to generate unique displayBillNo after ${maxRetries} attempts. Latest attempted: ${displayBillNo}`)
+              }
+              // Continue to next attempt with incremented sequence
+              continue
+            }
+            // Re-throw if it's a different error
+            throw error
+          }
+        }
       }
-
+      // changed this billno to fix  issue above 999 billdisplayno
       await tx.billItem.createMany({
         data: validItems.map((item) => {
           const requiredUnits = item.quantity * item.consumptionRate
