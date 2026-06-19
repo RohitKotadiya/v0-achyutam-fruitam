@@ -96,6 +96,7 @@ const parseBillDateTimeInput = (value: string): Date | null => {
 
 export default function POSPage() {
   const [mounted, setMounted] = useState(false)
+  const openedForEdit = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("edit") === "1"
 
   const { toast } = useToast()
   const { data: session } = useSession()
@@ -711,6 +712,10 @@ export default function POSPage() {
         title: editingBillNo ? "Edit cancelled" : "Bill cleared",
         description: editingBillNo ? "Returned to new bill mode" : "All items have been removed",
       })
+
+      if (editingBillNo && openedForEdit) {
+        setTimeout(() => window.close(), 1200)
+      }
     }
   }
 
@@ -940,6 +945,11 @@ export default function POSPage() {
             : `Bill #${savedDisplayBillNo ?? savedBillNo} saved!`,
           duration: 1000,
         })
+
+        if (isEditingBill && openedForEdit) {
+          setTimeout(() => window.close(), 1200)
+          return
+        }
 
         const savedBill = {
           billNo: savedBillNo,

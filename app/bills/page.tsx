@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useMemo } from "react"
+import React, { useState, useEffect, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -115,6 +115,7 @@ export default function BillsPage() {
   const [busyBillAction, setBusyBillAction] = useState<{ billNo: number; action: "edit" | "delete" } | null>(null)
   const [returnBill, setReturnBill] = useState<{ id: string; billNo: number; displayBillNo: string | null } | null>(null)
   const [expandedBillId, setExpandedBillId] = useState<string | null>(null)
+  const editWindowRef = useRef<Window | null>(null)
   // Collect Payment state
   const [showCollectDialog, setShowCollectDialog] = useState(false)
   const [selectedCollectBill, setSelectedCollectBill] = useState<Bill | null>(null)
@@ -360,6 +361,11 @@ export default function BillsPage() {
   }
 
   const editBill = async (billNo: number) => {
+    if (editWindowRef.current && !editWindowRef.current.closed) {
+      editWindowRef.current.focus()
+      toast({ title: "Edit in progress", description: "A bill is already open for editing. Complete or cancel it first.", variant: "destructive" })
+      return
+    }
     try {
       setBusyBillAction({ billNo, action: "edit" })
       const res = await fetch(`/api/bills/${billNo}`)
@@ -367,7 +373,7 @@ export default function BillsPage() {
       if (data.success) {
         sessionStorage.setItem("editBill", JSON.stringify(data.bill))
         localStorage.setItem("editBill", JSON.stringify(data.bill))
-        window.open("/pos", "_blank", "noopener,noreferrer")
+        editWindowRef.current = window.open("/pos?edit=1", "_blank") ?? null
       } else {
         toast({ title: "Error", description: data.error || "Failed to load bill", variant: "destructive" })
       }
