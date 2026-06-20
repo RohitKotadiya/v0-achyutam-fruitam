@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useToast } from "@/hooks/use-toast"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { InventoryTab } from "@/components/admin/inventory-tab"
 import { SKUTab } from "@/components/admin/sku-tab"
@@ -19,20 +20,21 @@ import { Button } from "@/components/ui/button"
 
 const ADMIN_ACTIVE_TAB_KEY = "admin-active-tab-v1"
 
-function openTab(path: string, windowName: string) {
+function openTab(path: string, windowName: string): boolean {
   const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   if (isPwa) {
-    if (!localStorage.getItem("pwa-open-" + windowName)) {
-      window.open(path, "_blank", "noopener,noreferrer")
-    }
+    if (localStorage.getItem("pwa-open-" + windowName)) return false
+    window.open(path, "_blank", "noopener,noreferrer")
   } else {
     window.open(path, windowName)
   }
+  return true
 }
 
 export default function AdminPage() {
   const { data: session } = useSession()
+  const { toast } = useToast()
   const [activeTab, setActiveTab] = useState("inventory")
   const [isActiveTabRestored, setIsActiveTabRestored] = useState(false)
   const [settings, setSettings] = useState<Record<string,string>>({ enableStockTransfer: "true" })
@@ -110,7 +112,7 @@ export default function AdminPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => openTab("/bills", "afm-bills")}
+                onClick={() => { if (!openTab("/bills", "afm-bills")) toast({ title: "Bills is already open", description: "Switch to the Bills window.", duration: 3000 }) }}
                 className="h-7 px-2 md:px-2.5"
                 title="Bills"
               >
@@ -121,7 +123,7 @@ export default function AdminPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => openTab("/pos", "afm-pos")}
+                onClick={() => { if (!openTab("/pos", "afm-pos")) toast({ title: "POS is already open", description: "Switch to the POS window.", duration: 3000 }) }}
                 className="h-7 px-2 md:px-2.5"
                 title="POS"
               >

@@ -93,16 +93,16 @@ function SortableHeader({
   )
 }
 
-function openTab(path: string, windowName: string) {
+function openTab(path: string, windowName: string): boolean {
   const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   if (isPwa) {
-    if (!localStorage.getItem("pwa-open-" + windowName)) {
-      window.open(path, "_blank", "noopener,noreferrer")
-    }
+    if (localStorage.getItem("pwa-open-" + windowName)) return false
+    window.open(path, "_blank", "noopener,noreferrer")
   } else {
     window.open(path, windowName)
   }
+  return true
 }
 
 export default function BillsPage() {
@@ -600,7 +600,7 @@ export default function BillsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => openTab("/pos", "afm-pos")}
+                  onClick={() => { if (!openTab("/pos", "afm-pos")) toast({ title: "POS is already open", description: "Switch to the POS window.", duration: 3000 }) }}
                   className="h-7 px-2 md:px-2.5 text-xs"
                 >
                   <ShoppingCart className="w-4 h-4 md:mr-1" />
@@ -610,7 +610,7 @@ export default function BillsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => openTab("/admin", "afm-admin")}
+                  onClick={() => { if (!openTab("/admin", "afm-admin")) toast({ title: "Admin is already open", description: "Switch to the Admin window.", duration: 3000 }) }}
                   className="h-7 px-2 md:px-2.5 text-xs"
                 >
                   <Settings className="w-4 h-4 md:mr-1" />

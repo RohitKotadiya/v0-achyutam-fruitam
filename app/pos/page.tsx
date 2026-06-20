@@ -94,16 +94,16 @@ const parseBillDateTimeInput = (value: string): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-function openTab(path: string, windowName: string) {
+function openTab(path: string, windowName: string): boolean {
   const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   if (isPwa) {
-    if (!localStorage.getItem("pwa-open-" + windowName)) {
-      window.open(path, "_blank", "noopener,noreferrer")
-    }
+    if (localStorage.getItem("pwa-open-" + windowName)) return false
+    window.open(path, "_blank", "noopener,noreferrer")
   } else {
     window.open(path, windowName)
   }
+  return true
 }
 
 export default function POSPage() {
@@ -167,12 +167,12 @@ export default function POSPage() {
   const [tempPrice, setTempPrice] = useState("")
 
   useEffect(() => {
-    localStorage.setItem("pwa-open-afm-pos", "1")
+    if (!openedForEdit) localStorage.setItem("pwa-open-afm-pos", "1")
     localStorage.removeItem("pwa-edit-in-progress")
     if (openedForEdit) localStorage.setItem("pwa-edit-in-progress", "1")
 
     const handleHide = () => {
-      localStorage.removeItem("pwa-open-afm-pos")
+      if (!openedForEdit) localStorage.removeItem("pwa-open-afm-pos")
       localStorage.removeItem("pwa-edit-in-progress")
     }
     window.addEventListener("pagehide", handleHide)
@@ -181,7 +181,7 @@ export default function POSPage() {
     return () => {
       window.removeEventListener("pagehide", handleHide)
       window.removeEventListener("beforeunload", handleHide)
-      localStorage.removeItem("pwa-open-afm-pos")
+      if (!openedForEdit) localStorage.removeItem("pwa-open-afm-pos")
       localStorage.removeItem("pwa-edit-in-progress")
     }
   }, [])
@@ -1151,7 +1151,7 @@ export default function POSPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => openTab("/bills", "afm-bills")}
+                onClick={() => { if (!openTab("/bills", "afm-bills")) toast({ title: "Bills is already open", description: "Switch to the Bills window.", duration: 3000 }) }}
                 className="h-7 px-2 md:px-2.5"
               >
                 <FileText className="w-4 h-4 md:mr-1.5" />
@@ -1161,7 +1161,7 @@ export default function POSPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => openTab("/admin", "afm-admin")}
+                onClick={() => { if (!openTab("/admin", "afm-admin")) toast({ title: "Admin is already open", description: "Switch to the Admin window.", duration: 3000 }) }}
                 className="h-7 px-2 md:px-2.5"
               >
                 <Settings className="w-4 h-4 md:mr-1.5" />
