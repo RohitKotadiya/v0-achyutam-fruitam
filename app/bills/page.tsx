@@ -116,6 +116,7 @@ export default function BillsPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [startDate, setStartDate] = useState(getTodayDateString())
   const [endDate, setEndDate] = useState(getTodayDateString())
+  const [openPwaWindows, setOpenPwaWindows] = useState<Set<string>>(new Set())
   const [paymentFilter, setPaymentFilter] = useState<string>("ALL")
   const [sortKey, setSortKey] = useState<SortKey>("billNo")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
@@ -143,8 +144,22 @@ export default function BillsPage() {
     localStorage.setItem("pwa-open-afm-bills", "1")
     const handleHide = () => localStorage.removeItem("pwa-open-afm-bills")
     window.addEventListener("pagehide", handleHide)
+
+    const readOpenWindows = () => {
+      const s = new Set<string>()
+      if (localStorage.getItem("pwa-open-afm-pos")) s.add("afm-pos")
+      if (localStorage.getItem("pwa-open-afm-admin")) s.add("afm-admin")
+      setOpenPwaWindows(s)
+    }
+    readOpenWindows()
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key?.startsWith("pwa-open-")) readOpenWindows()
+    }
+    window.addEventListener("storage", handleStorage)
+
     return () => {
       window.removeEventListener("pagehide", handleHide)
+      window.removeEventListener("storage", handleStorage)
       localStorage.removeItem("pwa-open-afm-bills")
     }
   }, [])
@@ -585,6 +600,7 @@ export default function BillsPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => openTab("/pos", "afm-pos")}
+                  disabled={openPwaWindows.has("afm-pos")}
                   className="h-7 px-2 md:px-2.5 text-xs"
                 >
                   <ShoppingCart className="w-4 h-4 md:mr-1" />
@@ -595,6 +611,7 @@ export default function BillsPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => openTab("/admin", "afm-admin")}
+                  disabled={openPwaWindows.has("afm-admin")}
                   className="h-7 px-2 md:px-2.5 text-xs"
                 >
                   <Settings className="w-4 h-4 md:mr-1" />
