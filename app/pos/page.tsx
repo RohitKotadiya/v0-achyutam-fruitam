@@ -114,7 +114,6 @@ export default function POSPage() {
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === "ADMIN"
 
-  const [openPwaWindows, setOpenPwaWindows] = useState<Set<string>>(new Set())
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeCategoryId, setActiveCategoryId] = useState<string>("all")
   const [searchQuery, setSearchQuery] = useState("")
@@ -171,27 +170,17 @@ export default function POSPage() {
     localStorage.setItem("pwa-open-afm-pos", "1")
     localStorage.removeItem("pwa-edit-in-progress")
     if (openedForEdit) localStorage.setItem("pwa-edit-in-progress", "1")
+
     const handleHide = () => {
       localStorage.removeItem("pwa-open-afm-pos")
       localStorage.removeItem("pwa-edit-in-progress")
     }
     window.addEventListener("pagehide", handleHide)
-
-    const readOpenWindows = () => {
-      const s = new Set<string>()
-      if (localStorage.getItem("pwa-open-afm-bills")) s.add("afm-bills")
-      if (localStorage.getItem("pwa-open-afm-admin")) s.add("afm-admin")
-      setOpenPwaWindows(s)
-    }
-    readOpenWindows()
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key?.startsWith("pwa-open-")) readOpenWindows()
-    }
-    window.addEventListener("storage", handleStorage)
+    window.addEventListener("beforeunload", handleHide)
 
     return () => {
       window.removeEventListener("pagehide", handleHide)
-      window.removeEventListener("storage", handleStorage)
+      window.removeEventListener("beforeunload", handleHide)
       localStorage.removeItem("pwa-open-afm-pos")
       localStorage.removeItem("pwa-edit-in-progress")
     }
@@ -1163,7 +1152,6 @@ export default function POSPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => openTab("/bills", "afm-bills")}
-                disabled={openPwaWindows.has("afm-bills")}
                 className="h-7 px-2 md:px-2.5"
               >
                 <FileText className="w-4 h-4 md:mr-1.5" />
@@ -1174,7 +1162,6 @@ export default function POSPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => openTab("/admin", "afm-admin")}
-                disabled={openPwaWindows.has("afm-admin")}
                 className="h-7 px-2 md:px-2.5"
               >
                 <Settings className="w-4 h-4 md:mr-1.5" />

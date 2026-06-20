@@ -36,31 +36,20 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState("inventory")
   const [isActiveTabRestored, setIsActiveTabRestored] = useState(false)
   const [settings, setSettings] = useState<Record<string,string>>({ enableStockTransfer: "true" })
-  const [openPwaWindows, setOpenPwaWindows] = useState<Set<string>>(new Set())
   const router = useRouter()
   const tabTriggerClass =
     "!flex-none h-10 rounded-none border-0 border-b-[3px] border-transparent bg-transparent px-3 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:border-x-0 data-[state=active]:border-t-0 data-[state=active]:border-b-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
 
   useEffect(() => {
     localStorage.setItem("pwa-open-afm-admin", "1")
+
     const handleHide = () => localStorage.removeItem("pwa-open-afm-admin")
     window.addEventListener("pagehide", handleHide)
-
-    const readOpenWindows = () => {
-      const s = new Set<string>()
-      if (localStorage.getItem("pwa-open-afm-pos")) s.add("afm-pos")
-      if (localStorage.getItem("pwa-open-afm-bills")) s.add("afm-bills")
-      setOpenPwaWindows(s)
-    }
-    readOpenWindows()
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key?.startsWith("pwa-open-")) readOpenWindows()
-    }
-    window.addEventListener("storage", handleStorage)
+    window.addEventListener("beforeunload", handleHide)
 
     return () => {
       window.removeEventListener("pagehide", handleHide)
-      window.removeEventListener("storage", handleStorage)
+      window.removeEventListener("beforeunload", handleHide)
       localStorage.removeItem("pwa-open-afm-admin")
     }
   }, [])
@@ -122,7 +111,6 @@ export default function AdminPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => openTab("/bills", "afm-bills")}
-                disabled={openPwaWindows.has("afm-bills")}
                 className="h-7 px-2 md:px-2.5"
                 title="Bills"
               >
@@ -134,7 +122,6 @@ export default function AdminPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => openTab("/pos", "afm-pos")}
-                disabled={openPwaWindows.has("afm-pos")}
                 className="h-7 px-2 md:px-2.5"
                 title="POS"
               >
