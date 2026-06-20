@@ -98,15 +98,16 @@ function openTab(path: string, windowName: string) {
   const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   if (isPwa) {
-    // Send focus request to existing window via BroadcastChannel
     const ch = new BroadcastChannel(windowName)
     ch.postMessage("focus")
     ch.close()
-    // Open new PWA window only if none is open (listener responds with "alive")
-    // Use a short race: if no ack in 80ms, open new window
     const ackCh = new BroadcastChannel(windowName + "-ack")
     let acked = false
-    ackCh.onmessage = () => { acked = true; ackCh.close() }
+    ackCh.onmessage = () => {
+      acked = true
+      ackCh.close()
+      window.location.href = path
+    }
     setTimeout(() => {
       ackCh.close()
       if (!acked) window.open(path, "_blank", "noopener,noreferrer")

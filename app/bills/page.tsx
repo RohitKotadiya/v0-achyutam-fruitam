@@ -102,7 +102,11 @@ function openTab(path: string, windowName: string) {
     ch.close()
     const ackCh = new BroadcastChannel(windowName + "-ack")
     let acked = false
-    ackCh.onmessage = () => { acked = true; ackCh.close() }
+    ackCh.onmessage = () => {
+      acked = true
+      ackCh.close()
+      window.location.href = path
+    }
     setTimeout(() => {
       ackCh.close()
       if (!acked) window.open(path, "_blank", "noopener,noreferrer")
