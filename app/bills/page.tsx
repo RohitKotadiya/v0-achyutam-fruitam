@@ -97,20 +97,11 @@ function openTab(path: string, windowName: string) {
   const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   if (isPwa) {
-    const ch = new BroadcastChannel(windowName)
-    ch.postMessage("focus")
-    ch.close()
-    const ackCh = new BroadcastChannel(windowName + "-ack")
-    let acked = false
-    ackCh.onmessage = () => {
-      acked = true
-      ackCh.close()
+    if (localStorage.getItem("pwa-open-" + windowName)) {
       window.location.href = path
+    } else {
+      window.open(path, "_blank", "noopener,noreferrer")
     }
-    setTimeout(() => {
-      ackCh.close()
-      if (!acked) window.open(path, "_blank", "noopener,noreferrer")
-    }, 80)
   } else {
     window.open(path, windowName)
   }
@@ -151,16 +142,13 @@ export default function BillsPage() {
   const { toast } = useToast()
 
   useEffect(() => {
-    const ch = new BroadcastChannel("afm-bills")
-    ch.onmessage = (e) => {
-      if (e.data === "focus") {
-        window.focus()
-        const ack = new BroadcastChannel("afm-bills-ack")
-        ack.postMessage("alive")
-        ack.close()
-      }
+    localStorage.setItem("pwa-open-afm-bills", "1")
+    const handleHide = () => localStorage.removeItem("pwa-open-afm-bills")
+    window.addEventListener("pagehide", handleHide)
+    return () => {
+      window.removeEventListener("pagehide", handleHide)
+      localStorage.removeItem("pwa-open-afm-bills")
     }
-    return () => ch.close()
   }, [])
 
   useEffect(() => {

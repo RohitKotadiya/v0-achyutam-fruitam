@@ -23,20 +23,11 @@ function openTab(path: string, windowName: string) {
   const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   if (isPwa) {
-    const ch = new BroadcastChannel(windowName)
-    ch.postMessage("focus")
-    ch.close()
-    const ackCh = new BroadcastChannel(windowName + "-ack")
-    let acked = false
-    ackCh.onmessage = () => {
-      acked = true
-      ackCh.close()
+    if (localStorage.getItem("pwa-open-" + windowName)) {
       window.location.href = path
+    } else {
+      window.open(path, "_blank", "noopener,noreferrer")
     }
-    setTimeout(() => {
-      ackCh.close()
-      if (!acked) window.open(path, "_blank", "noopener,noreferrer")
-    }, 80)
   } else {
     window.open(path, windowName)
   }
@@ -52,16 +43,13 @@ export default function AdminPage() {
     "!flex-none h-10 rounded-none border-0 border-b-[3px] border-transparent bg-transparent px-3 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:border-x-0 data-[state=active]:border-t-0 data-[state=active]:border-b-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
 
   useEffect(() => {
-    const ch = new BroadcastChannel("afm-admin")
-    ch.onmessage = (e) => {
-      if (e.data === "focus") {
-        window.focus()
-        const ack = new BroadcastChannel("afm-admin-ack")
-        ack.postMessage("alive")
-        ack.close()
-      }
+    localStorage.setItem("pwa-open-afm-admin", "1")
+    const handleHide = () => localStorage.removeItem("pwa-open-afm-admin")
+    window.addEventListener("pagehide", handleHide)
+    return () => {
+      window.removeEventListener("pagehide", handleHide)
+      localStorage.removeItem("pwa-open-afm-admin")
     }
-    return () => ch.close()
   }, [])
 
   useEffect(() => {
