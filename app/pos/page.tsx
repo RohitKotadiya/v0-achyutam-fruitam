@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { QuantityModal } from "@/components/pos/quantity-modal"
 import { MixDishModal } from "@/components/pos/mix-dish-modal"
 import { useToast } from "@/hooks/use-toast"
-import { generateWhatsAppMessage, openWhatsAppWithFallback } from "@/lib/whatsapp"
+import { generateWhatsAppMessage, openWhatsAppWithFallback, sendWhatsAppViaAPI } from "@/lib/whatsapp"
 import { generatePrintHTML } from "@/lib/print"
 import { canUseSilentThermalPrint, printBillSilently } from "@/lib/thermal-print"
 import { useSession, signOut } from "next-auth/react"
@@ -883,15 +883,21 @@ export default function POSPage() {
         remarks: bill.remarks,
       })
 
-      openWhatsAppWithFallback(mobile, whatsappMessage, {
-        onFallback: () => {
-          toast({
-            title: "Opening WhatsApp Web",
-            description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
-            duration: 1600,
-          })
-        },
-      })
+      const sent = await sendWhatsAppViaAPI(mobile, whatsappMessage)
+      if (sent) {
+        toast({ title: "WhatsApp sent!", description: "Message delivered to customer" })
+      } else {
+        openWhatsAppWithFallback(mobile, whatsappMessage, {
+          keepPageOpen: true,
+          onFallback: () => {
+            toast({
+              title: "Opening WhatsApp Web",
+              description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
+              duration: 1600,
+            })
+          },
+        })
+      }
     } finally {
       setBillActionLoading(null)
     }
@@ -1015,15 +1021,22 @@ export default function POSPage() {
             remarks: savedBill.remarks,
             displayBillNo: savedBill.displayBillNo,
           })
-          openWhatsAppWithFallback(savedBill.customerMobile || "", whatsappMessage, {
-            onFallback: () => {
-              toast({
-                title: "Opening WhatsApp Web",
-                description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
-                duration: 1600,
-              })
-            },
-          })
+          const mobile = savedBill.customerMobile || ""
+          const sent = await sendWhatsAppViaAPI(mobile, whatsappMessage)
+          if (sent) {
+            toast({ title: "WhatsApp sent!", description: "Message delivered to customer" })
+          } else {
+            openWhatsAppWithFallback(mobile, whatsappMessage, {
+              keepPageOpen: true,
+              onFallback: () => {
+                toast({
+                  title: "Opening WhatsApp Web",
+                  description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
+                  duration: 1600,
+                })
+              },
+            })
+          }
         }
 
         // Clear bill
