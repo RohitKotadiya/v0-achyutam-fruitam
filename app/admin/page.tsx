@@ -19,6 +19,25 @@ import { Button } from "@/components/ui/button"
 
 const ADMIN_ACTIVE_TAB_KEY = "admin-active-tab-v1"
 
+function openTab(path: string, windowName: string) {
+  const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true
+  if (isPwa) {
+    const ch = new BroadcastChannel(windowName)
+    ch.postMessage("focus")
+    ch.close()
+    const ackCh = new BroadcastChannel(windowName + "-ack")
+    let acked = false
+    ackCh.onmessage = () => { acked = true; ackCh.close() }
+    setTimeout(() => {
+      ackCh.close()
+      if (!acked) window.open(path, "_blank", "noopener,noreferrer")
+    }, 80)
+  } else {
+    window.open(path, windowName)
+  }
+}
+
 export default function AdminPage() {
   const { data: session } = useSession()
   const [activeTab, setActiveTab] = useState("inventory")
@@ -27,6 +46,19 @@ export default function AdminPage() {
   const router = useRouter()
   const tabTriggerClass =
     "!flex-none h-10 rounded-none border-0 border-b-[3px] border-transparent bg-transparent px-3 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:border-x-0 data-[state=active]:border-t-0 data-[state=active]:border-b-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+
+  useEffect(() => {
+    const ch = new BroadcastChannel("afm-admin")
+    ch.onmessage = (e) => {
+      if (e.data === "focus") {
+        window.focus()
+        const ack = new BroadcastChannel("afm-admin-ack")
+        ack.postMessage("alive")
+        ack.close()
+      }
+    }
+    return () => ch.close()
+  }, [])
 
   useEffect(() => {
     async function loadSettings() {
@@ -84,7 +116,7 @@ export default function AdminPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => window.open("/bills", "afm-bills")}
+                onClick={() => openTab("/bills", "afm-bills")}
                 className="h-7 px-2 md:px-2.5"
                 title="Bills"
               >
@@ -95,7 +127,7 @@ export default function AdminPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => window.open("/pos", "afm-pos")}
+                onClick={() => openTab("/pos", "afm-pos")}
                 className="h-7 px-2 md:px-2.5"
                 title="POS"
               >

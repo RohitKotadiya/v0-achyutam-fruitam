@@ -93,6 +93,25 @@ function SortableHeader({
   )
 }
 
+function openTab(path: string, windowName: string) {
+  const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true
+  if (isPwa) {
+    const ch = new BroadcastChannel(windowName)
+    ch.postMessage("focus")
+    ch.close()
+    const ackCh = new BroadcastChannel(windowName + "-ack")
+    let acked = false
+    ackCh.onmessage = () => { acked = true; ackCh.close() }
+    setTimeout(() => {
+      ackCh.close()
+      if (!acked) window.open(path, "_blank", "noopener,noreferrer")
+    }, 80)
+  } else {
+    window.open(path, windowName)
+  }
+}
+
 export default function BillsPage() {
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === "ADMIN"
@@ -126,6 +145,19 @@ export default function BillsPage() {
   })
   const [collecting, setCollecting] = useState(false)
   const { toast } = useToast()
+
+  useEffect(() => {
+    const ch = new BroadcastChannel("afm-bills")
+    ch.onmessage = (e) => {
+      if (e.data === "focus") {
+        window.focus()
+        const ack = new BroadcastChannel("afm-bills-ack")
+        ack.postMessage("alive")
+        ack.close()
+      }
+    }
+    return () => ch.close()
+  }, [])
 
   useEffect(() => {
     loadBills()
@@ -562,7 +594,7 @@ export default function BillsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.open("/pos", "afm-pos")}
+                  onClick={() => openTab("/pos", "afm-pos")}
                   className="h-7 px-2 md:px-2.5 text-xs"
                 >
                   <ShoppingCart className="w-4 h-4 md:mr-1" />
@@ -572,7 +604,7 @@ export default function BillsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.open("/admin", "afm-admin")}
+                  onClick={() => openTab("/admin", "afm-admin")}
                   className="h-7 px-2 md:px-2.5 text-xs"
                 >
                   <Settings className="w-4 h-4 md:mr-1" />

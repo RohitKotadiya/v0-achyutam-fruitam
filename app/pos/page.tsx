@@ -94,6 +94,28 @@ const parseBillDateTimeInput = (value: string): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
+function openTab(path: string, windowName: string) {
+  const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true
+  if (isPwa) {
+    // Send focus request to existing window via BroadcastChannel
+    const ch = new BroadcastChannel(windowName)
+    ch.postMessage("focus")
+    ch.close()
+    // Open new PWA window only if none is open (listener responds with "alive")
+    // Use a short race: if no ack in 80ms, open new window
+    const ackCh = new BroadcastChannel(windowName + "-ack")
+    let acked = false
+    ackCh.onmessage = () => { acked = true; ackCh.close() }
+    setTimeout(() => {
+      ackCh.close()
+      if (!acked) window.open(path, "_blank", "noopener,noreferrer")
+    }, 80)
+  } else {
+    window.open(path, windowName)
+  }
+}
+
 export default function POSPage() {
   const [mounted, setMounted] = useState(false)
   const openedForEdit = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("edit") === "1"
@@ -153,6 +175,19 @@ export default function POSPage() {
 
   const [editingPriceItemId, setEditingPriceItemId] = useState<string | null>(null)
   const [tempPrice, setTempPrice] = useState("")
+
+  useEffect(() => {
+    const ch = new BroadcastChannel("afm-pos")
+    ch.onmessage = (e) => {
+      if (e.data === "focus") {
+        window.focus()
+        const ack = new BroadcastChannel("afm-pos-ack")
+        ack.postMessage("alive")
+        ack.close()
+      }
+    }
+    return () => ch.close()
+  }, [])
 
   useEffect(() => {
     setMounted(true)
@@ -1119,7 +1154,7 @@ export default function POSPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => window.open("/bills", "afm-bills")}
+                onClick={() => openTab("/bills", "afm-bills")}
                 className="h-7 px-2 md:px-2.5"
               >
                 <FileText className="w-4 h-4 md:mr-1.5" />
@@ -1129,7 +1164,7 @@ export default function POSPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => window.open("/admin", "afm-admin")}
+                onClick={() => openTab("/admin", "afm-admin")}
                 className="h-7 px-2 md:px-2.5"
               >
                 <Settings className="w-4 h-4 md:mr-1.5" />
