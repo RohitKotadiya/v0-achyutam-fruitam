@@ -421,7 +421,8 @@ function CashAdjustmentsSection() {
   const [error, setError] = useState("");
 
   const [allReasons, setAllReasons] = useState<string[]>([]);
-  const fetchAdjustments = useCallback(async (filters = undefined, pageArg = undefined, pageSizeArg = undefined, sortF = undefined, sortD = undefined) => {
+  type AdjustmentFilters = { reason: string; user: string; dateFrom: string; dateTo: string; rangePreset: string }
+  const fetchAdjustments = useCallback(async (filters?: AdjustmentFilters, pageArg?: number, pageSizeArg?: number, sortF?: string, sortD?: string) => {
     setLoading(true);
     setError("");
     try {
@@ -453,7 +454,7 @@ function CashAdjustmentsSection() {
   useEffect(() => { fetchAdjustments(undefined, 1, pageSize, sortField, sortDir); }, [sortField, sortDir]);
 
   const reasons = allReasons;
-  const users = useMemo(() => Array.from(new Set(adjustments.map(a => a.user?.name || a.userId))).filter(Boolean), [adjustments]);
+  const users = useMemo(() => Array.from(new Set(adjustments.map(a => a.user?.name || a.userId))).filter((u): u is string => Boolean(u)), [adjustments]);
 
   // Calculate total pages
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -883,6 +884,28 @@ function CashRegisterSection() {
   )
 }
 
+type CashRegisterData = {
+  businessDate?: string
+  register: {
+    id: string
+    date: string
+    openingBalance: number
+    actualClosing: number | null
+    notes: string | null
+    closedAt: string | null
+    createdAt: string
+    updatedAt: string
+  } | null
+  summary: {
+    openingBalance: number
+    cashIn: { sales: number; collections: number; transfersIn: number; total: number }
+    cashOut: { expenses: number; transfersOut: number; billReturnRefund: number; total: number }
+    expectedClosing: number
+    actualClosing: number | null
+    difference: number | null
+  }
+}
+
 function CashRegisterDailySection({
   innerTab,
   setInnerTab,
@@ -1276,7 +1299,7 @@ function CashRegisterDailySection({
                   <span>{formatCurrency(s.cashIn.sales)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Collection (from customer dues):</span>
+                  <span className="text-muted-foreground">Collection (from customer's past dues):</span>
                   <span>{formatCurrency(s.cashIn.collections)}</span>
                 </div>
                 <div className="flex justify-between">
