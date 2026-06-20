@@ -169,6 +169,7 @@ export default function POSPage() {
 
   useEffect(() => {
     localStorage.setItem("pwa-open-afm-pos", "1")
+    localStorage.removeItem("pwa-edit-in-progress")
     if (openedForEdit) localStorage.setItem("pwa-edit-in-progress", "1")
     const handleHide = () => {
       localStorage.removeItem("pwa-open-afm-pos")
