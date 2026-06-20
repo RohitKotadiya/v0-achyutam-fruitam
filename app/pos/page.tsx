@@ -98,9 +98,7 @@ function openTab(path: string, windowName: string) {
   const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   if (isPwa) {
-    if (localStorage.getItem("pwa-open-" + windowName)) {
-      window.location.href = path
-    } else {
+    if (!localStorage.getItem("pwa-open-" + windowName)) {
       window.open(path, "_blank", "noopener,noreferrer")
     }
   } else {
