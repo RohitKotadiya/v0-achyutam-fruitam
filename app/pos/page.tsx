@@ -169,7 +169,11 @@ export default function POSPage() {
 
   useEffect(() => {
     localStorage.setItem("pwa-open-afm-pos", "1")
-    const handleHide = () => localStorage.removeItem("pwa-open-afm-pos")
+    if (openedForEdit) localStorage.setItem("pwa-edit-in-progress", "1")
+    const handleHide = () => {
+      localStorage.removeItem("pwa-open-afm-pos")
+      localStorage.removeItem("pwa-edit-in-progress")
+    }
     window.addEventListener("pagehide", handleHide)
 
     const readOpenWindows = () => {
@@ -188,6 +192,7 @@ export default function POSPage() {
       window.removeEventListener("pagehide", handleHide)
       window.removeEventListener("storage", handleStorage)
       localStorage.removeItem("pwa-open-afm-pos")
+      localStorage.removeItem("pwa-edit-in-progress")
     }
   }, [])
 

@@ -400,7 +400,7 @@ export default function BillsPage() {
   const editBill = async (billNo: number) => {
     const isPwa = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true
     if (isPwa) {
-      if (localStorage.getItem("pwa-open-afm-pos")) {
+      if (localStorage.getItem("pwa-edit-in-progress")) {
         toast({ title: "Edit in progress", description: "A bill is already open for editing. Complete or cancel it first.", variant: "destructive" })
         return
       }
