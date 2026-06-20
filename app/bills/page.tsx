@@ -398,10 +398,18 @@ export default function BillsPage() {
   }
 
   const editBill = async (billNo: number) => {
-    if (editWindowRef.current && !editWindowRef.current.closed) {
-      editWindowRef.current.focus()
-      toast({ title: "Edit in progress", description: "A bill is already open for editing. Complete or cancel it first.", variant: "destructive" })
-      return
+    const isPwa = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true
+    if (isPwa) {
+      if (localStorage.getItem("pwa-open-afm-pos")) {
+        toast({ title: "Edit in progress", description: "A bill is already open for editing. Complete or cancel it first.", variant: "destructive" })
+        return
+      }
+    } else {
+      if (editWindowRef.current && !editWindowRef.current.closed) {
+        editWindowRef.current.focus()
+        toast({ title: "Edit in progress", description: "A bill is already open for editing. Complete or cancel it first.", variant: "destructive" })
+        return
+      }
     }
     try {
       setBusyBillAction({ billNo, action: "edit" })
@@ -410,7 +418,11 @@ export default function BillsPage() {
       if (data.success) {
         sessionStorage.setItem("editBill", JSON.stringify(data.bill))
         localStorage.setItem("editBill", JSON.stringify(data.bill))
-        editWindowRef.current = window.open("/pos?edit=1", "_blank") ?? null
+        if (isPwa) {
+          window.open("/pos?edit=1", "_blank", "noopener,noreferrer")
+        } else {
+          editWindowRef.current = window.open("/pos?edit=1", "_blank") ?? null
+        }
       } else {
         toast({ title: "Error", description: data.error || "Failed to load bill", variant: "destructive" })
       }

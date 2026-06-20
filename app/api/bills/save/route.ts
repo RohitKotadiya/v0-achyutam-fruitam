@@ -368,6 +368,55 @@ export async function POST(request: Request) {
       const batchManagedProductIdSet = new Set(preparedProductRows.map((row) => row.targetProductId))
       const batchManagedProductIds = productIds.filter((id) => batchManagedProductIdSet.has(id))
 
+      // Restore mix batch units for products removed or reduced during edit
+      if (existingBill && existingBillRequiredByProduct.size > 0) {
+        const oldProductIds = Array.from(existingBillRequiredByProduct.keys())
+        const oldBatchRows = await tx.$queryRaw<Array<{ targetProductId: string }>>(
+          Prisma.sql`
+            SELECT DISTINCT "targetProductId"
+            FROM "MixPreparation"
+            WHERE "targetProductId" IN (${Prisma.join(oldProductIds)})
+          `
+        )
+        const oldBatchSet = new Set(oldBatchRows.map((r) => r.targetProductId))
+
+        for (const [productId, oldUnits] of existingBillRequiredByProduct) {
+          if (!oldBatchSet.has(productId)) continue
+          const newUnits = requiredByProduct.get(productId) || 0
+          const unitsToRestore = oldUnits - newUnits
+          if (unitsToRestore <= 0) continue
+
+          let remaining = unitsToRestore
+          const batches = await tx.$queryRaw<Array<{
+            id: string
+            producedUnits: number
+            producedUnitsRemaining: number
+          }>>(
+            Prisma.sql`
+              SELECT "id", "producedUnits", "producedUnitsRemaining"
+              FROM "MixPreparation"
+              WHERE "targetProductId" = ${productId}
+              ORDER BY "date" DESC, "createdAt" DESC
+            `
+          )
+          for (const batch of batches) {
+            if (remaining <= 0) break
+            const consumed = Number(batch.producedUnits) - Number(batch.producedUnitsRemaining)
+            if (consumed <= 0) continue
+            const restore = Math.min(remaining, consumed)
+            await tx.$executeRaw`
+              UPDATE "MixPreparation"
+              SET
+                "producedUnitsRemaining" = "producedUnitsRemaining" + ${restore},
+                "costUnitsRemaining" = "costUnitsRemaining" + ${restore},
+                "isOpen" = true
+              WHERE "id" = ${batch.id}
+            `
+            remaining -= restore
+          }
+        }
+      }
+
       for (const item of validItems) {
         const requiredUnits = item.quantity * item.consumptionRate
         if (!batchManagedProductIdSet.has(item.productId)) {
