@@ -72,6 +72,19 @@ export function generateWhatsAppMessage(billNo: number, billData: any) {
   return lines.join("\n")
 }
 
+export async function sendWhatsAppViaAPI(mobile: string, message: string): Promise<boolean> {
+  try {
+    const res = await fetch("/api/whatsapp/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: mobile, message }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 export function getWhatsAppUrl(mobile: string, message: string) {
   const cleanMobile = mobile.replace(/^(\+91|91)/, "").replace(/\s+/g, "")
   return `https://wa.me/91${cleanMobile}?text=${encodeURIComponent(message)}`
