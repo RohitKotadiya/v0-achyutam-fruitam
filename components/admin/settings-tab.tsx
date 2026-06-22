@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useState, useEffect } from "react"
 import { useToast } from "@/hooks/use-toast"
+import { Smartphone } from "lucide-react"
 
 interface CategoryOption {
   id: string
@@ -258,6 +259,18 @@ export function SettingsTab() {
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2 border-green-500 text-green-700 hover:bg-green-50"
+          onClick={() => window.open("/api/whatsapp/qr", "_blank", "noopener,noreferrer")}
+        >
+          <Smartphone className="h-4 w-4" />
+          Connect WhatsApp
+        </Button>
+      </div>
+
       {/* Feature Toggles */}
       <Card>
         <CardHeader>
