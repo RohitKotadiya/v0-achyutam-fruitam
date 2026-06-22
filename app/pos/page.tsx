@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { QuantityModal } from "@/components/pos/quantity-modal"
 import { MixDishModal } from "@/components/pos/mix-dish-modal"
 import { useToast } from "@/hooks/use-toast"
-import { generateWhatsAppMessage, openWhatsAppWithFallback, sendWhatsAppViaAPI } from "@/lib/whatsapp"
+import { generateWhatsAppMessage, generateBillLinkMessage, openWhatsAppWithFallback, sendWhatsAppViaAPI } from "@/lib/whatsapp"
 import { generatePrintHTML } from "@/lib/print"
 import { canUseSilentThermalPrint, printBillSilently } from "@/lib/thermal-print"
 import { useSession, signOut } from "next-auth/react"
@@ -874,14 +874,10 @@ export default function POSPage() {
 
     setBillActionLoading("whatsapp")
     try {
-      const whatsappMessage = generateWhatsAppMessage(bill.billNo, {
-        customerName: bill.customerName,
-        customerMobile: mobile,
-        grandTotal: bill.grandTotal,
-        lineItems: bill.lineItems,
-        paymentMethod: bill.paymentMethod,
-        remarks: bill.remarks,
-      })
+      const useLink = posSettings.whatsappMessageType === "link"
+      const whatsappMessage = useLink
+        ? generateBillLinkMessage(bill.billNo, { customerName: bill.customerName, grandTotal: bill.grandTotal, paymentMethod: bill.paymentMethod, displayBillNo: bill.displayBillNo }, posSettings.shopName)
+        : generateWhatsAppMessage(bill.billNo, { customerName: bill.customerName, customerMobile: mobile, grandTotal: bill.grandTotal, lineItems: bill.lineItems, paymentMethod: bill.paymentMethod, remarks: bill.remarks })
 
       const sent = await sendWhatsAppViaAPI(mobile, whatsappMessage)
       if (sent) {
@@ -1012,16 +1008,11 @@ export default function POSPage() {
             openPrintDialogInPage(printHTML)
           }
         } else if (afterSave === "whatsapp") {
-          const whatsappMessage = generateWhatsAppMessage(savedBill.billNo, {
-            customerName: savedBill.customerName,
-            customerMobile: savedBill.customerMobile || "",
-            grandTotal: savedBill.grandTotal,
-            lineItems: savedBill.lineItems,
-            paymentMethod: savedBill.paymentMethod,
-            remarks: savedBill.remarks,
-            displayBillNo: savedBill.displayBillNo,
-          })
           const mobile = savedBill.customerMobile || ""
+          const useLink = posSettings.whatsappMessageType === "link"
+          const whatsappMessage = useLink
+            ? generateBillLinkMessage(savedBill.billNo, { customerName: savedBill.customerName, grandTotal: savedBill.grandTotal, paymentMethod: savedBill.paymentMethod, displayBillNo: savedBill.displayBillNo }, posSettings.shopName)
+            : generateWhatsAppMessage(savedBill.billNo, { customerName: savedBill.customerName, customerMobile: mobile, grandTotal: savedBill.grandTotal, lineItems: savedBill.lineItems, paymentMethod: savedBill.paymentMethod, remarks: savedBill.remarks, displayBillNo: savedBill.displayBillNo })
           const sent = await sendWhatsAppViaAPI(mobile, whatsappMessage)
           if (sent) {
             toast({ title: "WhatsApp sent!", description: "Message delivered to customer" })

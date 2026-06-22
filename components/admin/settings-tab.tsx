@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useToast } from "@/hooks/use-toast"
 import { Smartphone } from "lucide-react"
 
@@ -53,6 +53,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   businessDayCutoffHour: "0",
   inventoryUndoSeconds: "120", // Time window in seconds for undoing inventory additions (default: 2 minutes)
   pendingMobileRequired: "true",
+  whatsappMessageType: "text",
 }
 
 export function SettingsTab() {
@@ -72,13 +73,25 @@ export function SettingsTab() {
   const [userLoading, setUserLoading] = useState(false)
   const [seedLoading, setSeedLoading] = useState(false)
   const [seedResults, setSeedResults] = useState<string[] | null>(null)
+  const [waStatus, setWaStatus] = useState<"checking" | "connected" | "disconnected" | "not_configured" | "unreachable">("checking")
+
+  const fetchWaStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/whatsapp/status")
+      const data = await res.json()
+      setWaStatus(data.status === "connected" ? "connected" : data.status === "not_configured" ? "not_configured" : data.status === "unreachable" ? "unreachable" : "disconnected")
+    } catch {
+      setWaStatus("unreachable")
+    }
+  }, [])
 
   useEffect(() => {
     fetchSettings()
     fetchCategories()
     fetchUsers()
     fetchProducts()
-  }, [])
+    fetchWaStatus()
+  }, [fetchWaStatus])
 
   const fetchCategories = async () => {
     try {
@@ -257,19 +270,67 @@ export function SettingsTab() {
     return <div className="text-center py-8">Loading settings...</div>
   }
 
+  const waStatusLabel = {
+    checking: { text: "Checking...", color: "text-muted-foreground" },
+    connected: { text: "Connected", color: "text-green-600" },
+    disconnected: { text: "Disconnected", color: "text-destructive" },
+    not_configured: { text: "Not configured (set env vars)", color: "text-amber-600" },
+    unreachable: { text: "Server unreachable", color: "text-destructive" },
+  }[waStatus]
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-end">
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2 border-green-500 text-green-700 hover:bg-green-50"
-          onClick={() => window.open("/api/whatsapp/qr", "_blank", "noopener,noreferrer")}
-        >
-          <Smartphone className="h-4 w-4" />
-          Connect WhatsApp
-        </Button>
-      </div>
+
+      {/* WhatsApp */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Smartphone className="h-5 w-5 text-green-600" />
+            WhatsApp
+          </CardTitle>
+          <CardDescription>Send bills and receipts to customers silently via WhatsApp</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Connection Status</Label>
+              <p className={`text-sm font-medium ${waStatusLabel.color}`}>{waStatusLabel.text}</p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={fetchWaStatus} className="text-xs">Refresh</Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 border-green-500 text-green-700 hover:bg-green-50"
+                onClick={() => window.open("/api/whatsapp/qr", "_blank", "noopener,noreferrer")}
+              >
+                Connect WhatsApp
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="whatsappMessageType">Message Type</Label>
+            <Select
+              value={settings.whatsappMessageType}
+              onValueChange={(v) => updateSetting("whatsappMessageType", v)}
+            >
+              <SelectTrigger id="whatsappMessageType">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="text">Text Message — full bill details as formatted text</SelectItem>
+                <SelectItem value="link">Bill Link — short message with a link to view the bill online</SelectItem>
+              </SelectContent>
+            </Select>
+            {settings.whatsappMessageType === "link" && (
+              <p className="text-xs text-muted-foreground">
+                Customer receives a link to <code>/bill/[billNo]</code> — a clean digital receipt page. Set <code>NEXT_PUBLIC_APP_URL</code> in your environment to your Vercel URL.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Feature Toggles */}
       <Card>

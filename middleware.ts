@@ -34,6 +34,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/login") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/maintenance/") ||
+    pathname.startsWith("/api/public/") ||
+    pathname.startsWith("/bill/") ||
     pathname === "/api/whatsapp/qr"
   ) {
     return response
