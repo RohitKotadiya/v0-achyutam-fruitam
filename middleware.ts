@@ -33,7 +33,8 @@ export async function middleware(request: NextRequest) {
   if (
     pathname.startsWith("/login") ||
     pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/api/maintenance/")
+    pathname.startsWith("/api/maintenance/") ||
+    pathname === "/api/whatsapp/qr"
   ) {
     return response
   }
