@@ -72,6 +72,42 @@ export function generateWhatsAppMessage(billNo: number, billData: any) {
   return lines.join("\n")
 }
 
+export function generateBillLinkMessage(
+  billNo: number,
+  billData: { customerName?: string; grandTotal: number; paymentMethod?: string; displayBillNo?: string | null },
+  shopName = "Achyutam Fruitam",
+): string {
+  const { customerName, grandTotal, paymentMethod, displayBillNo } = billData
+  const displayNo = displayBillNo ?? billNo
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || ""
+  const name = customerName && customerName !== "Walk-in-Cust" ? `Hi ${customerName}! ` : ""
+  const payment = paymentMethod === "ONLINE" ? "Online" : paymentMethod === "SPLIT" ? "Split" : paymentMethod === "PENDING" ? "Pending" : "Cash"
+
+  return [
+    `${name}🍊`,
+    ``,
+    `Your bill from *${shopName}* is ready.`,
+    `Bill #${displayNo} · ₹${Number(grandTotal).toFixed(0)} · ${payment}`,
+    ``,
+    `Thank you for shopping with us! 🙏`,
+    ``,
+    `${appUrl}/bill/${displayNo}`,
+  ].join("\n")
+}
+
+export async function sendWhatsAppViaAPI(mobile: string, message: string): Promise<boolean> {
+  try {
+    const res = await fetch("/api/whatsapp/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: mobile, message }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 export function getWhatsAppUrl(mobile: string, message: string) {
   const cleanMobile = mobile.replace(/^(\+91|91)/, "").replace(/\s+/g, "")
   return `https://wa.me/91${cleanMobile}?text=${encodeURIComponent(message)}`

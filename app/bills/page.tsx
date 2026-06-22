@@ -24,7 +24,7 @@ import {
 } from "lucide-react"
 import { useSession, signOut } from "next-auth/react"
 import { ReturnDialog } from "@/components/bills/return-dialog"
-import { generateWhatsAppMessage, openWhatsAppWithFallback } from "@/lib/whatsapp"
+import { generateWhatsAppMessage, generateBillLinkMessage, openWhatsAppWithFallback, sendWhatsAppViaAPI } from "@/lib/whatsapp"
 import { generatePrintHTML } from "@/lib/print"
 import { canUseSilentThermalPrint, printBillSilently } from "@/lib/thermal-print"
 
@@ -498,31 +498,30 @@ export default function BillsPage() {
     }, 20000)
   }
 
-  const sendWhatsApp = (bill: Bill) => {
+  const sendWhatsApp = async (bill: Bill) => {
     if (!bill.mobile) {
       toast({ title: "No mobile", description: "This bill has no mobile number", variant: "destructive" })
       return
     }
-    const message = generateWhatsAppMessage(bill.billNo, {
-      customerName: bill.customerName,
-      customerMobile: bill.mobile,
-      grandTotal: bill.grandTotal,
-      lineItems: bill.lineItems,
-      billDate: bill.dateTime,
-      paymentMethod: bill.paymentMethod,
-      remarks: bill.remarks || "",
-      displayBillNo: bill.displayBillNo,
-    })
-    openWhatsAppWithFallback(bill.mobile, message, {
-      keepPageOpen: true,
-      onFallback: () => {
-        toast({
-          title: "Opening WhatsApp Web",
-          description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
-          duration: 1600,
-        })
-      },
-    })
+    const useLink = printSettings.whatsappMessageType === "link"
+    const message = useLink
+      ? generateBillLinkMessage(bill.billNo, { customerName: bill.customerName, grandTotal: bill.grandTotal, paymentMethod: bill.paymentMethod, displayBillNo: bill.displayBillNo }, printSettings.shopName)
+      : generateWhatsAppMessage(bill.billNo, { customerName: bill.customerName, customerMobile: bill.mobile, grandTotal: bill.grandTotal, lineItems: bill.lineItems, billDate: bill.dateTime, paymentMethod: bill.paymentMethod, remarks: bill.remarks || "", displayBillNo: bill.displayBillNo })
+    const sent = await sendWhatsAppViaAPI(bill.mobile, message)
+    if (sent) {
+      toast({ title: "WhatsApp sent!", description: "Message delivered to customer" })
+    } else {
+      openWhatsAppWithFallback(bill.mobile, message, {
+        keepPageOpen: true,
+        onFallback: () => {
+          toast({
+            title: "Opening WhatsApp Web",
+            description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
+            duration: 1600,
+          })
+        },
+      })
+    }
   }
 
   const openCollectDialog = (bill: Bill) => {
