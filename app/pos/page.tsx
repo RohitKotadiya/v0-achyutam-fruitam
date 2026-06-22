@@ -1123,9 +1123,7 @@ export default function POSPage() {
         <div className="max-w-[1600px] mx-auto px-3 md:px-4 py-1.5 md:py-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="flex items-center justify-center w-7 h-7 md:w-8 md:h-8 bg-primary rounded-lg">
-                <span className="text-primary-foreground font-bold text-xs md:text-sm">AFM</span>
-              </div>
+              <img src="/afm-logo.svg" alt="AFM" className="w-7 h-7 md:w-8 md:h-8 rounded-lg flex-shrink-0" />
               <div>
                 <h1 className="text-xs md:text-base font-bold leading-tight">Achyutam Fruitam</h1>
               </div>
