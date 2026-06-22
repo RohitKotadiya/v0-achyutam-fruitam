@@ -10,8 +10,9 @@ export async function POST(req: Request) {
 
   const apiUrl = process.env.WHATSAPP_API_URL
   const apiSecret = process.env.WHATSAPP_API_SECRET
+  const sessionId = process.env.WHATSAPP_SESSION_ID
 
-  if (!apiUrl || !apiSecret) {
+  if (!apiUrl || !apiSecret || !sessionId) {
     return NextResponse.json({ error: "WhatsApp server not configured" }, { status: 503 })
   }
 
@@ -22,7 +23,7 @@ export async function POST(req: Request) {
         "Content-Type": "application/json",
         "x-api-key": apiSecret,
       },
-      body: JSON.stringify({ to, message }),
+      body: JSON.stringify({ sessionId, to, message }),
     })
 
     const data = await res.json()
