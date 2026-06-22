@@ -93,16 +93,16 @@ function SortableHeader({
   )
 }
 
-function openTab(path: string, windowName: string) {
+function openTab(path: string, windowName: string): boolean {
   const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   if (isPwa) {
-    if (!localStorage.getItem("pwa-open-" + windowName)) {
-      window.open(path, "_blank", "noopener,noreferrer")
-    }
+    if (localStorage.getItem("pwa-open-" + windowName)) return false
+    window.open(path, "_blank", "noopener,noreferrer")
   } else {
     window.open(path, windowName)
   }
+  return true
 }
 
 export default function BillsPage() {
@@ -116,7 +116,6 @@ export default function BillsPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [startDate, setStartDate] = useState(getTodayDateString())
   const [endDate, setEndDate] = useState(getTodayDateString())
-  const [openPwaWindows, setOpenPwaWindows] = useState<Set<string>>(new Set())
   const [paymentFilter, setPaymentFilter] = useState<string>("ALL")
   const [sortKey, setSortKey] = useState<SortKey>("billNo")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
@@ -142,24 +141,14 @@ export default function BillsPage() {
 
   useEffect(() => {
     localStorage.setItem("pwa-open-afm-bills", "1")
+
     const handleHide = () => localStorage.removeItem("pwa-open-afm-bills")
     window.addEventListener("pagehide", handleHide)
-
-    const readOpenWindows = () => {
-      const s = new Set<string>()
-      if (localStorage.getItem("pwa-open-afm-pos")) s.add("afm-pos")
-      if (localStorage.getItem("pwa-open-afm-admin")) s.add("afm-admin")
-      setOpenPwaWindows(s)
-    }
-    readOpenWindows()
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key?.startsWith("pwa-open-")) readOpenWindows()
-    }
-    window.addEventListener("storage", handleStorage)
+    window.addEventListener("beforeunload", handleHide)
 
     return () => {
       window.removeEventListener("pagehide", handleHide)
-      window.removeEventListener("storage", handleStorage)
+      window.removeEventListener("beforeunload", handleHide)
       localStorage.removeItem("pwa-open-afm-bills")
     }
   }, [])
@@ -400,7 +389,7 @@ export default function BillsPage() {
   const editBill = async (billNo: number) => {
     const isPwa = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true
     if (isPwa) {
-      if (localStorage.getItem("pwa-open-afm-pos")) {
+      if (localStorage.getItem("pwa-edit-in-progress")) {
         toast({ title: "Edit in progress", description: "A bill is already open for editing. Complete or cancel it first.", variant: "destructive" })
         return
       }
@@ -611,8 +600,7 @@ export default function BillsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => openTab("/pos", "afm-pos")}
-                  disabled={openPwaWindows.has("afm-pos")}
+                  onClick={() => { if (!openTab("/pos", "afm-pos")) toast({ title: "POS is already open", description: "Switch to the POS window.", duration: 3000 }) }}
                   className="h-7 px-2 md:px-2.5 text-xs"
                 >
                   <ShoppingCart className="w-4 h-4 md:mr-1" />
@@ -622,8 +610,7 @@ export default function BillsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => openTab("/admin", "afm-admin")}
-                  disabled={openPwaWindows.has("afm-admin")}
+                  onClick={() => { if (!openTab("/admin", "afm-admin")) toast({ title: "Admin is already open", description: "Switch to the Admin window.", duration: 3000 }) }}
                   className="h-7 px-2 md:px-2.5 text-xs"
                 >
                   <Settings className="w-4 h-4 md:mr-1" />

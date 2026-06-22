@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useToast } from "@/hooks/use-toast"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { InventoryTab } from "@/components/admin/inventory-tab"
 import { SKUTab } from "@/components/admin/sku-tab"
@@ -19,48 +20,38 @@ import { Button } from "@/components/ui/button"
 
 const ADMIN_ACTIVE_TAB_KEY = "admin-active-tab-v1"
 
-function openTab(path: string, windowName: string) {
+function openTab(path: string, windowName: string): boolean {
   const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   if (isPwa) {
-    if (!localStorage.getItem("pwa-open-" + windowName)) {
-      window.open(path, "_blank", "noopener,noreferrer")
-    }
+    if (localStorage.getItem("pwa-open-" + windowName)) return false
+    window.open(path, "_blank", "noopener,noreferrer")
   } else {
     window.open(path, windowName)
   }
+  return true
 }
 
 export default function AdminPage() {
   const { data: session } = useSession()
+  const { toast } = useToast()
   const [activeTab, setActiveTab] = useState("inventory")
   const [isActiveTabRestored, setIsActiveTabRestored] = useState(false)
   const [settings, setSettings] = useState<Record<string,string>>({ enableStockTransfer: "true" })
-  const [openPwaWindows, setOpenPwaWindows] = useState<Set<string>>(new Set())
   const router = useRouter()
   const tabTriggerClass =
     "!flex-none h-10 rounded-none border-0 border-b-[3px] border-transparent bg-transparent px-3 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:border-x-0 data-[state=active]:border-t-0 data-[state=active]:border-b-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
 
   useEffect(() => {
     localStorage.setItem("pwa-open-afm-admin", "1")
+
     const handleHide = () => localStorage.removeItem("pwa-open-afm-admin")
     window.addEventListener("pagehide", handleHide)
-
-    const readOpenWindows = () => {
-      const s = new Set<string>()
-      if (localStorage.getItem("pwa-open-afm-pos")) s.add("afm-pos")
-      if (localStorage.getItem("pwa-open-afm-bills")) s.add("afm-bills")
-      setOpenPwaWindows(s)
-    }
-    readOpenWindows()
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key?.startsWith("pwa-open-")) readOpenWindows()
-    }
-    window.addEventListener("storage", handleStorage)
+    window.addEventListener("beforeunload", handleHide)
 
     return () => {
       window.removeEventListener("pagehide", handleHide)
-      window.removeEventListener("storage", handleStorage)
+      window.removeEventListener("beforeunload", handleHide)
       localStorage.removeItem("pwa-open-afm-admin")
     }
   }, [])
@@ -121,8 +112,7 @@ export default function AdminPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => openTab("/bills", "afm-bills")}
-                disabled={openPwaWindows.has("afm-bills")}
+                onClick={() => { if (!openTab("/bills", "afm-bills")) toast({ title: "Bills is already open", description: "Switch to the Bills window.", duration: 3000 }) }}
                 className="h-7 px-2 md:px-2.5"
                 title="Bills"
               >
@@ -133,8 +123,7 @@ export default function AdminPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => openTab("/pos", "afm-pos")}
-                disabled={openPwaWindows.has("afm-pos")}
+                onClick={() => { if (!openTab("/pos", "afm-pos")) toast({ title: "POS is already open", description: "Switch to the POS window.", duration: 3000 }) }}
                 className="h-7 px-2 md:px-2.5"
                 title="POS"
               >
