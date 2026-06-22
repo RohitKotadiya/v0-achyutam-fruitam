@@ -129,14 +129,24 @@ export function InventoryTab({
   forcedSubTab,
   forcedPrepareMixView,
   hideSubTabList = false,
+  subTab: externalSubTab,
+  onSubTabChange,
 }: {
   forcedSubTab?: InventorySubTab
   forcedPrepareMixView?: PrepareMixView
   hideSubTabList?: boolean
+  subTab?: string
+  onSubTabChange?: (sub: string) => void
 } = {}) {
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
-  const [activeSubTab, setActiveSubTab] = useState<InventorySubTab>(forcedSubTab || "add-stock")
+  const isControlled = externalSubTab !== undefined
+  const [internalSubTab, setInternalSubTab] = useState<InventorySubTab>((externalSubTab as InventorySubTab) || forcedSubTab || "add-stock")
+  const activeSubTab = isControlled ? (externalSubTab as InventorySubTab) : internalSubTab
+  const handleSubTabChange = (v: string) => {
+    if (isControlled) onSubTabChange?.(v)
+    else setInternalSubTab(v as InventorySubTab)
+  }
   const [isActiveSubTabRestored, setIsActiveSubTabRestored] = useState(false)
   const [prepareMixView, setPrepareMixView] = useState<PrepareMixView>(forcedPrepareMixView || "entry")
   const [isPrepareMixViewRestored, setIsPrepareMixViewRestored] = useState(false)
@@ -238,26 +248,28 @@ export function InventoryTab({
   const [showHistoryPaginationControls, setShowHistoryPaginationControls] = useState(false)
 
   useEffect(() => {
+    if (isControlled) { setIsActiveSubTabRestored(true); return }
     if (typeof window === "undefined") return
     if (forcedSubTab) {
-      setActiveSubTab(forcedSubTab)
+      setInternalSubTab(forcedSubTab)
       setIsActiveSubTabRestored(true)
       return
     }
     const savedSubTab = window.localStorage.getItem(INVENTORY_ACTIVE_SUB_TAB_KEY)
     const allowedSubTabs = ["add-stock", "prepare-mix", "report", "damage", "history"]
     if (savedSubTab && allowedSubTabs.includes(savedSubTab)) {
-      setActiveSubTab(savedSubTab as InventorySubTab)
+      setInternalSubTab(savedSubTab as InventorySubTab)
     }
     setIsActiveSubTabRestored(true)
-  }, [forcedSubTab])
+  }, [isControlled, forcedSubTab])
 
   useEffect(() => {
+    if (isControlled) return
     if (typeof window === "undefined") return
     if (!isActiveSubTabRestored) return
     if (forcedSubTab) return
-    window.localStorage.setItem(INVENTORY_ACTIVE_SUB_TAB_KEY, activeSubTab)
-  }, [activeSubTab, isActiveSubTabRestored, forcedSubTab])
+    window.localStorage.setItem(INVENTORY_ACTIVE_SUB_TAB_KEY, internalSubTab)
+  }, [internalSubTab, isActiveSubTabRestored, forcedSubTab, isControlled])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -1302,8 +1314,8 @@ export function InventoryTab({
   }
 
   return (
-    <Tabs value={activeSubTab} onValueChange={(v) => setActiveSubTab(v as InventorySubTab)} className="space-y-1">
-      {!hideSubTabList ? (
+    <Tabs value={activeSubTab} onValueChange={handleSubTabChange} className="space-y-1">
+      {!hideSubTabList && !isControlled ? (
       <div className="w-full overflow-x-auto pb-0">
         <TabsList className="inline-flex h-9 w-max min-w-full flex-nowrap gap-1 rounded-xl bg-muted/40 p-1 shadow-sm">
           <TabsTrigger value="add-stock" className="!flex-none h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Add Stock</TabsTrigger>

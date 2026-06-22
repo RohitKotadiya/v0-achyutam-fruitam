@@ -285,41 +285,42 @@ const KPI_CARD_CONTENT_CLASS = "flex flex-col justify-between"
 
 // ==================== MAIN COMPONENT ====================
 
-export function FinanceTab() {
-  const [subTab, setSubTab] = useState("overview")
+interface FinanceTabProps {
+  subTab?: string
+  onSubTabChange?: (sub: string) => void
+}
+
+export function FinanceTab({ subTab: externalSubTab, onSubTabChange }: FinanceTabProps = {}) {
+  const [internalSubTab, setInternalSubTab] = useState("overview")
   const [isSubTabRestored, setIsSubTabRestored] = useState(false)
 
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    const savedSubTab = window.localStorage.getItem(FINANCE_ACTIVE_SUB_TAB_KEY)
-    const allowedSubTabs = ["overview", "counter", "dues", "safe", "expenses", "bank"]
-    if (savedSubTab && allowedSubTabs.includes(savedSubTab)) {
-      setSubTab(savedSubTab)
-    }
-    setIsSubTabRestored(true)
-  }, [])
+  const isControlled = externalSubTab !== undefined
+  const subTab = isControlled ? externalSubTab : internalSubTab
+
+  const handleSubTabChange = (v: string) => {
+    if (isControlled) onSubTabChange?.(v)
+    else setInternalSubTab(v)
+  }
 
   useEffect(() => {
+    if (isControlled) { setIsSubTabRestored(true); return }
+    if (typeof window === "undefined") return
+    const savedSubTab = window.localStorage.getItem(FINANCE_ACTIVE_SUB_TAB_KEY)
+    const allowedSubTabs = ["overview", "counter", "dues", "safe", "expenses", "bank", "adjustments"]
+    if (savedSubTab && allowedSubTabs.includes(savedSubTab)) setInternalSubTab(savedSubTab)
+    setIsSubTabRestored(true)
+  }, [isControlled])
+
+  useEffect(() => {
+    if (isControlled) return
     if (typeof window === "undefined") return
     if (!isSubTabRestored) return
-    window.localStorage.setItem(FINANCE_ACTIVE_SUB_TAB_KEY, subTab)
-  }, [subTab, isSubTabRestored])
+    window.localStorage.setItem(FINANCE_ACTIVE_SUB_TAB_KEY, internalSubTab)
+  }, [internalSubTab, isSubTabRestored, isControlled])
 
   return (
     <div className="space-y-3">
-      <Tabs value={subTab} onValueChange={setSubTab}>
-        <div className="w-full overflow-x-auto pb-1">
-          <TabsList className="inline-flex h-9 w-max min-w-full flex-nowrap gap-1 rounded-xl bg-muted/40 p-1 shadow-sm">
-            <TabsTrigger value="overview" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Overview</TabsTrigger>
-            <TabsTrigger value="counter" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Counter (Galla)</TabsTrigger>
-            <TabsTrigger value="safe" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Safe (Tizori)</TabsTrigger>
-            <TabsTrigger value="expenses" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Expenses</TabsTrigger>
-            <TabsTrigger value="bank" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Bank Tracker</TabsTrigger>
-            <TabsTrigger value="dues" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Customer Dues</TabsTrigger>
-            <TabsTrigger value="adjustments" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Cash Adjustments</TabsTrigger>
-          </TabsList>
-        </div>
-
+      <Tabs value={subTab} onValueChange={handleSubTabChange}>
         <TabsContent value="overview"><OverviewSection /></TabsContent>
         <TabsContent value="counter"><CashRegisterSection /></TabsContent>
         <TabsContent value="safe"><SafeSection /></TabsContent>
