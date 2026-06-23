@@ -863,10 +863,10 @@ export default function POSPage() {
     }
 
     const mobile = bill.customerMobile || ""
-    if (mobile.length !== 10) {
+    if (!/^[6-9]\d{9}$/.test(mobile)) {
       toast({
         title: "Mobile unavailable",
-        description: "Last saved bill has no valid 10-digit mobile number",
+        description: "Last saved bill has no valid Indian mobile number",
         variant: "destructive",
       })
       return
@@ -913,16 +913,16 @@ export default function POSPage() {
       return
     }
 
-    if (afterSave === "whatsapp" && (!customerMobile || customerMobile.length !== 10)) {
+    if (afterSave === "whatsapp" && !/^[6-9]\d{9}$/.test(customerMobile)) {
       toast({
         title: "Mobile required",
-        description: "Enter a 10-digit mobile number to send WhatsApp",
+        description: "Enter a valid 10-digit Indian mobile number to send WhatsApp",
         variant: "destructive",
       })
       return
     }
 
-    if (paymentMethod === "PENDING" && posSettings.pendingMobileRequired !== "false" && (!customerMobile || customerMobile.length !== 10)) {
+    if (paymentMethod === "PENDING" && posSettings.pendingMobileRequired !== "false" && !/^[6-9]\d{9}$/.test(customerMobile)) {
       toast({
         title: "Customer mobile required",
         description: "Pending bills require a valid 10-digit mobile number for dues tracking",

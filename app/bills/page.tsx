@@ -499,8 +499,8 @@ export default function BillsPage() {
   }
 
   const sendWhatsApp = async (bill: Bill) => {
-    if (!bill.mobile) {
-      toast({ title: "No mobile", description: "This bill has no mobile number", variant: "destructive" })
+    if (!bill.mobile || !/^[6-9]\d{9}$/.test(bill.mobile)) {
+      toast({ title: "No valid mobile", description: "This bill has no valid Indian mobile number", variant: "destructive" })
       return
     }
     const useLink = printSettings.whatsappMessageType === "link"
