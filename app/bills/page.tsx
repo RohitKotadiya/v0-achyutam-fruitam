@@ -154,7 +154,6 @@ export default function BillsPage() {
   }, [])
 
   useEffect(() => {
-    loadBills()
     void loadPrintSettings()
   }, [])
 
@@ -179,7 +178,11 @@ export default function BillsPage() {
   const loadBills = async () => {
     try {
       setLoading(true)
-      const response = await fetch("/api/bills")
+      const params = new URLSearchParams()
+      if (startDate) params.set("startDate", startDate)
+      if (endDate) params.set("endDate", endDate)
+      const qs = params.toString()
+      const response = await fetch(`/api/bills${qs ? `?${qs}` : ""}`)
       const data = await response.json()
       if (data.success) {
         setBills(data.bills)
@@ -193,13 +196,14 @@ export default function BillsPage() {
   }
 
   const [datePreset, setDatePreset] = useState<string>("today")
+  const [isFiltersRestored, setIsFiltersRestored] = useState(false)
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem(BILLS_FILTERS_STORAGE_KEY)
-      if (!saved) return
+      if (!saved) { setIsFiltersRestored(true); return }
       const parsed = JSON.parse(saved)
-      if (!parsed || typeof parsed !== "object") return
+      if (!parsed || typeof parsed !== "object") { setIsFiltersRestored(true); return }
 
       setSearchTerm(typeof parsed.searchTerm === "string" ? parsed.searchTerm : "")
       setPaymentFilter(typeof parsed.paymentFilter === "string" ? parsed.paymentFilter : "ALL")
@@ -207,14 +211,28 @@ export default function BillsPage() {
       setSortDir(parsed.sortDir === "asc" ? "asc" : "desc")
       setPageSize([10, 20, 50, 100].includes(Number(parsed.pageSize)) ? Number(parsed.pageSize) : 20)
       setCurrentPage(Number(parsed.currentPage) > 0 ? Number(parsed.currentPage) : 1)
-      // Recompute date range from the preset so "Today" always means the current day,
-      // not a stale date string from a previous session.
+
       const savedPreset = typeof parsed.datePreset === "string" ? parsed.datePreset : "today"
-      applyDatePreset(savedPreset)
+      if (savedPreset === "custom") {
+        // Restore custom dates directly — applyDatePreset has no "custom" case
+        setDatePreset("custom")
+        setStartDate(typeof parsed.startDate === "string" ? parsed.startDate : getTodayDateString())
+        setEndDate(typeof parsed.endDate === "string" ? parsed.endDate : getTodayDateString())
+      } else {
+        // Recompute relative presets from today so "Today" is always current
+        applyDatePreset(savedPreset)
+      }
     } catch {
       // Ignore invalid saved filters
     }
+    setIsFiltersRestored(true)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fetch bills whenever the date range changes (or on first restore)
+  useEffect(() => {
+    if (!isFiltersRestored) return
+    void loadBills()
+  }, [startDate, endDate, isFiltersRestored]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     localStorage.setItem(

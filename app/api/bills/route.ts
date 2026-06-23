@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     const startDate = searchParams.get("startDate")
     const endDate = searchParams.get("endDate")
     const customerId = searchParams.get("customerId")
-    const limit = Number.parseInt(searchParams.get("limit") || "50")
+    const limit = Number.parseInt(searchParams.get("limit") || "500")
     const cutoffConfig = await prisma.systemConfig.findUnique({ where: { key: "businessDayCutoffHour" } })
     const cutoffHour = clampCutoffHour(cutoffConfig?.value)
 
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
       orderBy: {
         dateTime: "desc",
       },
-      take: limit,
+      ...(startDate || endDate ? {} : { take: limit }),
     })
 
     const billIds = bills.map((b) => b.id)
