@@ -1367,8 +1367,8 @@ export function InventoryTab({
                         </button>
 
                         {!isCollapsed && (
-                          <div className="min-w-[980px]">
-                            <div className="sticky top-0 z-20 grid grid-cols-[2.2fr_90px_90px_90px_110px_90px_110px_1.2fr_90px] gap-2 border-y bg-muted/95 px-3 py-2 text-xs font-medium shadow-sm backdrop-blur supports-[backdrop-filter]:bg-muted/80">
+                          <div className="min-w-[940px]">
+                            <div className="sticky top-0 z-20 grid grid-cols-[2.2fr_86px_86px_86px_106px_86px_106px_1.2fr_86px] gap-2 border-y bg-muted/95 px-3 py-2 text-xs font-medium shadow-sm backdrop-blur supports-[backdrop-filter]:bg-muted/80">
                               <span className="text-center">Product</span>
                               <span className="text-center">Total</span>
                               <span className="text-center">Online</span>
@@ -1390,7 +1390,7 @@ export function InventoryTab({
                                 return (
                                   <div
                                     key={product.sku}
-                                    className="grid grid-cols-[2.2fr_90px_90px_90px_110px_90px_110px_1.2fr_90px] gap-2 px-3 py-2 items-center"
+                                    className="grid grid-cols-[2.2fr_86px_86px_86px_106px_86px_106px_1.2fr_86px] gap-2 px-3 py-2 items-center"
                                   >
                                     <div className="min-w-0">
                                         <div className="truncate text-sm font-medium">{product.name}</div>

@@ -149,7 +149,7 @@ export function AdminSidebar({
           "flex flex-col bg-white border-r border-gray-200 overflow-hidden flex-shrink-0",
           "transition-all duration-[220ms] ease-[cubic-bezier(0.4,0,0.2,1)]",
           "z-40 h-dvh md:h-full",
-          "w-[220px] min-w-[220px]",
+          "w-[200px] min-w-[200px]",
           collapsed && "md:w-14 md:min-w-[56px]",
           "fixed md:relative top-0 left-0",
           mobileOpen ? "translate-x-0 shadow-xl" : "-translate-x-full md:translate-x-0",
