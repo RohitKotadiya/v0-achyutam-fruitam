@@ -79,7 +79,7 @@ export function generateBillLinkMessage(
 ): string {
   const { customerName, grandTotal, paymentMethod, displayBillNo } = billData
   const displayNo = displayBillNo ?? billNo
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || ""
+  const appUrl = typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_APP_URL || "")
   const name = customerName && customerName !== "Walk-in-Cust" ? `Hi ${customerName}! ` : ""
   const payment = paymentMethod === "ONLINE" ? "Online" : paymentMethod === "SPLIT" ? "Split" : paymentMethod === "PENDING" ? "Pending" : "Cash"
 
