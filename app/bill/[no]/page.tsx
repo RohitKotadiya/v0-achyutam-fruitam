@@ -172,8 +172,7 @@ export default async function BillPage({ params }: Props) {
 
         {/* Footer */}
         <div style={{ backgroundColor: "#f5f3ff", padding: "16px 20px", textAlign: "center", borderTop: "1px solid #ede9fe" }}>
-          <div style={{ fontSize: "15px", color: "#7c3aed", fontWeight: "600" }}>Thank you! 🙏</div>
-          <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "4px" }}>Visit us again</div>
+          <div style={{ fontSize: "15px", color: "#7c3aed", fontWeight: "600" }}>Thank you! Visit us again 🙏</div>
           {shopAddress && (
             <div style={{ fontSize: "12px", color: "#9ca3af", marginTop: "6px" }}>{shopAddress}</div>
           )}

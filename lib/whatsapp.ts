@@ -84,14 +84,13 @@ export function generateBillLinkMessage(
   const payment = paymentMethod === "ONLINE" ? "Online" : paymentMethod === "SPLIT" ? "Split" : paymentMethod === "PENDING" ? "Pending" : "Cash"
 
   return [
-    `${name}🍊`,
-    ``,
+    ...(name ? [name.trim(), ``] : []),
     `Your bill from *${shopName}* is ready.`,
     `Bill #${displayNo} · ₹${Number(grandTotal).toFixed(0)} · ${payment}`,
     ``,
-    `Thank you for shopping with us! 🙏`,
-    ``,
     `${appUrl}/bill/${displayNo}`,
+    ``,
+    `Thank you for shopping with us! 🙏`,
   ].join("\n")
 }
 
