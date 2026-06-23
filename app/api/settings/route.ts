@@ -5,6 +5,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   showProductImages: "false",
   showProductSKU: "false",
   shopName: "Achyutam Fruitam",
+  shopTagline: "",
   shopAddress: "",
   shopMobile: "",
   shopGST: "",

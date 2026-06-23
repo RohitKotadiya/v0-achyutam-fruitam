@@ -21,9 +21,16 @@ async function getBill(no: string) {
   return bill
 }
 
-async function getShopName() {
-  const cfg = await prisma.systemConfig.findUnique({ where: { key: "shopName" } })
-  return cfg?.value || "Achyutam Fruitam"
+async function getShopSettings() {
+  const configs = await prisma.systemConfig.findMany({
+    where: { key: { in: ["shopName", "shopTagline", "shopAddress"] } },
+  })
+  const map = Object.fromEntries(configs.map((c) => [c.key, c.value]))
+  return {
+    shopName: map.shopName || "Achyutam Fruitam",
+    shopTagline: map.shopTagline || "",
+    shopAddress: map.shopAddress || "",
+  }
 }
 
 function formatDate(date: Date) {
@@ -47,7 +54,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const bill = await getBill(no)
   if (!bill) return { title: "Bill Not Found" }
 
-  const shopName = await getShopName()
+  const { shopName } = await getShopSettings()
   const displayNo = bill.displayBillNo ?? bill.billNo
   const total = `₹${Number(bill.grandTotal).toFixed(0)}`
 
@@ -65,7 +72,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function BillPage({ params }: Props) {
   const { no } = await params
-  const [bill, shopName] = await Promise.all([getBill(no), getShopName()])
+  const [bill, { shopName, shopTagline, shopAddress }] = await Promise.all([getBill(no), getShopSettings()])
 
   if (!bill) notFound()
 
@@ -78,7 +85,9 @@ export default async function BillPage({ params }: Props) {
         {/* Header */}
         <div style={{ backgroundColor: "#8b5cf6", padding: "24px 20px", textAlign: "center" }}>
           <div style={{ color: "#fff", fontSize: "22px", fontWeight: "700", letterSpacing: "0.5px" }}>{shopName}</div>
-          <div style={{ color: "#ede9fe", fontSize: "13px", marginTop: "4px" }}>Digital Receipt</div>
+          {shopTagline && (
+            <div style={{ color: "#ede9fe", fontSize: "13px", marginTop: "4px" }}>{shopTagline}</div>
+          )}
         </div>
 
         {/* Bill Meta */}
@@ -165,6 +174,9 @@ export default async function BillPage({ params }: Props) {
         <div style={{ backgroundColor: "#f5f3ff", padding: "16px 20px", textAlign: "center", borderTop: "1px solid #ede9fe" }}>
           <div style={{ fontSize: "15px", color: "#7c3aed", fontWeight: "600" }}>Thank you! 🙏</div>
           <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "4px" }}>Visit us again</div>
+          {shopAddress && (
+            <div style={{ fontSize: "12px", color: "#9ca3af", marginTop: "6px" }}>{shopAddress}</div>
+          )}
         </div>
 
       </div>

@@ -34,6 +34,7 @@ interface UserRow {
 
 const DEFAULT_SETTINGS: Record<string, string> = {
   shopName: "Achyutam Fruitam",
+  shopTagline: "",
   shopAddress: "",
   shopMobile: "",
   shopGST: "",
@@ -547,6 +548,17 @@ export function SettingsTab() {
                   onChange={(e) => updateSetting("shopName", e.target.value)}
                   required
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="shopTagline">Tagline</Label>
+                <Input
+                  id="shopTagline"
+                  value={settings.shopTagline}
+                  onChange={(e) => updateSetting("shopTagline", e.target.value)}
+                  placeholder="e.g. Real Fruit Ice Cream"
+                />
+                <p className="text-xs text-muted-foreground">Shown below shop name on digital bill page</p>
               </div>
 
               <div className="space-y-2">
