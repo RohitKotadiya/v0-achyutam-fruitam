@@ -130,11 +130,19 @@ export async function GET(request: Request) {
     })
     const cashFromSales = pureCashIn + (splitBills._sum.cashAmount || 0)
 
-    // Cash from customer payment collections
+    // Cash from customer payment collections.
+    // Exclude collections where the linked bill was created on the same business
+    // day — those bills are already counted in cashFromSales (paymentMethod was
+    // updated to CASH/SPLIT when the collection was recorded). Only include
+    // collections for bills from a prior day (cross-day due recovery).
     const cashCollections = await prisma.paymentCollection.aggregate({
       where: {
         date: { gte: dayStart, lte: dayEnd },
         paymentMethod: "CASH",
+        OR: [
+          { billId: null },
+          { bill: { dateTime: { lt: dayStart } } },
+        ],
       },
       _sum: { amount: true },
     })

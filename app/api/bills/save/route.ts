@@ -456,32 +456,46 @@ export async function POST(request: Request) {
         const batchAdjustments: Array<{ id: string; consumedUnits: number; costedUnits: number }> = []
 
         for (const productId of batchManagedProductIds) {
-          let pendingUnits = requiredByProduct.get(productId) || 0
+          const newUnits = requiredByProduct.get(productId) || 0
+          const oldUnits = existingBill ? (existingBillRequiredByProduct.get(productId) || 0) : 0
+          // On edit, only deduct the NET INCREASE from batch remaining.
+          // Quantity reductions are already handled by the restore step above.
+          // Same-quantity edits (other items added/removed) must not re-deduct.
+          const netDeduct = existingBill ? Math.max(0, newUnits - oldUnits) : newUnits
+
           const productBatches = batchesByProduct.get(productId) || []
           const totalAvailableFromBatches = productBatches.reduce(
             (sum, batch) => sum + (Number(batch.producedUnitsRemaining) || 0),
             0,
           )
 
-          if (totalAvailableFromBatches + 1e-9 < pendingUnits) {
+          if (netDeduct > 0 && totalAvailableFromBatches + 1e-9 < netDeduct) {
             throw new Error(
               `Only ${totalAvailableFromBatches.toFixed(2)} prepared units available for ${productNameById.get(productId) || productId}.`,
             )
           }
 
+          // Calculate cost for the full new quantity so bill.totalCost is always accurate.
+          let costPending = newUnits
           for (const batch of productBatches) {
-            if (pendingUnits <= 0) break
-
-            const producedRemaining = Number(batch.producedUnitsRemaining) || 0
+            if (costPending <= 0) break
             const costRemaining = Number(batch.costUnitsRemaining) || 0
             const unitCost = Number(batch.unitCostPerCostUnit) || 0
-            if (producedRemaining <= 0) continue
+            const costUnits = Math.min(costPending, costRemaining)
+            totalCost += costUnits * unitCost
+            mixCostByProduct.set(productId, (mixCostByProduct.get(productId) || 0) + costUnits * unitCost)
+            costPending -= costUnits
+          }
 
+          // Deduct only the net increase from producedUnitsRemaining / costUnitsRemaining.
+          let pendingUnits = netDeduct
+          for (const batch of productBatches) {
+            if (pendingUnits <= 0) break
+            const producedRemaining = Number(batch.producedUnitsRemaining) || 0
+            const costRemaining = Number(batch.costUnitsRemaining) || 0
+            if (producedRemaining <= 0) continue
             const consumedUnits = Math.min(pendingUnits, producedRemaining)
             const costedUnits = Math.min(consumedUnits, costRemaining)
-            totalCost += costedUnits * unitCost
-            mixCostByProduct.set(productId, (mixCostByProduct.get(productId) || 0) + (costedUnits * unitCost))
-
             batchAdjustments.push({ id: batch.id, consumedUnits, costedUnits })
             pendingUnits -= consumedUnits
           }

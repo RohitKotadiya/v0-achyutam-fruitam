@@ -24,7 +24,7 @@ import {
 } from "lucide-react"
 import { useSession, signOut } from "next-auth/react"
 import { ReturnDialog } from "@/components/bills/return-dialog"
-import { generateWhatsAppMessage, openWhatsAppWithFallback } from "@/lib/whatsapp"
+import { generateWhatsAppMessage, generateBillLinkMessage, openWhatsAppWithFallback, sendWhatsAppViaAPI } from "@/lib/whatsapp"
 import { generatePrintHTML } from "@/lib/print"
 import { canUseSilentThermalPrint, printBillSilently } from "@/lib/thermal-print"
 
@@ -93,16 +93,16 @@ function SortableHeader({
   )
 }
 
-function openTab(path: string, windowName: string) {
+function openTab(path: string, windowName: string): boolean {
   const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   if (isPwa) {
-    if (!localStorage.getItem("pwa-open-" + windowName)) {
-      window.open(path, "_blank", "noopener,noreferrer")
-    }
+    if (localStorage.getItem("pwa-open-" + windowName)) return false
+    window.open(path, "_blank", "noopener,noreferrer")
   } else {
     window.open(path, windowName)
   }
+  return true
 }
 
 export default function BillsPage() {
@@ -116,7 +116,6 @@ export default function BillsPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [startDate, setStartDate] = useState(getTodayDateString())
   const [endDate, setEndDate] = useState(getTodayDateString())
-  const [openPwaWindows, setOpenPwaWindows] = useState<Set<string>>(new Set())
   const [paymentFilter, setPaymentFilter] = useState<string>("ALL")
   const [sortKey, setSortKey] = useState<SortKey>("billNo")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
@@ -142,30 +141,19 @@ export default function BillsPage() {
 
   useEffect(() => {
     localStorage.setItem("pwa-open-afm-bills", "1")
+
     const handleHide = () => localStorage.removeItem("pwa-open-afm-bills")
     window.addEventListener("pagehide", handleHide)
-
-    const readOpenWindows = () => {
-      const s = new Set<string>()
-      if (localStorage.getItem("pwa-open-afm-pos")) s.add("afm-pos")
-      if (localStorage.getItem("pwa-open-afm-admin")) s.add("afm-admin")
-      setOpenPwaWindows(s)
-    }
-    readOpenWindows()
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key?.startsWith("pwa-open-")) readOpenWindows()
-    }
-    window.addEventListener("storage", handleStorage)
+    window.addEventListener("beforeunload", handleHide)
 
     return () => {
       window.removeEventListener("pagehide", handleHide)
-      window.removeEventListener("storage", handleStorage)
+      window.removeEventListener("beforeunload", handleHide)
       localStorage.removeItem("pwa-open-afm-bills")
     }
   }, [])
 
   useEffect(() => {
-    loadBills()
     void loadPrintSettings()
   }, [])
 
@@ -190,7 +178,11 @@ export default function BillsPage() {
   const loadBills = async () => {
     try {
       setLoading(true)
-      const response = await fetch("/api/bills")
+      const params = new URLSearchParams()
+      if (startDate) params.set("startDate", startDate)
+      if (endDate) params.set("endDate", endDate)
+      const qs = params.toString()
+      const response = await fetch(`/api/bills${qs ? `?${qs}` : ""}`)
       const data = await response.json()
       if (data.success) {
         setBills(data.bills)
@@ -204,13 +196,14 @@ export default function BillsPage() {
   }
 
   const [datePreset, setDatePreset] = useState<string>("today")
+  const [isFiltersRestored, setIsFiltersRestored] = useState(false)
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem(BILLS_FILTERS_STORAGE_KEY)
-      if (!saved) return
+      if (!saved) { setIsFiltersRestored(true); return }
       const parsed = JSON.parse(saved)
-      if (!parsed || typeof parsed !== "object") return
+      if (!parsed || typeof parsed !== "object") { setIsFiltersRestored(true); return }
 
       setSearchTerm(typeof parsed.searchTerm === "string" ? parsed.searchTerm : "")
       setPaymentFilter(typeof parsed.paymentFilter === "string" ? parsed.paymentFilter : "ALL")
@@ -218,14 +211,28 @@ export default function BillsPage() {
       setSortDir(parsed.sortDir === "asc" ? "asc" : "desc")
       setPageSize([10, 20, 50, 100].includes(Number(parsed.pageSize)) ? Number(parsed.pageSize) : 20)
       setCurrentPage(Number(parsed.currentPage) > 0 ? Number(parsed.currentPage) : 1)
-      // Recompute date range from the preset so "Today" always means the current day,
-      // not a stale date string from a previous session.
+
       const savedPreset = typeof parsed.datePreset === "string" ? parsed.datePreset : "today"
-      applyDatePreset(savedPreset)
+      if (savedPreset === "custom") {
+        // Restore custom dates directly — applyDatePreset has no "custom" case
+        setDatePreset("custom")
+        setStartDate(typeof parsed.startDate === "string" ? parsed.startDate : getTodayDateString())
+        setEndDate(typeof parsed.endDate === "string" ? parsed.endDate : getTodayDateString())
+      } else {
+        // Recompute relative presets from today so "Today" is always current
+        applyDatePreset(savedPreset)
+      }
     } catch {
       // Ignore invalid saved filters
     }
+    setIsFiltersRestored(true)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fetch bills whenever the date range changes (or on first restore)
+  useEffect(() => {
+    if (!isFiltersRestored) return
+    void loadBills()
+  }, [startDate, endDate, isFiltersRestored]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     localStorage.setItem(
@@ -400,7 +407,7 @@ export default function BillsPage() {
   const editBill = async (billNo: number) => {
     const isPwa = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true
     if (isPwa) {
-      if (localStorage.getItem("pwa-open-afm-pos")) {
+      if (localStorage.getItem("pwa-edit-in-progress")) {
         toast({ title: "Edit in progress", description: "A bill is already open for editing. Complete or cancel it first.", variant: "destructive" })
         return
       }
@@ -509,31 +516,30 @@ export default function BillsPage() {
     }, 20000)
   }
 
-  const sendWhatsApp = (bill: Bill) => {
-    if (!bill.mobile) {
-      toast({ title: "No mobile", description: "This bill has no mobile number", variant: "destructive" })
+  const sendWhatsApp = async (bill: Bill) => {
+    if (!bill.mobile || !/^[6-9]\d{9}$/.test(bill.mobile)) {
+      toast({ title: "No valid mobile", description: "This bill has no valid Indian mobile number", variant: "destructive" })
       return
     }
-    const message = generateWhatsAppMessage(bill.billNo, {
-      customerName: bill.customerName,
-      customerMobile: bill.mobile,
-      grandTotal: bill.grandTotal,
-      lineItems: bill.lineItems,
-      billDate: bill.dateTime,
-      paymentMethod: bill.paymentMethod,
-      remarks: bill.remarks || "",
-      displayBillNo: bill.displayBillNo,
-    })
-    openWhatsAppWithFallback(bill.mobile, message, {
-      keepPageOpen: true,
-      onFallback: () => {
-        toast({
-          title: "Opening WhatsApp Web",
-          description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
-          duration: 1600,
-        })
-      },
-    })
+    const useLink = printSettings.whatsappMessageType === "link"
+    const message = useLink
+      ? generateBillLinkMessage(bill.billNo, { customerName: bill.customerName, grandTotal: bill.grandTotal, paymentMethod: bill.paymentMethod, displayBillNo: bill.displayBillNo }, printSettings.shopName)
+      : generateWhatsAppMessage(bill.billNo, { customerName: bill.customerName, customerMobile: bill.mobile, grandTotal: bill.grandTotal, lineItems: bill.lineItems, billDate: bill.dateTime, paymentMethod: bill.paymentMethod, remarks: bill.remarks || "", displayBillNo: bill.displayBillNo })
+    const sent = await sendWhatsAppViaAPI(bill.mobile, message)
+    if (sent) {
+      toast({ title: "WhatsApp sent!", description: "Message delivered to customer" })
+    } else {
+      openWhatsAppWithFallback(bill.mobile, message, {
+        keepPageOpen: true,
+        onFallback: () => {
+          toast({
+            title: "Opening WhatsApp Web",
+            description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
+            duration: 1600,
+          })
+        },
+      })
+    }
   }
 
   const openCollectDialog = (bill: Bill) => {
@@ -611,8 +617,7 @@ export default function BillsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => openTab("/pos", "afm-pos")}
-                  disabled={openPwaWindows.has("afm-pos")}
+                  onClick={() => { if (!openTab("/pos", "afm-pos")) toast({ title: "POS is already open", description: "Switch to the POS window.", duration: 3000 }) }}
                   className="h-7 px-2 md:px-2.5 text-xs"
                 >
                   <ShoppingCart className="w-4 h-4 md:mr-1" />
@@ -622,8 +627,7 @@ export default function BillsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => openTab("/admin", "afm-admin")}
-                  disabled={openPwaWindows.has("afm-admin")}
+                  onClick={() => { if (!openTab("/admin", "afm-admin")) toast({ title: "Admin is already open", description: "Switch to the Admin window.", duration: 3000 }) }}
                   className="h-7 px-2 md:px-2.5 text-xs"
                 >
                   <Settings className="w-4 h-4 md:mr-1" />

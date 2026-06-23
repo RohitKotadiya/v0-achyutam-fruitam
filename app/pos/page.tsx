@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { QuantityModal } from "@/components/pos/quantity-modal"
 import { MixDishModal } from "@/components/pos/mix-dish-modal"
 import { useToast } from "@/hooks/use-toast"
-import { generateWhatsAppMessage, openWhatsAppWithFallback } from "@/lib/whatsapp"
+import { generateWhatsAppMessage, generateBillLinkMessage, openWhatsAppWithFallback, sendWhatsAppViaAPI } from "@/lib/whatsapp"
 import { generatePrintHTML } from "@/lib/print"
 import { canUseSilentThermalPrint, printBillSilently } from "@/lib/thermal-print"
 import { useSession, signOut } from "next-auth/react"
@@ -94,16 +94,16 @@ const parseBillDateTimeInput = (value: string): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-function openTab(path: string, windowName: string) {
+function openTab(path: string, windowName: string): boolean {
   const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   if (isPwa) {
-    if (!localStorage.getItem("pwa-open-" + windowName)) {
-      window.open(path, "_blank", "noopener,noreferrer")
-    }
+    if (localStorage.getItem("pwa-open-" + windowName)) return false
+    window.open(path, "_blank", "noopener,noreferrer")
   } else {
     window.open(path, windowName)
   }
+  return true
 }
 
 export default function POSPage() {
@@ -114,7 +114,6 @@ export default function POSPage() {
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === "ADMIN"
 
-  const [openPwaWindows, setOpenPwaWindows] = useState<Set<string>>(new Set())
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeCategoryId, setActiveCategoryId] = useState<string>("all")
   const [searchQuery, setSearchQuery] = useState("")
@@ -168,26 +167,22 @@ export default function POSPage() {
   const [tempPrice, setTempPrice] = useState("")
 
   useEffect(() => {
-    localStorage.setItem("pwa-open-afm-pos", "1")
-    const handleHide = () => localStorage.removeItem("pwa-open-afm-pos")
-    window.addEventListener("pagehide", handleHide)
+    if (!openedForEdit) localStorage.setItem("pwa-open-afm-pos", "1")
+    localStorage.removeItem("pwa-edit-in-progress")
+    if (openedForEdit) localStorage.setItem("pwa-edit-in-progress", "1")
 
-    const readOpenWindows = () => {
-      const s = new Set<string>()
-      if (localStorage.getItem("pwa-open-afm-bills")) s.add("afm-bills")
-      if (localStorage.getItem("pwa-open-afm-admin")) s.add("afm-admin")
-      setOpenPwaWindows(s)
+    const handleHide = () => {
+      if (!openedForEdit) localStorage.removeItem("pwa-open-afm-pos")
+      localStorage.removeItem("pwa-edit-in-progress")
     }
-    readOpenWindows()
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key?.startsWith("pwa-open-")) readOpenWindows()
-    }
-    window.addEventListener("storage", handleStorage)
+    window.addEventListener("pagehide", handleHide)
+    window.addEventListener("beforeunload", handleHide)
 
     return () => {
       window.removeEventListener("pagehide", handleHide)
-      window.removeEventListener("storage", handleStorage)
-      localStorage.removeItem("pwa-open-afm-pos")
+      window.removeEventListener("beforeunload", handleHide)
+      if (!openedForEdit) localStorage.removeItem("pwa-open-afm-pos")
+      localStorage.removeItem("pwa-edit-in-progress")
     }
   }, [])
 
@@ -856,7 +851,7 @@ export default function POSPage() {
     }
   }
 
-  const handleSendLastSavedBill = () => {
+  const handleSendLastSavedBill = async () => {
     const bill = syncLastSavedBill()
     if (!bill) {
       toast({
@@ -868,10 +863,10 @@ export default function POSPage() {
     }
 
     const mobile = bill.customerMobile || ""
-    if (mobile.length !== 10) {
+    if (!/^[6-9]\d{9}$/.test(mobile)) {
       toast({
         title: "Mobile unavailable",
-        description: "Last saved bill has no valid 10-digit mobile number",
+        description: "Last saved bill has no valid Indian mobile number",
         variant: "destructive",
       })
       return
@@ -879,24 +874,26 @@ export default function POSPage() {
 
     setBillActionLoading("whatsapp")
     try {
-      const whatsappMessage = generateWhatsAppMessage(bill.billNo, {
-        customerName: bill.customerName,
-        customerMobile: mobile,
-        grandTotal: bill.grandTotal,
-        lineItems: bill.lineItems,
-        paymentMethod: bill.paymentMethod,
-        remarks: bill.remarks,
-      })
+      const useLink = posSettings.whatsappMessageType === "link"
+      const whatsappMessage = useLink
+        ? generateBillLinkMessage(bill.billNo, { customerName: bill.customerName, grandTotal: bill.grandTotal, paymentMethod: bill.paymentMethod, displayBillNo: bill.displayBillNo }, posSettings.shopName)
+        : generateWhatsAppMessage(bill.billNo, { customerName: bill.customerName, customerMobile: mobile, grandTotal: bill.grandTotal, lineItems: bill.lineItems, paymentMethod: bill.paymentMethod, remarks: bill.remarks })
 
-      openWhatsAppWithFallback(mobile, whatsappMessage, {
-        onFallback: () => {
-          toast({
-            title: "Opening WhatsApp Web",
-            description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
-            duration: 1600,
-          })
-        },
-      })
+      const sent = await sendWhatsAppViaAPI(mobile, whatsappMessage)
+      if (sent) {
+        toast({ title: "WhatsApp sent!", description: "Message delivered to customer" })
+      } else {
+        openWhatsAppWithFallback(mobile, whatsappMessage, {
+          keepPageOpen: true,
+          onFallback: () => {
+            toast({
+              title: "Opening WhatsApp Web",
+              description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
+              duration: 1600,
+            })
+          },
+        })
+      }
     } finally {
       setBillActionLoading(null)
     }
@@ -916,16 +913,16 @@ export default function POSPage() {
       return
     }
 
-    if (afterSave === "whatsapp" && (!customerMobile || customerMobile.length !== 10)) {
+    if (afterSave === "whatsapp" && !/^[6-9]\d{9}$/.test(customerMobile)) {
       toast({
         title: "Mobile required",
-        description: "Enter a 10-digit mobile number to send WhatsApp",
+        description: "Enter a valid 10-digit Indian mobile number to send WhatsApp",
         variant: "destructive",
       })
       return
     }
 
-    if (paymentMethod === "PENDING" && posSettings.pendingMobileRequired !== "false" && (!customerMobile || customerMobile.length !== 10)) {
+    if (paymentMethod === "PENDING" && posSettings.pendingMobileRequired !== "false" && !/^[6-9]\d{9}$/.test(customerMobile)) {
       toast({
         title: "Customer mobile required",
         description: "Pending bills require a valid 10-digit mobile number for dues tracking",
@@ -1011,24 +1008,26 @@ export default function POSPage() {
             openPrintDialogInPage(printHTML)
           }
         } else if (afterSave === "whatsapp") {
-          const whatsappMessage = generateWhatsAppMessage(savedBill.billNo, {
-            customerName: savedBill.customerName,
-            customerMobile: savedBill.customerMobile || "",
-            grandTotal: savedBill.grandTotal,
-            lineItems: savedBill.lineItems,
-            paymentMethod: savedBill.paymentMethod,
-            remarks: savedBill.remarks,
-            displayBillNo: savedBill.displayBillNo,
-          })
-          openWhatsAppWithFallback(savedBill.customerMobile || "", whatsappMessage, {
-            onFallback: () => {
-              toast({
-                title: "Opening WhatsApp Web",
-                description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
-                duration: 1600,
-              })
-            },
-          })
+          const mobile = savedBill.customerMobile || ""
+          const useLink = posSettings.whatsappMessageType === "link"
+          const whatsappMessage = useLink
+            ? generateBillLinkMessage(savedBill.billNo, { customerName: savedBill.customerName, grandTotal: savedBill.grandTotal, paymentMethod: savedBill.paymentMethod, displayBillNo: savedBill.displayBillNo }, posSettings.shopName)
+            : generateWhatsAppMessage(savedBill.billNo, { customerName: savedBill.customerName, customerMobile: mobile, grandTotal: savedBill.grandTotal, lineItems: savedBill.lineItems, paymentMethod: savedBill.paymentMethod, remarks: savedBill.remarks, displayBillNo: savedBill.displayBillNo })
+          const sent = await sendWhatsAppViaAPI(mobile, whatsappMessage)
+          if (sent) {
+            toast({ title: "WhatsApp sent!", description: "Message delivered to customer" })
+          } else {
+            openWhatsAppWithFallback(mobile, whatsappMessage, {
+              keepPageOpen: true,
+              onFallback: () => {
+                toast({
+                  title: "Opening WhatsApp Web",
+                  description: "WhatsApp app not detected. Redirecting to WhatsApp Web.",
+                  duration: 1600,
+                })
+              },
+            })
+          }
         }
 
         // Clear bill
@@ -1124,9 +1123,7 @@ export default function POSPage() {
         <div className="max-w-[1600px] mx-auto px-3 md:px-4 py-1.5 md:py-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="flex items-center justify-center w-7 h-7 md:w-8 md:h-8 bg-primary rounded-lg">
-                <span className="text-primary-foreground font-bold text-xs md:text-sm">AFM</span>
-              </div>
+              <img src="/afm-logo.svg" alt="AFM" className="w-7 h-7 md:w-8 md:h-8 rounded-lg flex-shrink-0" />
               <div>
                 <h1 className="text-xs md:text-base font-bold leading-tight">Achyutam Fruitam</h1>
               </div>
@@ -1156,8 +1153,7 @@ export default function POSPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => openTab("/bills", "afm-bills")}
-                disabled={openPwaWindows.has("afm-bills")}
+                onClick={() => { if (!openTab("/bills", "afm-bills")) toast({ title: "Bills is already open", description: "Switch to the Bills window.", duration: 3000 }) }}
                 className="h-7 px-2 md:px-2.5"
               >
                 <FileText className="w-4 h-4 md:mr-1.5" />
@@ -1167,8 +1163,7 @@ export default function POSPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => openTab("/admin", "afm-admin")}
-                disabled={openPwaWindows.has("afm-admin")}
+                onClick={() => { if (!openTab("/admin", "afm-admin")) toast({ title: "Admin is already open", description: "Switch to the Admin window.", duration: 3000 }) }}
                 className="h-7 px-2 md:px-2.5"
               >
                 <Settings className="w-4 h-4 md:mr-1.5" />

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useToast } from "@/hooks/use-toast"
 import { InventoryTab } from "@/components/admin/inventory-tab"
 import { SKUTab } from "@/components/admin/sku-tab"
 import { CategoryTab } from "@/components/admin/category-tab"
@@ -11,56 +11,70 @@ import { SuppliersTab } from "@/components/admin/suppliers-tab"
 import { SettingsTab } from "@/components/admin/settings-tab"
 import { FinanceTab } from "@/components/admin/finance-tab"
 import { StockTransferTab } from "@/components/admin/stock-transfer-tab"
-import { ShoppingCart, LogOut, FileText } from "lucide-react"
-import { BackButton } from "@/components/ui/back-button"
-import { useRouter } from "next/navigation"
+import { AdminSidebar } from "@/components/admin/sidebar"
+import { ShoppingCart, LogOut, FileText, ChevronRight, Menu } from "lucide-react"
 import { signOut, useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 
 const ADMIN_ACTIVE_TAB_KEY = "admin-active-tab-v1"
+const FINANCE_ACTIVE_SUB_TAB_KEY = "finance-active-sub-tab-v2"
+const INVENTORY_ACTIVE_SUB_TAB_KEY = "inventory-active-sub-tab-v1"
+const REPORTS_ACTIVE_SUB_TAB_KEY = "reports-active-sub-tab-v1"
 
-function openTab(path: string, windowName: string) {
+function openTab(path: string, windowName: string): boolean {
   const isPwa = window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   if (isPwa) {
-    if (!localStorage.getItem("pwa-open-" + windowName)) {
-      window.open(path, "_blank", "noopener,noreferrer")
-    }
+    if (localStorage.getItem("pwa-open-" + windowName)) return false
+    window.open(path, "_blank", "noopener,noreferrer")
   } else {
     window.open(path, windowName)
   }
+  return true
+}
+
+const TAB_LABELS: Record<string, string> = {
+  inventory: "Inventory", sku: "SKU", categories: "Categories",
+  "stock-transfer": "Stock Transfer", finance: "Finance",
+  reports: "Sales", customers: "Customers", suppliers: "Suppliers", settings: "Settings",
+}
+
+const SUB_LABELS: Record<string, Record<string, string>> = {
+  inventory: {
+    "add-stock": "Add Stock", "prepare-mix": "Prepare Mix",
+    report: "Inventory Report", damage: "Damage Record", history: "Stock History",
+  },
+  finance: {
+    overview: "Overview", counter: "Counter (Galla)", safe: "Safe (Tizori)",
+    expenses: "Expenses", bank: "Bank Tracker", dues: "Customer Dues",
+    adjustments: "Cash Adjustments",
+  },
+  reports: {
+    overview: "Overview", pl: "P&L", "sales-charts": "Charts",
+    "sales-grid": "Sales Grid", "sales-products": "Product Analytics",
+  },
 }
 
 export default function AdminPage() {
   const { data: session } = useSession()
+  const { toast } = useToast()
+
   const [activeTab, setActiveTab] = useState("inventory")
   const [isActiveTabRestored, setIsActiveTabRestored] = useState(false)
-  const [settings, setSettings] = useState<Record<string,string>>({ enableStockTransfer: "true" })
-  const [openPwaWindows, setOpenPwaWindows] = useState<Set<string>>(new Set())
-  const router = useRouter()
-  const tabTriggerClass =
-    "!flex-none h-10 rounded-none border-0 border-b-[3px] border-transparent bg-transparent px-3 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:border-x-0 data-[state=active]:border-t-0 data-[state=active]:border-b-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+  const [financeSubTab, setFinanceSubTab] = useState("counter")
+  const [inventorySubTab, setInventorySubTab] = useState("add-stock")
+  const [reportsSubTab, setReportsSubTab] = useState("overview")
+  const [settings, setSettings] = useState<Record<string, string>>({ enableStockTransfer: "true" })
+  const [mobileOpen, setMobileOpen] = useState(false)
 
   useEffect(() => {
     localStorage.setItem("pwa-open-afm-admin", "1")
     const handleHide = () => localStorage.removeItem("pwa-open-afm-admin")
     window.addEventListener("pagehide", handleHide)
-
-    const readOpenWindows = () => {
-      const s = new Set<string>()
-      if (localStorage.getItem("pwa-open-afm-pos")) s.add("afm-pos")
-      if (localStorage.getItem("pwa-open-afm-bills")) s.add("afm-bills")
-      setOpenPwaWindows(s)
-    }
-    readOpenWindows()
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key?.startsWith("pwa-open-")) readOpenWindows()
-    }
-    window.addEventListener("storage", handleStorage)
-
+    window.addEventListener("beforeunload", handleHide)
     return () => {
       window.removeEventListener("pagehide", handleHide)
-      window.removeEventListener("storage", handleStorage)
+      window.removeEventListener("beforeunload", handleHide)
       localStorage.removeItem("pwa-open-afm-admin")
     }
   }, [])
@@ -79,184 +93,128 @@ export default function AdminPage() {
   useEffect(() => {
     if (typeof window === "undefined") return
     const savedTab = window.localStorage.getItem(ADMIN_ACTIVE_TAB_KEY)
-    const allowedTabs = ["inventory", "mix-entry", "mix-batches", "sku", "categories", "stock-transfer", "finance", "reports", "customers", "suppliers", "settings"]
-    if (savedTab && allowedTabs.includes(savedTab)) {
-      setActiveTab(savedTab)
-    }
+    const allowedTabs = ["inventory", "sku", "categories", "stock-transfer", "finance", "reports", "customers", "suppliers", "settings"]
+    if (savedTab && allowedTabs.includes(savedTab)) setActiveTab(savedTab)
+    const savedFinance = window.localStorage.getItem(FINANCE_ACTIVE_SUB_TAB_KEY)
+    if (savedFinance) setFinanceSubTab(savedFinance)
+    const savedInventory = window.localStorage.getItem(INVENTORY_ACTIVE_SUB_TAB_KEY)
+    if (savedInventory) setInventorySubTab(savedInventory)
+    const savedReports = window.localStorage.getItem(REPORTS_ACTIVE_SUB_TAB_KEY)
+    if (savedReports) setReportsSubTab(savedReports)
     setIsActiveTabRestored(true)
   }, [])
 
   useEffect(() => {
-    if (typeof window === "undefined") return
     if (!isActiveTabRestored) return
     window.localStorage.setItem(ADMIN_ACTIVE_TAB_KEY, activeTab)
   }, [activeTab, isActiveTabRestored])
 
-  useEffect(() => {
-    // temp
-    if (activeTab === "stock-transfer" && settings.enableStockTransfer !== "true") {
-      setActiveTab("inventory")
-    }
-    if ((activeTab === "mix-entry" || activeTab === "mix-batches") && settings.enableMixDishPrep !== "true") {
-      setActiveTab("inventory")
-    }
-  }, [activeTab, settings.enableStockTransfer, settings.enableMixDishPrep])
+  const tabLabel = TAB_LABELS[activeTab] ?? activeTab
+  const subTabLabel = SUB_LABELS[activeTab]?.[
+    activeTab === "finance" ? financeSubTab :
+    activeTab === "inventory" ? inventorySubTab :
+    activeTab === "reports" ? reportsSubTab : ""
+  ] ?? null
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="border-b border-border/70 bg-card/95 shadow-sm">
-        <div className="container mx-auto px-3 md:px-4 py-1.5">
-          <div className="flex items-center justify-between gap-4">
-            {/* Left: Back + Title */}
-            <div className="flex items-center gap-3">
-              <BackButton />
-              <div>
-                <h1 className="text-sm md:text-base font-bold leading-tight">Admin Dashboard</h1>
+    <div className="flex overflow-hidden bg-background" style={{ height: "100dvh" }}>
+      <AdminSidebar
+        activeTab={activeTab}
+        activeSubTabs={{ inventory: inventorySubTab, finance: financeSubTab, reports: reportsSubTab }}
+        onTabChange={(tab) => { setActiveTab(tab); setMobileOpen(false) }}
+        onSubTabChange={(parentTab, subTab) => {
+          setActiveTab(parentTab)
+          if (parentTab === "finance") setFinanceSubTab(subTab)
+          else if (parentTab === "inventory") setInventorySubTab(subTab)
+          else if (parentTab === "reports") setReportsSubTab(subTab)
+          setMobileOpen(false)
+        }}
+        settings={settings}
+        mobileOpen={mobileOpen}
+        onMobileClose={() => setMobileOpen(false)}
+      />
+
+      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        {/* Header */}
+        <div className="border-b border-border/70 bg-card/95 shadow-sm h-12 flex-shrink-0 flex items-center px-3 md:px-4">
+          <div className="flex items-center justify-between w-full gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <button
+                className="md:hidden flex items-center justify-center w-8 h-8 flex-shrink-0 rounded-lg border border-gray-200 bg-white text-gray-700"
+                onClick={() => setMobileOpen(true)}
+              >
+                <Menu className="w-4 h-4" />
+              </button>
+              <div className="flex items-center gap-1 text-sm text-gray-500 min-w-0 overflow-hidden">
+                {subTabLabel ? (
+                  <>
+                    <span className="hidden sm:inline truncate">{tabLabel}</span>
+                    <ChevronRight className="hidden sm:block w-3 h-3 flex-shrink-0" />
+                    <span className="font-semibold text-gray-900 truncate">{subTabLabel}</span>
+                  </>
+                ) : (
+                  <span className="font-semibold text-gray-900 truncate">{tabLabel}</span>
+                )}
               </div>
             </div>
 
-            {/* Right: Bills + POS + Logout buttons */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               <Button
-                variant="outline"
-                size="sm"
-                onClick={() => openTab("/bills", "afm-bills")}
-                disabled={openPwaWindows.has("afm-bills")}
-                className="h-7 px-2 md:px-2.5"
-                title="Bills"
+                variant="outline" size="sm"
+                onClick={() => { if (!openTab("/bills", "afm-bills")) toast({ title: "Bills is already open", description: "Switch to the Bills window.", duration: 3000 }) }}
+                className="h-7 px-2 md:px-2.5" title="Bills"
               >
                 <FileText className="w-4 h-4 md:mr-1.5" />
                 <span className="hidden md:inline text-xs">Bills</span>
               </Button>
-
               <Button
-                variant="outline"
-                size="sm"
-                onClick={() => openTab("/pos", "afm-pos")}
-                disabled={openPwaWindows.has("afm-pos")}
-                className="h-7 px-2 md:px-2.5"
-                title="POS"
+                variant="outline" size="sm"
+                onClick={() => { if (!openTab("/pos", "afm-pos")) toast({ title: "POS is already open", description: "Switch to the POS window.", duration: 3000 }) }}
+                className="h-7 px-2 md:px-2.5" title="POS"
               >
                 <ShoppingCart className="w-4 h-4 md:mr-1.5" />
                 <span className="hidden md:inline text-xs">POS</span>
               </Button>
-
               {session && (
                 <span className="hidden md:flex items-center text-xs">
                   <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-medium">Admin</span>
                 </span>
               )}
               <Button
-                variant="ghost"
-                size="sm"
+                variant="ghost" size="sm"
                 onClick={() => signOut({ callbackUrl: "/login" })}
-                className="h-7 w-7 p-0"
-                title="Logout"
+                className="h-7 w-7 p-0" title="Logout"
               >
                 <LogOut className="w-4 h-4" />
               </Button>
             </div>
           </div>
         </div>
-      </div>
-      {/* Main Content */}
-      <div className="container mx-auto px-3 md:px-4 py-3 md:py-4">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-1">
-          <div className="w-full overflow-x-auto pb-1">
-            <TabsList className="inline-flex h-10 w-max min-w-full flex-nowrap gap-1 rounded-none border-b bg-transparent p-0">
-            <TabsTrigger value="inventory" className={tabTriggerClass}>
-              Inventory
-            </TabsTrigger>
-            {settings.enableMixDishPrep === "true" && (
-            <TabsTrigger value="mix-entry" className={tabTriggerClass}>
-              Mix Entry
-            </TabsTrigger>
+
+        {/* Scrollable content */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="container mx-auto px-3 md:px-4 py-3 md:py-4">
+            {isActiveTabRestored && (
+              <>
+                {activeTab === "inventory" && (
+                  <InventoryTab subTab={inventorySubTab} onSubTabChange={setInventorySubTab} />
+                )}
+                {activeTab === "sku" && <SKUTab />}
+                {activeTab === "categories" && <CategoryTab />}
+                {activeTab === "stock-transfer" && settings.enableStockTransfer === "true" && <StockTransferTab />}
+                {activeTab === "finance" && (
+                  <FinanceTab subTab={financeSubTab} onSubTabChange={setFinanceSubTab} />
+                )}
+                {activeTab === "reports" && (
+                  <ReportsTab subTab={reportsSubTab} onSubTabChange={setReportsSubTab} />
+                )}
+                {activeTab === "customers" && <CustomersTab />}
+                {activeTab === "suppliers" && <SuppliersTab />}
+                {activeTab === "settings" && <SettingsTab />}
+              </>
             )}
-            {settings.enableMixDishPrep === "true" && (
-            <TabsTrigger value="mix-batches" className={tabTriggerClass}>
-              Mix Batches
-            </TabsTrigger>
-            )}
-            <TabsTrigger value="sku" className={tabTriggerClass}>
-              SKU
-            </TabsTrigger>
-            <TabsTrigger value="categories" className={tabTriggerClass}>
-              Categories
-            </TabsTrigger>
-            {settings.enableStockTransfer === "true" && (
-            <TabsTrigger value="stock-transfer" className={tabTriggerClass}>
-              Stock Transfer
-            </TabsTrigger>
-            )}
-            <TabsTrigger value="finance" className={tabTriggerClass}>
-              Finance
-            </TabsTrigger>
-            <TabsTrigger value="reports" className={tabTriggerClass}>
-              Sales
-            </TabsTrigger>
-            <TabsTrigger value="customers" className={tabTriggerClass}>
-              Customers
-            </TabsTrigger>
-            <TabsTrigger value="suppliers" className={tabTriggerClass}>
-              Suppliers
-            </TabsTrigger>
-            <TabsTrigger value="settings" className={tabTriggerClass}>
-              Settings
-            </TabsTrigger>
-            </TabsList>
           </div>
-
-          <TabsContent value="inventory" className="space-y-4">
-            <InventoryTab />
-          </TabsContent>
-
-          <TabsContent value="sku" className="space-y-4">
-            <SKUTab />
-          </TabsContent>
-
-          <TabsContent value="categories" className="space-y-4">
-            <CategoryTab />
-          </TabsContent>
-
-          {settings.enableStockTransfer === "true" && (
-          <TabsContent value="stock-transfer" className="space-y-4">
-            <StockTransferTab />
-          </TabsContent>
-          )}
-
-          <TabsContent value="finance" className="space-y-4">
-            <FinanceTab />
-          </TabsContent>
-
-          <TabsContent value="reports" className="space-y-4">
-            <ReportsTab />
-          </TabsContent>
-
-          <TabsContent value="customers" className="space-y-4">
-            <CustomersTab />
-          </TabsContent>
-
-          <TabsContent value="suppliers" className="space-y-4">
-            <SuppliersTab />
-          </TabsContent>
-
-          <TabsContent value="settings" className="space-y-4">
-            <SettingsTab />
-          </TabsContent>
-
-          {settings.enableMixDishPrep === "true" && (
-          <TabsContent value="mix-entry" className="space-y-4">
-            <InventoryTab forcedSubTab="prepare-mix" forcedPrepareMixView="entry" hideSubTabList />
-          </TabsContent>
-          )}
-
-          {settings.enableMixDishPrep === "true" && (
-          <TabsContent value="mix-batches" className="space-y-4">
-            <InventoryTab forcedSubTab="prepare-mix" forcedPrepareMixView="batches" hideSubTabList />
-          </TabsContent>
-          )}
-        </Tabs>
+        </div>
       </div>
     </div>
   )

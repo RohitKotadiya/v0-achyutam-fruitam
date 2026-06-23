@@ -54,7 +54,8 @@ function LoginForm() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-50 to-purple-100">
       <div className="w-full max-w-sm rounded-xl border bg-white p-8 shadow-lg space-y-6">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-purple-900">Achyutam Fruitam</h1>
+          <img src="/afm-logo.svg" alt="Achyutam Fruitam" className="w-20 h-20 mx-auto mb-3 rounded-2xl" />
+          <h1 className="text-xl font-bold text-purple-900">Achyutam Fruitam</h1>
           <p className="text-sm text-purple-600 mt-1">Sign in to continue</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">

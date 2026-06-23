@@ -317,25 +317,38 @@ function QuickRangeDropdown({
 
 // ==================== MAIN COMPONENT ====================
 
-export function ReportsTab() {
-  const [subTab, setSubTab] = useState("overview")
+interface ReportsTabProps {
+  subTab?: string
+  onSubTabChange?: (sub: string) => void
+}
+
+export function ReportsTab({ subTab: externalSubTab, onSubTabChange }: ReportsTabProps = {}) {
+  const [internalSubTab, setInternalSubTab] = useState("overview")
   const [isSubTabRestored, setIsSubTabRestored] = useState(false)
 
+  const isControlled = externalSubTab !== undefined
+  const subTab = isControlled ? externalSubTab : internalSubTab
+
+  const handleSubTabChange = (v: string) => {
+    if (isControlled) onSubTabChange?.(v)
+    else setInternalSubTab(v)
+  }
+
   useEffect(() => {
+    if (isControlled) { setIsSubTabRestored(true); return }
     if (typeof window === "undefined") return
     const savedSubTab = window.localStorage.getItem(REPORTS_ACTIVE_SUB_TAB_KEY)
     const allowedSubTabs = ["overview", "pl", "sales-charts", "sales-grid", "sales-products"]
-    if (savedSubTab && allowedSubTabs.includes(savedSubTab)) {
-      setSubTab(savedSubTab)
-    }
+    if (savedSubTab && allowedSubTabs.includes(savedSubTab)) setInternalSubTab(savedSubTab)
     setIsSubTabRestored(true)
-  }, [])
+  }, [isControlled])
 
   useEffect(() => {
+    if (isControlled) return
     if (typeof window === "undefined") return
     if (!isSubTabRestored) return
-    window.localStorage.setItem(REPORTS_ACTIVE_SUB_TAB_KEY, subTab)
-  }, [subTab, isSubTabRestored])
+    window.localStorage.setItem(REPORTS_ACTIVE_SUB_TAB_KEY, internalSubTab)
+  }, [internalSubTab, isSubTabRestored, isControlled])
 
   const navigateToSubReport = (
     tab: "overview" | "pl" | "sales" | "sales-charts" | "sales-grid" | "sales-products",
@@ -385,22 +398,12 @@ export function ReportsTab() {
       window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`)
     }
 
-    setSubTab(resolvedTab)
+    handleSubTabChange(resolvedTab)
   }
 
   return (
     <div className="space-y-3">
-      <Tabs value={subTab} onValueChange={setSubTab}>
-        <div className="w-full overflow-x-auto pb-1">
-          <TabsList className="inline-flex h-9 w-max min-w-full flex-nowrap gap-1 rounded-xl bg-muted/40 p-1 shadow-sm">
-            <TabsTrigger value="overview" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Overview</TabsTrigger>
-            <TabsTrigger value="pl" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">P&L</TabsTrigger>
-            <TabsTrigger value="sales-charts" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Charts</TabsTrigger>
-            <TabsTrigger value="sales-grid" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Sales Grid</TabsTrigger>
-            <TabsTrigger value="sales-products" className="h-7 rounded-lg px-3 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Product Analytics</TabsTrigger>
-          </TabsList>
-        </div>
-
+      <Tabs value={subTab} onValueChange={handleSubTabChange}>
         <TabsContent value="overview"><ReportsOverviewSection onNavigate={navigateToSubReport} /></TabsContent>
         <TabsContent value="pl"><PLSection /></TabsContent>
         <TabsContent value="sales-charts"><SalesSection forcedView="charts" hideViewTabs /></TabsContent>

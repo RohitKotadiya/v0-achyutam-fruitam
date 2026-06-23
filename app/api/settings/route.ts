@@ -5,6 +5,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   showProductImages: "false",
   showProductSKU: "false",
   shopName: "Achyutam Fruitam",
+  shopTagline: "",
   shopAddress: "",
   shopMobile: "",
   shopGST: "",
@@ -22,6 +23,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   businessDayCutoffHour: "0",
   inventoryUndoSeconds: "120", // Time window in seconds for undoing inventory additions (default: 2 minutes)
   pendingMobileRequired: "true",
+  whatsappMessageType: "text",
 }
 
 export async function GET() {
