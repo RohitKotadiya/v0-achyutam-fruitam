@@ -58,8 +58,13 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { customerId, billId, amount, paymentMethod, remarks } = body
+    const { customerId, billId, amount, paymentMethod, remarks, discountAmount, cashReceived, changeGiven } = body
     const parsedAmount = Number.parseFloat(String(amount))
+    const parsedDiscount = Number(discountAmount) > 0 ? Number(discountAmount) : 0
+    const trackCashSetting = await prisma.systemConfig.findUnique({ where: { key: "trackCashExchange" } })
+    const trackCash = trackCashSetting?.value === "true"
+    const cashReceivedNum = trackCash && Number(cashReceived) > 0 ? Number(cashReceived) : null
+    const changeGivenNum = cashReceivedNum != null ? Number(changeGiven) : null
     const rawBillRef = billId == null ? null : String(billId).trim()
 
     if (!customerId && !rawBillRef) {
@@ -146,6 +151,14 @@ export async function POST(request: Request) {
         }
       }
 
+      // Apply discount to bill grandTotal so remaining due is correct
+      if (parsedDiscount > 0 && resolvedBillId) {
+        await tx.bill.update({
+          where: { id: resolvedBillId },
+          data: { grandTotal: { decrement: parsedDiscount } },
+        })
+      }
+
       // Create collection record
       let col: any
       if (resolvedCustomerId) {
@@ -154,6 +167,9 @@ export async function POST(request: Request) {
             customerId: resolvedCustomerId,
             billId: resolvedBillId,
             amount: parsedAmount,
+            discountGiven: parsedDiscount > 0 ? parsedDiscount : null,
+            cashReceived: cashReceivedNum,
+            changeGiven: changeGivenNum,
             paymentMethod: paymentMethod || "CASH",
             remarks: remarks || null,
           },
@@ -167,8 +183,8 @@ export async function POST(request: Request) {
         const colId = randomUUID()
         const pm = (paymentMethod || "CASH") as string
         await tx.$executeRaw`
-          INSERT INTO "PaymentCollection" (id, "customerId", "billId", amount, "paymentMethod", remarks, date, "createdAt")
-          VALUES (${colId}, NULL, ${resolvedBillId}, ${parsedAmount}, ${pm}::"PaymentMethod", ${remarks || null}, NOW(), NOW())
+          INSERT INTO "PaymentCollection" (id, "customerId", "billId", amount, "discountGiven", "cashReceived", "changeGiven", "paymentMethod", remarks, date, "createdAt")
+          VALUES (${colId}, NULL, ${resolvedBillId}, ${parsedAmount}, ${parsedDiscount > 0 ? parsedDiscount : null}, ${cashReceivedNum}, ${changeGivenNum}, ${pm}::"PaymentMethod", ${remarks || null}, NOW(), NOW())
         `
         col = { id: colId, customerId: null, billId: resolvedBillId, amount: parsedAmount, paymentMethod: pm, remarks: remarks || null, customer: null }
       }

@@ -531,6 +531,9 @@ model PaymentCollection {
   customerId    String?
   billId        String?
   amount        Float
+  discountGiven Float?
+  cashReceived  Float?
+  changeGiven   Float?
   date          DateTime      @default(now())
   paymentMethod PaymentMethod @default(CASH)
   remarks       String?

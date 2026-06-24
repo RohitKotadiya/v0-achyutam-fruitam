@@ -1843,11 +1843,17 @@ function CustomerDuesSection() {
 
     setCollecting(true)
 
+    const cashReceivedNum = Number(collectCashReceived) || 0
+    const cashToPay = collectForm.paymentMethod === "SPLIT" ? (Number(collectCashAmount) || 0) : finalAmount
+
     try {
       const requestBody = {
         customerId: due.customerId || null,
         billId: due.id,
         amount: finalAmount,
+        discountAmount: discountAmt > 0 ? discountAmt : undefined,
+        cashReceived: cashReceivedNum > 0 ? cashReceivedNum : undefined,
+        changeGiven: cashReceivedNum > 0 ? cashReceivedNum - cashToPay : undefined,
         paymentMethod: collectForm.paymentMethod,
         remarks: collectForm.remarks || null,
       }
@@ -3473,6 +3479,7 @@ function BankSection() {
 // ==================== CASH EXCHANGE SECTION ====================
 
 interface CashExchangeRow {
+  type: "SALE" | "COLLECTION"
   billNo: number
   displayBillNo: string | null
   customerName: string
@@ -3667,6 +3674,7 @@ function CashExchangeSection() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="text-xs font-medium">Type</TableHead>
                       <TableHead><SortableHeader label="Bill #" field="billNo" sortField={sortField} sortDir={sortDir} onSort={handleSort} /></TableHead>
                       <TableHead><SortableHeader label="Customer" field="customerName" sortField={sortField} sortDir={sortDir} onSort={handleSort} /></TableHead>
                       <TableHead><SortableHeader label="Date & Time" field="dateTime" sortField={sortField} sortDir={sortDir} onSort={handleSort} /></TableHead>
@@ -3677,9 +3685,14 @@ function CashExchangeSection() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginated.map((row) => (
-                      <TableRow key={row.billNo}>
-                        <TableCell className="font-medium text-sm">#{row.displayBillNo ?? row.billNo}</TableCell>
+                    {paginated.map((row, idx) => (
+                      <TableRow key={`${row.type}-${row.billNo}-${idx}`}>
+                        <TableCell>
+                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${row.type === "SALE" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
+                            {row.type === "SALE" ? "Sale" : "Collection"}
+                          </span>
+                        </TableCell>
+                        <TableCell className="font-medium text-sm">{row.billNo > 0 ? `#${row.displayBillNo ?? row.billNo}` : "—"}</TableCell>
                         <TableCell className="text-sm">{row.customerName}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{formatIndianDateTime(new Date(row.dateTime))}</TableCell>
                         <TableCell className="text-sm">{row.paymentMethod}</TableCell>

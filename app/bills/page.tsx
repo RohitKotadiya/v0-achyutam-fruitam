@@ -576,12 +576,17 @@ export default function BillsPage() {
 
     try {
       setCollecting(true)
+      const cashReceivedNum = Number(collectCashReceived) || 0
+      const cashToPay = collectForm.paymentMethod === "SPLIT" ? (Number(collectCashAmount) || 0) : finalAmount
       const response = await fetch(`/api/finance/collections`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           billId: selectedCollectBill.billNo,
           amount: finalAmount,
+          discountAmount: discountAmt > 0 ? discountAmt : undefined,
+          cashReceived: cashReceivedNum > 0 ? cashReceivedNum : undefined,
+          changeGiven: cashReceivedNum > 0 ? cashReceivedNum - cashToPay : undefined,
           paymentMethod: collectForm.paymentMethod,
           remarks: collectForm.remarks,
         }),
