@@ -61,6 +61,7 @@ const mainNav: NavItem[] = [
       { id: "bank", label: "Bank Tracker" },
       { id: "dues", label: "Customer Dues" },
       { id: "adjustments", label: "Cash Adjustments" },
+      { id: "cash-exchange", label: "Cash Exchange" },
     ],
   },
   {

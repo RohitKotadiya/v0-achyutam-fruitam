@@ -960,6 +960,12 @@ export default function POSPage() {
           lineItems: billItems,
           grandTotal,
           dateTime: billDateTimeOverride ?? undefined,
+          ...(() => {
+            const cashReceivedNum = Number(cashReceived) || 0
+            if (cashReceivedNum <= 0) return {}
+            const cashToPay = paymentMethod === "SPLIT" ? (Number(cashAmount) || 0) : grandTotal
+            return { cashReceived: cashReceivedNum, changeGiven: cashReceivedNum - cashToPay }
+          })(),
         }),
       })
 

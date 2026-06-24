@@ -47,7 +47,7 @@ const SUB_LABELS: Record<string, Record<string, string>> = {
   finance: {
     overview: "Overview", counter: "Counter (Galla)", safe: "Safe (Tizori)",
     expenses: "Expenses", bank: "Bank Tracker", dues: "Customer Dues",
-    adjustments: "Cash Adjustments",
+    adjustments: "Cash Adjustments", "cash-exchange": "Cash Exchange",
   },
   reports: {
     overview: "Overview", pl: "P&L", "sales-charts": "Charts",

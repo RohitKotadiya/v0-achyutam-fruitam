@@ -306,7 +306,7 @@ export function FinanceTab({ subTab: externalSubTab, onSubTabChange }: FinanceTa
     if (isControlled) { setIsSubTabRestored(true); return }
     if (typeof window === "undefined") return
     const savedSubTab = window.localStorage.getItem(FINANCE_ACTIVE_SUB_TAB_KEY)
-    const allowedSubTabs = ["overview", "counter", "dues", "safe", "expenses", "bank", "adjustments"]
+    const allowedSubTabs = ["overview", "counter", "dues", "safe", "expenses", "bank", "adjustments", "cash-exchange"]
     if (savedSubTab && allowedSubTabs.includes(savedSubTab)) setInternalSubTab(savedSubTab)
     setIsSubTabRestored(true)
   }, [isControlled])
@@ -328,6 +328,7 @@ export function FinanceTab({ subTab: externalSubTab, onSubTabChange }: FinanceTa
         <TabsContent value="bank"><BankSection /></TabsContent>
         <TabsContent value="dues"><CustomerDuesSection /></TabsContent>
         <TabsContent value="adjustments"><CashAdjustmentsSection /></TabsContent>
+        <TabsContent value="cash-exchange"><CashExchangeSection /></TabsContent>
       </Tabs>
     </div>
   )
@@ -3465,6 +3466,235 @@ function BankSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+// ==================== CASH EXCHANGE SECTION ====================
+
+interface CashExchangeRow {
+  billNo: number
+  displayBillNo: string | null
+  customerName: string
+  dateTime: string
+  paymentMethod: string
+  grandTotal: number
+  cashReceived: number
+  changeGiven: number
+}
+
+function CashExchangeSection() {
+  const [rows, setRows] = useState<CashExchangeRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState("")
+  const [datePreset, setDatePreset] = useState<DateRangePreset>("today")
+  const [startDate, setStartDate] = useState(() => getDateRangeForPreset("today").start)
+  const [endDate, setEndDate] = useState(() => getDateRangeForPreset("today").end)
+  const [sortField, setSortField] = useState("dateTime")
+  const [sortDir, setSortDir] = useState<SortDir>("desc")
+  const [page, setPage] = useState(1)
+  const pageSize = 20
+
+  const applyPreset = (preset: DateRangePreset) => {
+    setDatePreset(preset)
+    if (preset !== "custom") {
+      const { start, end } = getDateRangeForPreset(preset)
+      setStartDate(start)
+      setEndDate(end)
+    }
+    setPage(1)
+  }
+
+  const fetchRows = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (startDate) params.set("startDate", startDate)
+      if (endDate) params.set("endDate", endDate)
+      const res = await fetch(`/api/finance/cash-exchange?${params}`)
+      const data = await res.json()
+      setRows(Array.isArray(data) ? data : [])
+    } catch {
+      setRows([])
+    } finally {
+      setLoading(false)
+    }
+  }, [startDate, endDate])
+
+  useEffect(() => { fetchRows() }, [fetchRows])
+
+  const handleSort = (field: string) => {
+    if (sortField === field) setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+    else { setSortField(field); setSortDir("asc") }
+    setPage(1)
+  }
+
+  const filtered = useMemo(() => {
+    let result = [...rows]
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      result = result.filter(
+        (r) =>
+          r.customerName.toLowerCase().includes(q) ||
+          String(r.billNo).includes(q) ||
+          (r.displayBillNo && r.displayBillNo.toLowerCase().includes(q)),
+      )
+    }
+    result.sort((a, b) => {
+      let cmp = 0
+      if (sortField === "billNo") cmp = a.billNo - b.billNo
+      else if (sortField === "dateTime") cmp = new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()
+      else if (sortField === "customerName") cmp = a.customerName.localeCompare(b.customerName)
+      else if (sortField === "cashReceived") cmp = a.cashReceived - b.cashReceived
+      else if (sortField === "changeGiven") cmp = a.changeGiven - b.changeGiven
+      else if (sortField === "grandTotal") cmp = a.grandTotal - b.grandTotal
+      return sortDir === "asc" ? cmp : -cmp
+    })
+    return result
+  }, [rows, search, sortField, sortDir])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
+
+  const totalCashReceived = filtered.reduce((s, r) => s + r.cashReceived, 0)
+  const totalChangeGiven = filtered.reduce((s, r) => s + r.changeGiven, 0)
+
+  const handleExport = () => {
+    downloadCsv(
+      `cash-exchange-${startDate}-to-${endDate}.csv`,
+      ["Bill #", "Customer", "Date & Time", "Payment", "Grand Total", "Cash Received", "Change Given"],
+      filtered.map((r) => [
+        r.displayBillNo ?? r.billNo,
+        r.customerName,
+        new Date(r.dateTime).toLocaleString("en-IN"),
+        r.paymentMethod,
+        r.grandTotal,
+        r.cashReceived,
+        r.changeGiven,
+      ]),
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* KPI summary */}
+      <div className="grid grid-cols-2 gap-3">
+        <Card className={`bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground">Total Cash Received</p>
+            <p className="text-lg font-bold text-green-700">{formatCurrency(totalCashReceived)}</p>
+            <p className="text-[10px] text-muted-foreground">{filtered.length} transactions</p>
+          </CardContent>
+        </Card>
+        <Card className={`bg-gradient-to-br from-orange-500/10 to-amber-500/10 border-transparent ${KPI_CARD_CLASS}`}>
+          <CardContent className={KPI_CARD_CONTENT_CLASS}>
+            <p className="text-xs text-muted-foreground">Total Change Given</p>
+            <p className="text-lg font-bold text-orange-700">{formatCurrency(totalChangeGiven)}</p>
+            <p className="text-[10px] text-muted-foreground">Net cash kept: {formatCurrency(totalCashReceived - totalChangeGiven)}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filters */}
+      <Card>
+        <CardContent className="pt-4 space-y-3">
+          <div className="flex flex-wrap gap-1.5">
+            {DATE_RANGE_OPTIONS.map((opt) => (
+              <Button
+                key={opt.value}
+                size="sm"
+                variant={datePreset === opt.value ? "default" : "outline"}
+                className="h-7 px-3 text-xs"
+                onClick={() => applyPreset(opt.value)}
+              >
+                {opt.label}
+              </Button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => { setStartDate(e.target.value); setDatePreset("custom"); setPage(1) }}
+              className="h-8 w-[150px] text-xs"
+            />
+            <Input
+              type="date"
+              value={endDate}
+              onChange={(e) => { setEndDate(e.target.value); setDatePreset("custom"); setPage(1) }}
+              className="h-8 w-[150px] text-xs"
+            />
+            <div className="relative flex-1 min-w-[180px]">
+              <Input
+                placeholder="Search bill #, customer..."
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+                className="h-8 text-xs pr-6"
+              />
+              {search && (
+                <button type="button" onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-base leading-none">×</button>
+              )}
+            </div>
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={fetchRows} disabled={loading}>
+              <RefreshCw className={`w-3.5 h-3.5 mr-1 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleExport} disabled={filtered.length === 0}>
+              <Download className="w-3.5 h-3.5 mr-1" />
+              CSV
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Grid */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Receipt className="h-4 w-4" /> Cash Exchange Transactions
+          </CardTitle>
+          <CardDescription>Bills where cash received was recorded</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <p className="text-center py-8 text-muted-foreground">Loading...</p>
+          ) : filtered.length === 0 ? (
+            <p className="text-center py-8 text-muted-foreground">No transactions found</p>
+          ) : (
+            <>
+              <PaginationBar total={filtered.length} page={page} pageSize={pageSize} totalPages={totalPages} onPage={setPage} />
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead><SortableHeader label="Bill #" field="billNo" sortField={sortField} sortDir={sortDir} onSort={handleSort} /></TableHead>
+                      <TableHead><SortableHeader label="Customer" field="customerName" sortField={sortField} sortDir={sortDir} onSort={handleSort} /></TableHead>
+                      <TableHead><SortableHeader label="Date & Time" field="dateTime" sortField={sortField} sortDir={sortDir} onSort={handleSort} /></TableHead>
+                      <TableHead className="text-xs font-medium">Payment</TableHead>
+                      <TableHead className="text-right"><SortableHeader label="Grand Total" field="grandTotal" sortField={sortField} sortDir={sortDir} onSort={handleSort} /></TableHead>
+                      <TableHead className="text-right"><SortableHeader label="Cash Received" field="cashReceived" sortField={sortField} sortDir={sortDir} onSort={handleSort} /></TableHead>
+                      <TableHead className="text-right"><SortableHeader label="Change Given" field="changeGiven" sortField={sortField} sortDir={sortDir} onSort={handleSort} /></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paginated.map((row) => (
+                      <TableRow key={row.billNo}>
+                        <TableCell className="font-medium text-sm">#{row.displayBillNo ?? row.billNo}</TableCell>
+                        <TableCell className="text-sm">{row.customerName}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{formatIndianDateTime(new Date(row.dateTime))}</TableCell>
+                        <TableCell className="text-sm">{row.paymentMethod}</TableCell>
+                        <TableCell className="text-right text-sm">{formatCurrency(row.grandTotal)}</TableCell>
+                        <TableCell className="text-right text-sm font-semibold text-green-700">{formatCurrency(row.cashReceived)}</TableCell>
+                        <TableCell className="text-right text-sm font-semibold text-orange-600">{formatCurrency(row.changeGiven)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

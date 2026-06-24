@@ -29,6 +29,8 @@ export async function POST(request: Request) {
       lineItems,
       grandTotal,
       dateTime,
+      cashReceived,
+      changeGiven,
     } = data
 
     const grandTotalNum = Number(grandTotal) || 0
@@ -52,8 +54,15 @@ export async function POST(request: Request) {
       }, { status: 400 })
     }
 
-    const pendingMobileSetting = await prisma.systemConfig.findUnique({ where: { key: "pendingMobileRequired" } })
+    const [pendingMobileSetting, trackCashSetting] = await Promise.all([
+      prisma.systemConfig.findUnique({ where: { key: "pendingMobileRequired" } }),
+      prisma.systemConfig.findUnique({ where: { key: "trackCashExchange" } }),
+    ])
     const pendingMobileRequired = pendingMobileSetting ? pendingMobileSetting.value !== "false" : true
+    const trackCashExchange = trackCashSetting?.value === "true"
+    const cashReceivedNum = trackCashExchange && Number(cashReceived) > 0 ? Number(cashReceived) : null
+    const changeGivenNum = cashReceivedNum != null ? Number(changeGiven) : null
+
     if (paymentMethod === "PENDING" && pendingMobileRequired && (!customerMobile || String(customerMobile).length !== 10)) {
       return NextResponse.json(
         {
@@ -301,6 +310,8 @@ export async function POST(request: Request) {
             paymentMethod: paymentMethod || "CASH",
             cashAmount: cashAmount || null,
             onlineAmount: onlineAmount || null,
+            cashReceived: cashReceivedNum,
+            changeGiven: changeGivenNum,
             remarks: remarks || null,
             grandTotal: grandTotalNum,
             totalCost,
@@ -541,6 +552,8 @@ export async function POST(request: Request) {
             paymentMethod: paymentMethod || "CASH",
             cashAmount: cashAmount || null,
             onlineAmount: onlineAmount || null,
+            cashReceived: cashReceivedNum,
+            changeGiven: changeGivenNum,
             remarks: remarks || null,
             grandTotal: grandTotalNum,
             totalCost,
@@ -594,6 +607,8 @@ export async function POST(request: Request) {
                 paymentMethod: paymentMethod || "CASH",
                 cashAmount: cashAmount || null,
                 onlineAmount: onlineAmount || null,
+                cashReceived: cashReceivedNum,
+                changeGiven: changeGivenNum,
                 remarks: remarks || null,
                 grandTotal: grandTotalNum,
                 totalCost,

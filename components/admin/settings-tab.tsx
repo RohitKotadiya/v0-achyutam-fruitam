@@ -55,6 +55,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   inventoryUndoSeconds: "120", // Time window in seconds for undoing inventory additions (default: 2 minutes)
   pendingMobileRequired: "true",
   whatsappMessageType: "text",
+  trackCashExchange: "false",
 }
 
 export function SettingsTab() {
@@ -526,6 +527,17 @@ export function SettingsTab() {
             <Switch
               checked={settings.pendingMobileRequired !== "false"}
               onCheckedChange={(checked) => updateSetting("pendingMobileRequired", checked ? "true" : "false")}
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Track Cash Received &amp; Change Given</Label>
+              <p className="text-sm text-muted-foreground">Save cash received and change given values on each bill (uses the existing Received field on POS)</p>
+            </div>
+            <Switch
+              checked={settings.trackCashExchange === "true"}
+              onCheckedChange={(checked) => updateSetting("trackCashExchange", checked ? "true" : "false")}
             />
           </div>
         </CardContent>
