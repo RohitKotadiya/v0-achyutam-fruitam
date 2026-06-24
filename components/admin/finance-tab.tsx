@@ -1783,6 +1783,11 @@ function CustomerDuesSection() {
   const [selectedDue, setSelectedDue] = useState<DashboardData["outstanding"]["dues"][0] | null>(null)
   const [collectForm, setCollectForm] = useState({ amount: "", paymentMethod: "CASH", remarks: "" })
   const [collecting, setCollecting] = useState(false)
+  const [collectDiscountPercent, setCollectDiscountPercent] = useState("")
+  const [collectDiscountRupee, setCollectDiscountRupee] = useState("")
+  const [collectCashReceived, setCollectCashReceived] = useState("")
+  const [collectCashAmount, setCollectCashAmount] = useState("")
+  const [collectOnlineAmount, setCollectOnlineAmount] = useState("")
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -1828,13 +1833,20 @@ function CustomerDuesSection() {
       return
     }
 
+    const discountPct = Math.min(Math.max(Number(collectDiscountPercent) || 0, 0), 100)
+    const discountRupeeNum = Math.max(Number(collectDiscountRupee) || 0, 0)
+    const discountAmt = discountPct > 0
+      ? Math.round(parsedAmount * discountPct / 100)
+      : Math.min(discountRupeeNum, parsedAmount)
+    const finalAmount = Math.max(parsedAmount - discountAmt, 0)
+
     setCollecting(true)
 
     try {
       const requestBody = {
         customerId: due.customerId || null,
         billId: due.id,
-        amount: parsedAmount,
+        amount: finalAmount,
         paymentMethod: collectForm.paymentMethod,
         remarks: collectForm.remarks || null,
       }
@@ -1849,6 +1861,11 @@ function CustomerDuesSection() {
         toast({ title: "Success", description: "Payment collected" })
         setShowCollectDialog(false)
         setCollectForm({ amount: "", paymentMethod: "CASH", remarks: "" })
+        setCollectDiscountPercent("")
+        setCollectDiscountRupee("")
+        setCollectCashReceived("")
+        setCollectCashAmount("")
+        setCollectOnlineAmount("")
         await fetchData()
       } else {
         const err = await res.json()
@@ -1910,6 +1927,11 @@ function CustomerDuesSection() {
                         onClick={() => {
                           setSelectedDue(due)
                           setCollectForm({ amount: due.remaining.toString(), paymentMethod: "CASH", remarks: "" })
+                          setCollectDiscountPercent("")
+                          setCollectDiscountRupee("")
+                          setCollectCashReceived("")
+                          setCollectCashAmount("")
+                          setCollectOnlineAmount("")
                           setShowCollectDialog(true)
                         }}
                       >
@@ -1979,19 +2001,163 @@ function CustomerDuesSection() {
                 required
               />
             </div>
+            {/* Discount */}
+            {(() => {
+              const baseAmount = parseFloat(collectForm.amount) || 0
+              const discountPct = Math.min(Math.max(Number(collectDiscountPercent) || 0, 0), 100)
+              const discountRupeeNum = Math.max(Number(collectDiscountRupee) || 0, 0)
+              const discountAmt = discountPct > 0
+                ? Math.round(baseAmount * discountPct / 100)
+                : Math.min(discountRupeeNum, baseAmount)
+              const finalAmount = Math.max(baseAmount - discountAmt, 0)
+              return (
+                <>
+                  <div className="space-y-1">
+                    <div className="grid grid-cols-[64px_1fr_1fr] items-center gap-2">
+                      <span className="text-xs text-muted-foreground shrink-0">Discount</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="100"
+                        placeholder="%"
+                        value={collectDiscountPercent}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setCollectDiscountPercent(v)
+                          if (v.trim().length > 0) setCollectDiscountRupee("")
+                        }}
+                        disabled={collectDiscountRupee.trim().length > 0}
+                        className="h-8 text-sm"
+                      />
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="₹"
+                        value={collectDiscountRupee}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setCollectDiscountRupee(v)
+                          if (v.trim().length > 0) setCollectDiscountPercent("")
+                        }}
+                        disabled={collectDiscountPercent.trim().length > 0}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    {discountAmt > 0 && (
+                      <span className="text-xs text-red-500">-₹{discountAmt.toFixed(0)}</span>
+                    )}
+                  </div>
+                  {discountAmt > 0 && (
+                    <div className="flex justify-between items-center bg-primary/5 rounded-lg px-3 py-1.5">
+                      <span className="text-xs font-semibold">Amount to Collect</span>
+                      <span className="text-base font-bold text-primary">₹{finalAmount.toFixed(0)}</span>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
             <div className="space-y-2">
               <Label>Payment Method</Label>
               <Select
                 value={collectForm.paymentMethod}
-                onValueChange={(v) => setCollectForm({ ...collectForm, paymentMethod: v })}
+                onValueChange={(v) => {
+                  setCollectForm({ ...collectForm, paymentMethod: v })
+                  if (v !== "SPLIT") {
+                    setCollectCashAmount("")
+                    setCollectOnlineAmount("")
+                  }
+                  if (v !== "CASH" && v !== "SPLIT") {
+                    setCollectCashReceived("")
+                  }
+                }}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="CASH">Cash</SelectItem>
                   <SelectItem value="ONLINE">Online</SelectItem>
+                  <SelectItem value="SPLIT">Split</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {/* Split sub-inputs */}
+            {collectForm.paymentMethod === "SPLIT" && (() => {
+              const baseAmount = parseFloat(collectForm.amount) || 0
+              const discountPct = Math.min(Math.max(Number(collectDiscountPercent) || 0, 0), 100)
+              const discountRupeeNum = Math.max(Number(collectDiscountRupee) || 0, 0)
+              const discountAmt = discountPct > 0
+                ? Math.round(baseAmount * discountPct / 100)
+                : Math.min(discountRupeeNum, baseAmount)
+              const finalAmount = Math.max(baseAmount - discountAmt, 0)
+              return (
+                <div className="space-y-1.5 bg-muted/50 rounded-md p-2">
+                  <div className="flex gap-2 items-center">
+                    <label className="text-xs w-12 text-muted-foreground">Cash</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="₹0"
+                      value={collectCashAmount}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setCollectCashAmount(val)
+                        setCollectOnlineAmount(Math.max(finalAmount - (Number(val) || 0), 0).toString())
+                      }}
+                      className="h-7 flex-1 text-sm"
+                    />
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <label className="text-xs w-12 text-muted-foreground">Online</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="₹0"
+                      value={collectOnlineAmount}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setCollectOnlineAmount(val)
+                        setCollectCashAmount(Math.max(finalAmount - (Number(val) || 0), 0).toString())
+                      }}
+                      className="h-7 flex-1 text-sm"
+                    />
+                  </div>
+                  {(Number(collectCashAmount) || 0) + (Number(collectOnlineAmount) || 0) !== finalAmount && finalAmount > 0 && (
+                    <p className="text-[10px] text-red-500">
+                      Split ₹{((Number(collectCashAmount) || 0) + (Number(collectOnlineAmount) || 0)).toFixed(0)} ≠ Total ₹{finalAmount.toFixed(0)}
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
+            {/* Cash Received */}
+            {(collectForm.paymentMethod === "CASH" || collectForm.paymentMethod === "SPLIT") && (
+              <div className="flex gap-2 items-center bg-muted/50 rounded-md p-2">
+                <label className="text-xs text-muted-foreground shrink-0">Received</label>
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="₹0"
+                  value={collectCashReceived}
+                  onChange={(e) => setCollectCashReceived(e.target.value)}
+                  className="h-7 flex-1 text-sm"
+                />
+                {collectCashReceived && (() => {
+                  const baseAmount = parseFloat(collectForm.amount) || 0
+                  const discountPct = Math.min(Math.max(Number(collectDiscountPercent) || 0, 0), 100)
+                  const discountRupeeNum = Math.max(Number(collectDiscountRupee) || 0, 0)
+                  const discountAmt = discountPct > 0
+                    ? Math.round(baseAmount * discountPct / 100)
+                    : Math.min(discountRupeeNum, baseAmount)
+                  const finalAmount = Math.max(baseAmount - discountAmt, 0)
+                  const cashToPay = collectForm.paymentMethod === "SPLIT" ? (Number(collectCashAmount) || 0) : finalAmount
+                  const change = (Number(collectCashReceived) || 0) - cashToPay
+                  return (
+                    <span className={`text-sm font-bold whitespace-nowrap ${change >= 0 ? "text-green-600" : "text-red-500"}`}>
+                      {change >= 0 ? `₹${change.toFixed(0)}` : `-₹${Math.abs(change).toFixed(0)}`}
+                    </span>
+                  )
+                })()}
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Remarks (Optional)</Label>
               <Input
