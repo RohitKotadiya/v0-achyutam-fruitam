@@ -931,6 +931,17 @@ export default function POSPage() {
       return
     }
 
+    const cashReceivedForPartial = Number(cashReceived) || 0
+    const isPartialPayment = !editingBillNo && paymentMethod === "CASH" && cashReceivedForPartial > 0 && cashReceivedForPartial < grandTotal
+    if (isPartialPayment && posSettings.pendingMobileRequired !== "false" && !/^[6-9]\d{9}$/.test(customerMobile)) {
+      toast({
+        title: "Customer mobile required",
+        description: "Partial payment creates a pending due — enter customer mobile for dues tracking",
+        variant: "destructive",
+      })
+      return
+    }
+
     setBillActionLoading(actionType)
 
     const customerNameFinal = customerName || "Walk-in-Cust"
@@ -964,7 +975,12 @@ export default function POSPage() {
             const cashReceivedNum = Number(cashReceived) || 0
             if (cashReceivedNum <= 0) return {}
             const cashToPay = paymentMethod === "SPLIT" ? (Number(cashAmount) || 0) : grandTotal
-            return { cashReceived: cashReceivedNum, changeGiven: cashReceivedNum - cashToPay }
+            const isPartialPayment = paymentMethod === "CASH" && cashReceivedNum < grandTotal
+            return {
+              cashReceived: cashReceivedNum,
+              changeGiven: cashReceivedNum - cashToPay,
+              ...(isPartialPayment ? { partialCashPaid: cashReceivedNum } : {}),
+            }
           })(),
         }),
       })
@@ -1761,6 +1777,13 @@ export default function POSPage() {
                         {cashReceived && (() => {
                           const cashToPay = paymentMethod === "SPLIT" ? (Number(cashAmount) || 0) : grandTotal
                           const change = (Number(cashReceived) || 0) - cashToPay
+                          if (change < 0 && paymentMethod === "CASH") {
+                            return (
+                              <span className="text-sm font-bold whitespace-nowrap text-orange-500">
+                                Due ₹{Math.abs(change).toFixed(0)}
+                              </span>
+                            )
+                          }
                           return (
                             <span className={`text-sm font-bold whitespace-nowrap ${change >= 0 ? "text-green-600" : "text-red-500"}`}>
                               {change >= 0 ? `₹${change.toFixed(0)}` : `-₹${Math.abs(change).toFixed(0)}`}
