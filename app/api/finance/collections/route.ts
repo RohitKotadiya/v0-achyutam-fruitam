@@ -151,11 +151,15 @@ export async function POST(request: Request) {
         }
       }
 
-      // Apply discount to bill grandTotal so remaining due is correct
+      // Apply discount to bill grandTotal and totalProfit so remaining due
+      // and profit figures are both correct after a collection-time discount.
       if (parsedDiscount > 0 && resolvedBillId) {
         await tx.bill.update({
           where: { id: resolvedBillId },
-          data: { grandTotal: { decrement: parsedDiscount } },
+          data: {
+            grandTotal: { decrement: parsedDiscount },
+            totalProfit: { decrement: parsedDiscount },
+          },
         })
       }
 
