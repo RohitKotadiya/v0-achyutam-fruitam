@@ -31,6 +31,7 @@ export async function POST(request: Request) {
       dateTime,
       cashReceived,
       changeGiven,
+      partialCashPaid,
     } = data
 
     const grandTotalNum = Number(grandTotal) || 0
@@ -62,8 +63,12 @@ export async function POST(request: Request) {
     const trackCashExchange = trackCashSetting?.value === "true"
     const cashReceivedNum = trackCashExchange && Number(cashReceived) > 0 ? Number(cashReceived) : null
     const changeGivenNum = cashReceivedNum != null ? Number(changeGiven) : null
+    const partialCashPaidNum = Number(partialCashPaid) || 0
+    // Partial payment at POS: cashReceived < grandTotal → save as PENDING and record partial collection
+    const isPartialPayment = !editBillNo && partialCashPaidNum > 0 && partialCashPaidNum < grandTotalNum && paymentMethod === "CASH"
+    const effectivePaymentMethod = isPartialPayment ? "PENDING" : (paymentMethod || "CASH")
 
-    if (paymentMethod === "PENDING" && pendingMobileRequired && (!customerMobile || String(customerMobile).length !== 10)) {
+    if (effectivePaymentMethod === "PENDING" && pendingMobileRequired && (!customerMobile || String(customerMobile).length !== 10)) {
       return NextResponse.json(
         {
           success: false,
@@ -307,7 +312,7 @@ export async function POST(request: Request) {
             customerName: customerNameFinal,
             mobile: customerMobileFinal,
             customerId: resolvedCustomerId,
-            paymentMethod: paymentMethod || "CASH",
+            paymentMethod: effectivePaymentMethod,
             cashAmount: cashAmount || null,
             onlineAmount: onlineAmount || null,
             cashReceived: cashReceivedNum,
@@ -549,7 +554,7 @@ export async function POST(request: Request) {
             customerName: customerNameFinal,
             mobile: customerMobileFinal,
             customerId: resolvedCustomerId,
-            paymentMethod: paymentMethod || "CASH",
+            paymentMethod: effectivePaymentMethod,
             cashAmount: cashAmount || null,
             onlineAmount: onlineAmount || null,
             cashReceived: cashReceivedNum,
@@ -604,7 +609,7 @@ export async function POST(request: Request) {
                 customerName: customerNameFinal,
                 mobile: customerMobileFinal,
                 customerId: resolvedCustomerId,
-                paymentMethod: paymentMethod || "CASH",
+                paymentMethod: effectivePaymentMethod,
                 cashAmount: cashAmount || null,
                 onlineAmount: onlineAmount || null,
                 cashReceived: cashReceivedNum,
@@ -660,6 +665,16 @@ export async function POST(request: Request) {
           }
         }),
       })
+
+      // Partial payment at POS: record the cash received as an initial PaymentCollection
+      if (isPartialPayment && savedBill && partialCashPaidNum > 0) {
+        const { randomUUID } = await import("crypto")
+        const colId = randomUUID()
+        await tx.$executeRaw`
+          INSERT INTO "PaymentCollection" (id, "customerId", "billId", amount, "discountGiven", "cashReceived", "changeGiven", "paymentMethod", remarks, date, "createdAt")
+          VALUES (${colId}, ${resolvedCustomerId}, ${savedBill.id}, ${partialCashPaidNum}, NULL, ${cashReceivedNum}, ${changeGivenNum}, 'CASH'::"PaymentMethod", NULL, NOW(), NOW())
+        `
+      }
 
       return {
         bill: savedBill,

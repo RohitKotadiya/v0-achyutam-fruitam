@@ -1,0 +1,31 @@
+ID,Area,Scenario,Bill Total,Discount,Cash Received / Amount Paid,Expected: Bill Status After,Expected: Collected,Expected: Remaining Dues,Expected: UI Hint,Pass/Fail,Notes
+TC01,POS,Full cash payment – exact amount,120,0,120,CASH (cleared),120,0,Change: ₹0,,
+TC02,POS,Full cash payment – overpay (change given),120,0,150,CASH (cleared),120,0,Change: ₹30,,
+TC03,POS,Partial cash payment – cashReceived < grandTotal,120,0,100,PENDING,100,20,"Due ₹20 shown in orange on POS; ₹20 appears in dues",,Mobile required
+TC04,POS,Partial cash payment – no mobile entered,120,0,100,ERROR (blocked),–,–,Toast: mobile required for partial payment dues tracking,,
+TC05,POS,Partial payment with discount at POS – discount reduces grandTotal first,120,10,100,PENDING,100,10,"After discount grandTotal=110; paid 100; dues=10",,Mobile required; discount applied in POS form before save
+TC06,POS,PENDING bill – no cash at all,120,0,0 (no cashReceived),PENDING,0,120,Bill fully pending,,Mobile required per system setting
+TC07,POS,CASH bill – cashReceived exactly equals grandTotal,120,0,120,CASH (cleared),120,0,Change: ₹0,,Not treated as partial
+TC08,POS,SPLIT payment – cash+online = grandTotal,120,0,50 cash + 70 online,CASH (cleared),120,0,No warning,,
+TC09,POS,Edit existing bill – cashReceived ignored for partial logic,120,0,100,No change to PENDING status,,,,Edit flow; isPartialPayment=false
+TC10,Collect Payment,Full payment – no discount,120,0,120,CASH (cleared),120,0,No summary shown,,Bill was PENDING
+TC11,Collect Payment,Partial payment – no discount,120,0,100,Still PENDING,100,20,Summary: Remaining dues after ₹20,,
+TC12,Collect Payment,Partial payment – zero amount entered,120,0,0,ERROR (blocked),–,–,Toast: enter valid amount,,
+TC13,Collect Payment,Amount exceeds remaining due (no discount),120,0,130,ERROR (blocked),–,–,Toast: payment + discount cannot exceed remaining due,,
+TC14,Collect Payment,Full payment with discount (₹ amount),120,10,110,CASH (cleared),110,0,Summary: Bill after discount ₹110,,grandTotal decremented by 10; collection=110
+TC15,Collect Payment,Full payment with discount (% amount),120,10%,108,CASH (cleared),108,0,Summary: Bill after discount ₹108,,10% of ₹120 = ₹12 discount; bill→108; paid 108
+TC16,Collect Payment,Partial payment WITH discount – main bug fix,120,10,100,Still PENDING,100,10,"Summary: Bill after discount ₹110; Remaining dues after ₹10",,Before fix: remaining was wrongly ₹20
+TC17,Collect Payment,Discount only – no extra payment,120,20,100,CASH (cleared),100,0,Summary: Bill after discount ₹100,,grandTotal→100; collection=100; cleared
+TC18,Collect Payment,Discount alone clears the entire bill,120,120,0,ERROR (blocked),–,–,Toast: enter valid amount (amount=0 rejected),,Cannot collect ₹0
+TC19,Collect Payment,Discount + payment exceeds remaining,120,20,110,ERROR (blocked),–,–,Toast: payment + discount cannot exceed remaining due,,20+110=130 > 120
+TC20,Collect Payment,Payment exactly = remaining after discount,120,10,110,CASH (cleared),110,0,Summary: Bill after discount ₹110; Remaining ₹0,,Edge: amount+discount=120=remaining; just passes validation
+TC21,Collect Payment,Multiple partial payments until fully cleared,120,0,First: 50 then 50 then 20,CASH (after 3rd),120,0 after 3rd,"After 1st: due=70; after 2nd: due=20; after 3rd: cleared",,Incremental collection
+TC22,Collect Payment,Partial payment with ONLINE method,120,0,80,Still PENDING,80,40,Summary: Remaining dues after ₹40,,Same logic; method is ONLINE
+TC23,Collect Payment,Partial payment with SPLIT method,120,0,60 cash + 20 online = 80,Still PENDING,80,40,Summary: Remaining dues after ₹40; Split warning if mismatch,,
+TC24,Collect Payment,Cash Received (change calc) – uses baseAmount not finalAmount,120,10,110 paid + 130 received,N/A,110,0,"Change shown: ₹20 (130-110); not 130-(110-10)=30)",,Change calculator uses amount field directly
+TC25,Finance Tab / Outstanding,Pending bill shows in outstanding dues list,120,0,0,PENDING in dues list,0,120,Visible in Admin → Finance → Outstanding,,
+TC26,Finance Tab / Outstanding,After partial collect – updated remaining shown,120,0,Collected 50,PENDING in dues list,50,70,Remaining column shows ₹70,,
+TC27,Finance Tab / Outstanding,After full collect – bill disappears from outstanding,120,0,Collected 120,Not in dues list,120,0,Bill removed from outstanding table,,
+TC28,Bills Page,PENDING bill – Collect button enabled,120,0,0,Button enabled,–,–,HandCoins icon clickable,,
+TC29,Bills Page,CASH bill – Collect button disabled,120,0,120,Button disabled,–,–,Collect button greyed out,,Only for PENDING bills
+TC30,Bills Page,Partial collect at Bills page updates remainingDue display,120,0,Collected 100,Due: ₹20 shown in orange,100,20,Bill row shows Due ₹20,,

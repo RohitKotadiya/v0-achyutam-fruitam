@@ -1829,28 +1829,27 @@ function CustomerDuesSection() {
       return
     }
 
-    if (parsedAmount - (due.remaining || 0) > 1e-9) {
-      toast({ title: "Error", description: "Amount cannot exceed remaining due", variant: "destructive" })
-      return
-    }
-
     const discountPct = Math.min(Math.max(Number(collectDiscountPercent) || 0, 0), 100)
     const discountRupeeNum = Math.max(Number(collectDiscountRupee) || 0, 0)
     const discountAmt = discountPct > 0
-      ? Math.round(parsedAmount * discountPct / 100)
-      : Math.min(discountRupeeNum, parsedAmount)
-    const finalAmount = Math.max(parsedAmount - discountAmt, 0)
+      ? Math.round((due.remaining || 0) * discountPct / 100)
+      : Math.min(discountRupeeNum, due.remaining || 0)
+
+    if (parsedAmount + discountAmt - (due.remaining || 0) > 1e-9) {
+      toast({ title: "Error", description: "Payment + discount cannot exceed remaining due", variant: "destructive" })
+      return
+    }
 
     setCollecting(true)
 
     const cashReceivedNum = Number(collectCashReceived) || 0
-    const cashToPay = collectForm.paymentMethod === "SPLIT" ? (Number(collectCashAmount) || 0) : finalAmount
+    const cashToPay = collectForm.paymentMethod === "SPLIT" ? (Number(collectCashAmount) || 0) : parsedAmount
 
     try {
       const requestBody = {
         customerId: due.customerId || null,
         billId: due.id,
-        amount: finalAmount,
+        amount: parsedAmount,
         discountAmount: discountAmt > 0 ? discountAmt : undefined,
         cashReceived: cashReceivedNum > 0 ? cashReceivedNum : undefined,
         changeGiven: cashReceivedNum > 0 ? cashReceivedNum - cashToPay : undefined,
@@ -1999,7 +1998,7 @@ function CustomerDuesSection() {
           </DialogHeader>
           <form onSubmit={handleCollect} className="space-y-4">
             <div className="space-y-2">
-              <Label>Amount</Label>
+              <Label>Amount Paid</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -2011,12 +2010,14 @@ function CustomerDuesSection() {
             {/* Discount */}
             {(() => {
               const baseAmount = parseFloat(collectForm.amount) || 0
+              const remaining = selectedDue?.remaining || 0
               const discountPct = Math.min(Math.max(Number(collectDiscountPercent) || 0, 0), 100)
               const discountRupeeNum = Math.max(Number(collectDiscountRupee) || 0, 0)
               const discountAmt = discountPct > 0
-                ? Math.round(baseAmount * discountPct / 100)
-                : Math.min(discountRupeeNum, baseAmount)
-              const finalAmount = Math.max(baseAmount - discountAmt, 0)
+                ? Math.round(remaining * discountPct / 100)
+                : Math.min(discountRupeeNum, remaining)
+              const billAfterDiscount = Math.max(remaining - discountAmt, 0)
+              const remainingAfter = Math.max(billAfterDiscount - baseAmount, 0)
               return (
                 <>
                   <div className="space-y-1">
@@ -2050,14 +2051,21 @@ function CustomerDuesSection() {
                         className="h-8 text-sm"
                       />
                     </div>
-                    {discountAmt > 0 && (
-                      <span className="text-xs text-red-500">-₹{discountAmt.toFixed(0)}</span>
-                    )}
                   </div>
-                  {discountAmt > 0 && (
-                    <div className="flex justify-between items-center bg-primary/5 rounded-lg px-3 py-1.5">
-                      <span className="text-xs font-semibold">Amount to Collect</span>
-                      <span className="text-base font-bold text-primary">₹{finalAmount.toFixed(0)}</span>
+                  {(discountAmt > 0 || baseAmount < remaining) && (
+                    <div className="bg-primary/5 rounded-lg px-3 py-1.5 space-y-1">
+                      {discountAmt > 0 && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Bill after discount</span>
+                          <span>₹{billAfterDiscount.toFixed(0)}</span>
+                        </div>
+                      )}
+                      {remainingAfter > 0 && (
+                        <div className="flex justify-between text-xs font-semibold">
+                          <span className="text-orange-600">Remaining dues after</span>
+                          <span className="text-orange-600">₹{remainingAfter.toFixed(0)}</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
@@ -2089,12 +2097,6 @@ function CustomerDuesSection() {
             {/* Split sub-inputs */}
             {collectForm.paymentMethod === "SPLIT" && (() => {
               const baseAmount = parseFloat(collectForm.amount) || 0
-              const discountPct = Math.min(Math.max(Number(collectDiscountPercent) || 0, 0), 100)
-              const discountRupeeNum = Math.max(Number(collectDiscountRupee) || 0, 0)
-              const discountAmt = discountPct > 0
-                ? Math.round(baseAmount * discountPct / 100)
-                : Math.min(discountRupeeNum, baseAmount)
-              const finalAmount = Math.max(baseAmount - discountAmt, 0)
               return (
                 <div className="space-y-1.5 bg-muted/50 rounded-md p-2">
                   <div className="flex gap-2 items-center">
@@ -2107,7 +2109,7 @@ function CustomerDuesSection() {
                       onChange={(e) => {
                         const val = e.target.value
                         setCollectCashAmount(val)
-                        setCollectOnlineAmount(Math.max(finalAmount - (Number(val) || 0), 0).toString())
+                        setCollectOnlineAmount(Math.max(baseAmount - (Number(val) || 0), 0).toString())
                       }}
                       className="h-7 flex-1 text-sm"
                     />
@@ -2122,14 +2124,14 @@ function CustomerDuesSection() {
                       onChange={(e) => {
                         const val = e.target.value
                         setCollectOnlineAmount(val)
-                        setCollectCashAmount(Math.max(finalAmount - (Number(val) || 0), 0).toString())
+                        setCollectCashAmount(Math.max(baseAmount - (Number(val) || 0), 0).toString())
                       }}
                       className="h-7 flex-1 text-sm"
                     />
                   </div>
-                  {(Number(collectCashAmount) || 0) + (Number(collectOnlineAmount) || 0) !== finalAmount && finalAmount > 0 && (
+                  {(Number(collectCashAmount) || 0) + (Number(collectOnlineAmount) || 0) !== baseAmount && baseAmount > 0 && (
                     <p className="text-[10px] text-red-500">
-                      Split ₹{((Number(collectCashAmount) || 0) + (Number(collectOnlineAmount) || 0)).toFixed(0)} ≠ Total ₹{finalAmount.toFixed(0)}
+                      Split ₹{((Number(collectCashAmount) || 0) + (Number(collectOnlineAmount) || 0)).toFixed(0)} ≠ Total ₹{baseAmount.toFixed(0)}
                     </p>
                   )}
                 </div>
@@ -2149,13 +2151,7 @@ function CustomerDuesSection() {
                 />
                 {collectCashReceived && (() => {
                   const baseAmount = parseFloat(collectForm.amount) || 0
-                  const discountPct = Math.min(Math.max(Number(collectDiscountPercent) || 0, 0), 100)
-                  const discountRupeeNum = Math.max(Number(collectDiscountRupee) || 0, 0)
-                  const discountAmt = discountPct > 0
-                    ? Math.round(baseAmount * discountPct / 100)
-                    : Math.min(discountRupeeNum, baseAmount)
-                  const finalAmount = Math.max(baseAmount - discountAmt, 0)
-                  const cashToPay = collectForm.paymentMethod === "SPLIT" ? (Number(collectCashAmount) || 0) : finalAmount
+                  const cashToPay = collectForm.paymentMethod === "SPLIT" ? (Number(collectCashAmount) || 0) : baseAmount
                   const change = (Number(collectCashReceived) || 0) - cashToPay
                   return (
                     <span className={`text-sm font-bold whitespace-nowrap ${change >= 0 ? "text-green-600" : "text-red-500"}`}>

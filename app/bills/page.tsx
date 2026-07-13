@@ -567,23 +567,28 @@ export default function BillsPage() {
     if (!selectedCollectBill) return
 
     const baseAmount = parseFloat(collectForm.amount) || 0
+    const remaining = selectedCollectBill.remainingDue || 0
     const discountPct = Math.min(Math.max(Number(collectDiscountPercent) || 0, 0), 100)
     const discountRupeeNum = Math.max(Number(collectDiscountRupee) || 0, 0)
     const discountAmt = discountPct > 0
-      ? Math.round(baseAmount * discountPct / 100)
-      : Math.min(discountRupeeNum, baseAmount)
-    const finalAmount = Math.max(baseAmount - discountAmt, 0)
+      ? Math.round(remaining * discountPct / 100)
+      : Math.min(discountRupeeNum, remaining)
+
+    if (baseAmount + discountAmt - remaining > 1e-9) {
+      toast({ title: "Error", description: "Payment + discount cannot exceed remaining due", variant: "destructive" })
+      return
+    }
 
     try {
       setCollecting(true)
       const cashReceivedNum = Number(collectCashReceived) || 0
-      const cashToPay = collectForm.paymentMethod === "SPLIT" ? (Number(collectCashAmount) || 0) : finalAmount
+      const cashToPay = collectForm.paymentMethod === "SPLIT" ? (Number(collectCashAmount) || 0) : baseAmount
       const response = await fetch(`/api/finance/collections`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           billId: selectedCollectBill.billNo,
-          amount: finalAmount,
+          amount: baseAmount,
           discountAmount: discountAmt > 0 ? discountAmt : undefined,
           cashReceived: cashReceivedNum > 0 ? cashReceivedNum : undefined,
           changeGiven: cashReceivedNum > 0 ? cashReceivedNum - cashToPay : undefined,
@@ -682,11 +687,11 @@ export default function BillsPage() {
         <div className="space-y-2">
           <div className="px-0 py-2">
             <div className="flex flex-col gap-3">
-              <div className="flex items-center justify-between gap-3 flex-nowrap">
+              <div className="flex items-center gap-2">
                 <div className="relative flex-1 min-w-0">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search bill no, customer, mobile, customer id..."
+                    placeholder="Search bill no, customer, mobile..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="h-10 w-full pl-9 pr-10 text-sm"
@@ -703,40 +708,41 @@ export default function BillsPage() {
                   )}
                 </div>
 
-                <div className="flex items-center gap-3 flex-nowrap">
+                <div className="flex items-center gap-2 shrink-0">
                   <Button
                     variant="default"
                     size="sm"
                     onClick={handleRefreshBills}
                     disabled={refreshingBills}
-                    className="h-10 px-4 text-sm shrink-0"
+                    className="h-10 px-2.5 md:px-4 text-sm"
                   >
-                    <RefreshCw className={`w-4 h-4 mr-1.5 ${refreshingBills ? "animate-spin" : ""}`} />
-                    Refresh
+                    <RefreshCw className={`w-4 h-4 md:mr-1.5 ${refreshingBills ? "animate-spin" : ""}`} />
+                    <span className="hidden md:inline">Refresh</span>
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={resetFilters}
                     disabled={!hasActiveFilters}
-                    className="h-10 px-4 text-sm shrink-0"
+                    className="h-10 px-2.5 md:px-4 text-sm"
                   >
-                    Reset
+                    <X className="w-4 h-4 md:hidden" />
+                    <span className="hidden md:inline">Reset</span>
                   </Button>
                   <Button
                     variant={showUpdatedAt ? "default" : "outline"}
                     size="sm"
-                    className="h-10 px-4 text-sm shrink-0"
+                    className="hidden md:flex h-10 px-4 text-sm"
                     onClick={() => setShowUpdatedAt((prev) => !prev)}
                     title={showUpdatedAt ? "Hide Updated At" : "Show Updated At"}
                   >
-                    {showUpdatedAt ? "Hide Updated At" : "Show Updated At"}
+                    {showUpdatedAt ? "Hide Upd." : "Show Upd."}
                   </Button>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between gap-4 flex-nowrap">
-                <div className="flex items-center gap-2 overflow-x-auto">
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
                   {([
                     ["all", "All"],
                     ["today", "Today"],
@@ -756,7 +762,7 @@ export default function BillsPage() {
                   ))}
                 </div>
 
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-2">
                   <Input
                     type="date"
                     value={startDate}
@@ -764,8 +770,9 @@ export default function BillsPage() {
                       setStartDate(e.target.value)
                       setDatePreset("custom")
                     }}
-                    className="h-8 w-[150px] text-xs"
+                    className="h-8 flex-1 text-xs min-w-0"
                   />
+                  <span className="text-xs text-muted-foreground shrink-0">to</span>
                   <Input
                     type="date"
                     value={endDate}
@@ -773,13 +780,13 @@ export default function BillsPage() {
                       setEndDate(e.target.value)
                       setDatePreset("custom")
                     }}
-                    className="h-8 w-[150px] text-xs"
+                    className="h-8 flex-1 text-xs min-w-0"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-between gap-4 flex-nowrap">
-                <div className="flex items-center gap-2 overflow-x-auto">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
                   {["ALL", "CASH", "ONLINE", "SPLIT", "PENDING"].map((m) => (
                     <Button
                       key={m}
@@ -788,13 +795,13 @@ export default function BillsPage() {
                       className="h-8 px-3 text-xs shrink-0"
                       onClick={() => setPaymentFilter(m)}
                     >
-                      {m === "ALL" ? "All Payments" : m.charAt(0) + m.slice(1).toLowerCase()}
+                      {m === "ALL" ? "All" : m.charAt(0) + m.slice(1).toLowerCase()}
                     </Button>
                   ))}
                 </div>
 
                 <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
-                  <span>Rows</span>
+                  <span className="hidden md:inline">Rows</span>
                   <select
                     value={pageSize}
                     onChange={(e) => setPageSize(Number(e.target.value))}
@@ -806,7 +813,8 @@ export default function BillsPage() {
                       </option>
                     ))}
                   </select>
-                  <span>{pageStart}-{pageEnd} of {filteredBills.length}</span>
+                  <span className="hidden md:inline">{pageStart}-{pageEnd} of {filteredBills.length}</span>
+                  <span className="md:hidden">{filteredBills.length} bills</span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -816,6 +824,9 @@ export default function BillsPage() {
                   >
                     Prev
                   </Button>
+                  <span className="text-xs">
+                    {currentPage}/{totalPages}
+                  </span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -825,7 +836,6 @@ export default function BillsPage() {
                   >
                     Next
                   </Button>
-                  <span>Page {currentPage}/{totalPages}</span>
                 </div>
               </div>
             </div>
@@ -1029,7 +1039,7 @@ export default function BillsPage() {
                 </div>
 
                 {/* ── Mobile Cards ── */}
-                <div className="md:hidden divide-y max-h-[calc(100vh-400px)] overflow-y-auto">
+                <div className="md:hidden divide-y">
                   {paginatedBills.map((bill) => (
                     (() => {
                       const refundAmount = Number(bill.refundTotal) || 0
@@ -1037,13 +1047,17 @@ export default function BillsPage() {
                       return (
                     <div key={bill.id} className="p-2.5 space-y-1.5">
                       {/* Row 1: Bill info */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-between gap-2 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0 shrink-0">
                           <span className={`font-bold text-sm ${isBillFullyReturned(bill) ? "line-through text-muted-foreground" : ""}`}>#{bill.displayBillNo ?? bill.billNo}</span>
                           {getPaymentBadge(bill.paymentMethod)}
                         </div>
-                        <span className="text-xs text-muted-foreground">{formatIndianDateTime(new Date(bill.dateTime))}</span>
-                        <span className="text-[10px] text-muted-foreground ml-2">Upd: {formatIndianDateTime(new Date(bill.updatedAt))}</span>
+                        <div className="flex flex-col items-end text-right">
+                          <span className="text-xs text-muted-foreground">{formatIndianDateTime(new Date(bill.dateTime))}</span>
+                          {showUpdatedAt && (
+                            <span className="text-[10px] text-muted-foreground">Upd: {formatIndianDateTime(new Date(bill.updatedAt))}</span>
+                          )}
+                        </div>
                       </div>
                       <div className="text-[11px] text-muted-foreground">
                         Business Date: {toBusinessDateString(bill.dateTime, businessCutoffHour)}
@@ -1176,7 +1190,7 @@ export default function BillsPage() {
           </DialogHeader>
           <form onSubmit={handleCollectPayment} className="space-y-4">
             <div className="space-y-2">
-              <Label>Amount</Label>
+              <Label>Amount Paid</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -1188,12 +1202,14 @@ export default function BillsPage() {
             {/* Discount */}
             {(() => {
               const baseAmount = parseFloat(collectForm.amount) || 0
+              const remaining = selectedCollectBill?.remainingDue || 0
               const discountPct = Math.min(Math.max(Number(collectDiscountPercent) || 0, 0), 100)
               const discountRupeeNum = Math.max(Number(collectDiscountRupee) || 0, 0)
               const discountAmt = discountPct > 0
-                ? Math.round(baseAmount * discountPct / 100)
-                : Math.min(discountRupeeNum, baseAmount)
-              const finalAmount = Math.max(baseAmount - discountAmt, 0)
+                ? Math.round(remaining * discountPct / 100)
+                : Math.min(discountRupeeNum, remaining)
+              const billAfterDiscount = Math.max(remaining - discountAmt, 0)
+              const remainingAfter = Math.max(billAfterDiscount - baseAmount, 0)
               return (
                 <>
                   <div className="space-y-1">
@@ -1227,14 +1243,21 @@ export default function BillsPage() {
                         className="h-8 text-sm"
                       />
                     </div>
-                    {discountAmt > 0 && (
-                      <span className="text-xs text-red-500">-₹{discountAmt.toFixed(0)}</span>
-                    )}
                   </div>
-                  {discountAmt > 0 && (
-                    <div className="flex justify-between items-center bg-primary/5 rounded-lg px-3 py-1.5">
-                      <span className="text-xs font-semibold">Amount to Collect</span>
-                      <span className="text-base font-bold text-primary">₹{finalAmount.toFixed(0)}</span>
+                  {(discountAmt > 0 || baseAmount < remaining) && (
+                    <div className="bg-primary/5 rounded-lg px-3 py-1.5 space-y-1">
+                      {discountAmt > 0 && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Bill after discount</span>
+                          <span>₹{billAfterDiscount.toFixed(0)}</span>
+                        </div>
+                      )}
+                      {remainingAfter > 0 && (
+                        <div className="flex justify-between text-xs font-semibold">
+                          <span className="text-orange-600">Remaining dues after</span>
+                          <span className="text-orange-600">₹{remainingAfter.toFixed(0)}</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
@@ -1268,12 +1291,6 @@ export default function BillsPage() {
             {/* Split sub-inputs */}
             {collectForm.paymentMethod === "SPLIT" && (() => {
               const baseAmount = parseFloat(collectForm.amount) || 0
-              const discountPct = Math.min(Math.max(Number(collectDiscountPercent) || 0, 0), 100)
-              const discountRupeeNum = Math.max(Number(collectDiscountRupee) || 0, 0)
-              const discountAmt = discountPct > 0
-                ? Math.round(baseAmount * discountPct / 100)
-                : Math.min(discountRupeeNum, baseAmount)
-              const finalAmount = Math.max(baseAmount - discountAmt, 0)
               return (
                 <div className="space-y-1.5 bg-muted/50 rounded-md p-2">
                   <div className="flex gap-2 items-center">
@@ -1286,7 +1303,7 @@ export default function BillsPage() {
                       onChange={(e) => {
                         const val = e.target.value
                         setCollectCashAmount(val)
-                        setCollectOnlineAmount(Math.max(finalAmount - (Number(val) || 0), 0).toString())
+                        setCollectOnlineAmount(Math.max(baseAmount - (Number(val) || 0), 0).toString())
                       }}
                       className="h-7 flex-1 text-sm"
                     />
@@ -1301,14 +1318,14 @@ export default function BillsPage() {
                       onChange={(e) => {
                         const val = e.target.value
                         setCollectOnlineAmount(val)
-                        setCollectCashAmount(Math.max(finalAmount - (Number(val) || 0), 0).toString())
+                        setCollectCashAmount(Math.max(baseAmount - (Number(val) || 0), 0).toString())
                       }}
                       className="h-7 flex-1 text-sm"
                     />
                   </div>
-                  {(Number(collectCashAmount) || 0) + (Number(collectOnlineAmount) || 0) !== finalAmount && finalAmount > 0 && (
+                  {(Number(collectCashAmount) || 0) + (Number(collectOnlineAmount) || 0) !== baseAmount && baseAmount > 0 && (
                     <p className="text-[10px] text-red-500">
-                      Split ₹{((Number(collectCashAmount) || 0) + (Number(collectOnlineAmount) || 0)).toFixed(0)} ≠ Total ₹{finalAmount.toFixed(0)}
+                      Split ₹{((Number(collectCashAmount) || 0) + (Number(collectOnlineAmount) || 0)).toFixed(0)} ≠ Total ₹{baseAmount.toFixed(0)}
                     </p>
                   )}
                 </div>
@@ -1328,13 +1345,7 @@ export default function BillsPage() {
                 />
                 {collectCashReceived && (() => {
                   const baseAmount = parseFloat(collectForm.amount) || 0
-                  const discountPct = Math.min(Math.max(Number(collectDiscountPercent) || 0, 0), 100)
-                  const discountRupeeNum = Math.max(Number(collectDiscountRupee) || 0, 0)
-                  const discountAmt = discountPct > 0
-                    ? Math.round(baseAmount * discountPct / 100)
-                    : Math.min(discountRupeeNum, baseAmount)
-                  const finalAmount = Math.max(baseAmount - discountAmt, 0)
-                  const cashToPay = collectForm.paymentMethod === "SPLIT" ? (Number(collectCashAmount) || 0) : finalAmount
+                  const cashToPay = collectForm.paymentMethod === "SPLIT" ? (Number(collectCashAmount) || 0) : baseAmount
                   const change = (Number(collectCashReceived) || 0) - cashToPay
                   return (
                     <span className={`text-sm font-bold whitespace-nowrap ${change >= 0 ? "text-green-600" : "text-red-500"}`}>
