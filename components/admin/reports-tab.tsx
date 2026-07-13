@@ -1211,7 +1211,7 @@ function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "char
 
     const hasUrl = urlTab || urlGridStart || urlGridEnd || urlGridPay || urlGridQuery || urlStart || urlEnd || urlPay || urlProdPeriod || urlProdStart || urlProdEnd || urlProdQuery
     if (hasUrl) {
-      if (urlTab === "charts" || urlTab === "bills" || urlTab === "products") setSalesViewTab(urlTab)
+      if (!forcedView && (urlTab === "charts" || urlTab === "bills" || urlTab === "products")) setSalesViewTab(urlTab)
       const gridStart = urlGridStart || today
       const gridEnd = urlGridEnd || today
       const gridPay = urlGridPay || "all"
@@ -1268,7 +1268,7 @@ function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "char
           prodEnd?: string
           prodQuery?: string
         }
-        if (saved.salesView === "charts" || saved.salesView === "bills" || saved.salesView === "products") {
+        if (!forcedView && (saved.salesView === "charts" || saved.salesView === "bills" || saved.salesView === "products")) {
           setSalesViewTab(saved.salesView)
         }
         const gridStart = saved.gridStart || today
