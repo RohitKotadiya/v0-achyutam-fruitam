@@ -58,6 +58,13 @@ async function buildPeriodSummary(start: Date, end: Date, cashTransaction: any):
       refundTotal: true,
       paymentMethod: true,
       cashAmount: true,
+      // Used to detect bills originally created as PENDING and later fully
+      // collected via PaymentCollection. Those bills have their paymentMethod
+      // flipped to CASH/SPLIT by the collections API, which means they would
+      // be double-counted (once in cashSales via the bill, and once in
+      // cashCollections via the PaymentCollection record). Excluding bills
+      // that have linked collections from cashSales prevents this.
+      paymentCollections: { select: { id: true }, take: 1 },
     },
   })
 
@@ -79,9 +86,12 @@ async function buildPeriodSummary(start: Date, end: Date, cashTransaction: any):
     grossProfit += Number(bill.totalProfit) || 0
     returnsRefunds += refundTotal
 
-    if (bill.paymentMethod === "CASH") {
+    // Only count direct cash sales — bills paid via PaymentCollection are
+    // already counted in cashCollections below, so skip them here.
+    const hasCollections = bill.paymentCollections.length > 0
+    if (bill.paymentMethod === "CASH" && !hasCollections) {
       cashSales += netSales
-    } else if (bill.paymentMethod === "SPLIT") {
+    } else if (bill.paymentMethod === "SPLIT" && !hasCollections) {
       cashSales += (Number(bill.cashAmount) || 0) * salesRatio
     }
   }

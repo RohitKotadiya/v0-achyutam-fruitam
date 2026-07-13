@@ -97,52 +97,48 @@ export async function GET(request: Request) {
       where: { date: businessDate },
     })
 
-    // Calculate cash in (cash sales + cash portion of split + collections)
-    const cashSales = await prisma.bill.aggregate({
-      where: {
-        dateTime: { gte: dayStart, lte: dayEnd },
-        paymentMethod: { in: ["CASH", "SPLIT"] },
-      },
-      _sum: { cashAmount: true, grandTotal: true },
-    })
-
-    // For pure CASH bills, cashAmount may be null — use grandTotal
-    const pureCashBills = await prisma.bill.aggregate({
+    // Calculate cash in (direct cash sales + cash portion of split + collections).
+    //
+    // Bills that were originally PENDING and later fully collected via
+    // PaymentCollection have their paymentMethod flipped to CASH/SPLIT by the
+    // collections API. To avoid counting them twice (once here as a CASH bill
+    // and once in cashCollections), we only include bills that have NO linked
+    // PaymentCollections. Bills paid via collections are counted exclusively
+    // in cashCollections below.
+    //
+    // This also fixes partial same-day collections: a PENDING bill that is
+    // only partially collected stays PENDING (so it never enters cashFromSales
+    // anyway), and its partial collection IS counted in cashCollections because
+    // we no longer exclude same-day-bill collections.
+    const pureCashBillRows = await prisma.bill.findMany({
       where: {
         dateTime: { gte: dayStart, lte: dayEnd },
         paymentMethod: "CASH",
+        paymentCollections: { none: {} },
       },
-      _sum: { grandTotal: true },
+      select: { grandTotal: true },
     })
+    const pureCashIn = pureCashBillRows.reduce((s, b) => s + (Number(b.grandTotal) || 0), 0)
 
-    const splitCashIn = cashSales._sum.cashAmount || 0
-    const pureCashIn = pureCashBills._sum.grandTotal || 0
-    // For SPLIT bills, cashAmount is set; for CASH bills use grandTotal
-    const totalCashFromSales = pureCashIn + splitCashIn - (pureCashBills._sum.grandTotal ? 0 : 0)
-
-    // Recalculate properly: CASH bills use grandTotal, SPLIT bills use cashAmount
-    const splitBills = await prisma.bill.aggregate({
+    const splitBillRows = await prisma.bill.findMany({
       where: {
         dateTime: { gte: dayStart, lte: dayEnd },
         paymentMethod: "SPLIT",
+        paymentCollections: { none: {} },
       },
-      _sum: { cashAmount: true },
+      select: { cashAmount: true },
     })
-    const cashFromSales = pureCashIn + (splitBills._sum.cashAmount || 0)
+    const cashFromSales = pureCashIn + splitBillRows.reduce((s, b) => s + (Number(b.cashAmount) || 0), 0)
 
-    // Cash from customer payment collections.
-    // Exclude collections where the linked bill was created on the same business
-    // day — those bills are already counted in cashFromSales (paymentMethod was
-    // updated to CASH/SPLIT when the collection was recorded). Only include
-    // collections for bills from a prior day (cross-day due recovery).
+    // All cash PaymentCollections for the day — covers:
+    //   • same-day PENDING bills fully collected (no longer in cashFromSales)
+    //   • same-day PENDING bills partially collected
+    //   • prior-day bills collected today (cross-day due recovery)
+    //   • collections not linked to any bill
     const cashCollections = await prisma.paymentCollection.aggregate({
       where: {
         date: { gte: dayStart, lte: dayEnd },
         paymentMethod: "CASH",
-        OR: [
-          { billId: null },
-          { bill: { dateTime: { lt: dayStart } } },
-        ],
       },
       _sum: { amount: true },
     })
