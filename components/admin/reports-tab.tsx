@@ -1036,6 +1036,21 @@ function SummaryCard({ label, value, sub, icon, gradient }: { label: string; val
 
 // ==================== SALES REPORT ====================
 
+function downloadCSV(filename: string, headers: string[], rows: (string | number | null | undefined)[][]) {
+  const escape = (v: string | number | null | undefined) => {
+    const s = String(v ?? "")
+    return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const csv = [headers, ...rows].map((row) => row.map(escape).join(",")).join("\n")
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "charts" | "bills" | "products"; hideViewTabs?: boolean }) {
   const [data, setData] = useState<SaleRow[]>([])
   const [gridSummary, setGridSummary] = useState<SalesSummary | null>(null)
@@ -1853,11 +1868,25 @@ function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "char
               variant="outline"
               size="sm"
               onClick={() => {
-                const params = new URLSearchParams()
-                if (gridAppliedStartDate) params.set("startDate", gridAppliedStartDate)
-                if (gridAppliedEndDate) params.set("endDate", gridAppliedEndDate)
-                const query = params.toString()
-                window.open(`/api/reports/sales${query ? `?${query}` : ""}`, "_blank")
+                const headers = ["Bill No", "Date", "Customer", "Mobile", "Payment", "Cash (Rs)", "Online (Rs)", "Grand Total (Rs)", "Refund (Rs)", "Net Sales (Rs)", "Profit (Rs)", "Items"]
+                const rows = filtered.map((r) => [
+                  r.billNo,
+                  formatIndianDate(new Date(r.date)),
+                  r.customerName,
+                  r.mobile ?? "",
+                  r.paymentMethod,
+                  r.cashAmount ?? "",
+                  r.onlineAmount ?? "",
+                  Number(r.grandTotal).toFixed(2),
+                  Number(r.refundTotal ?? 0).toFixed(2),
+                  Math.max(0, (Number(r.grandTotal) || 0) - (Number(r.refundTotal) || 0)).toFixed(2),
+                  Number(r.totalProfit).toFixed(2),
+                  r.itemCount,
+                ])
+                const suffix = gridAppliedStartDate === gridAppliedEndDate
+                  ? gridAppliedStartDate
+                  : `${gridAppliedStartDate}_to_${gridAppliedEndDate}`
+                downloadCSV(`sales_${suffix}.csv`, headers, rows)
               }}
             >
               <Download className="h-4 w-4 mr-1" /> Export
@@ -2072,7 +2101,21 @@ function SalesSection({ forcedView, hideViewTabs = false }: { forcedView?: "char
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.open(`/api/reports/sales-products?periodType=${productAppliedPeriodType}&startDate=${productAppliedStartDate}&endDate=${productAppliedEndDate}&query=${encodeURIComponent(productAppliedSearch)}`, "_blank")}
+              onClick={() => {
+                if (!productReport) return
+                const headers = ["SKU", "Product", "Periods Active", "Qty Sold", "Sales (Rs)", "Cost (Rs)", "Profit (Rs)", "Margin %"]
+                const rows = productReport.byProduct.map((r) => [
+                  r.sku,
+                  r.name,
+                  r.periodsActive,
+                  r.totalQty.toFixed(2),
+                  r.totalSales.toFixed(2),
+                  r.totalCost.toFixed(2),
+                  r.totalProfit.toFixed(2),
+                  r.margin.toFixed(1),
+                ])
+                downloadCSV(`product_analytics_${productAppliedPeriodType}_${productAppliedStartDate}_to_${productAppliedEndDate}.csv`, headers, rows)
+              }}
             >
               <Download className="h-4 w-4 mr-1" /> Export
             </Button>
