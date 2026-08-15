@@ -51,9 +51,11 @@ export function SKUTab() {
   const [draftSku, setDraftSku] = useState("")
   const [draftName, setDraftName] = useState("")
   const [draftCategory, setDraftCategory] = useState("all")
+  const [draftStatus, setDraftStatus] = useState("all")
   const [appliedSku, setAppliedSku] = useState("")
   const [appliedName, setAppliedName] = useState("")
   const [appliedCategory, setAppliedCategory] = useState("all")
+  const [appliedStatus, setAppliedStatus] = useState("all")
 
   // Add SKU Form
   const [newSKU, setNewSKU] = useState({
@@ -71,7 +73,7 @@ export function SKUTab() {
 
   const fetchProducts = async () => {
     try {
-      const res = await fetch("/api/products")
+      const res = await fetch("/api/products?includeInactive=true")
       const data = await res.json()
       setProducts(Array.isArray(data) ? data : [])
     } catch (error) {
@@ -91,24 +93,6 @@ export function SKUTab() {
     }
   }
 
-  const generateNextSKU = (existingProducts: Product[]): string => {
-    // Extract numeric part from SKUs and find the highest number
-    let maxNum = 0
-
-    existingProducts.forEach((product) => {
-      // Match both "AFMxxx" format and plain numbers
-      const match = product.sku.match(/AFM(\d+)/) || product.sku.match(/^(\d+)$/)
-      if (match && match[1]) {
-        const num = parseInt(match[1], 10)
-        if (num > maxNum) maxNum = num
-      }
-    })
-
-    // Generate next SKU with AFM prefix and zero-padded number
-    const nextNum = maxNum + 1
-    return `AFM${String(nextNum).padStart(3, "0")}`
-  }
-
   const handleAddSKU = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -125,15 +109,13 @@ export function SKUTab() {
     }
 
     try {
-      // Auto-generate next sequential SKU
-      const generatedSKU = generateNextSKU(products)
-
+      // SKU is assigned server-side — the client list hides deactivated products,
+      // so it cannot see every SKU already taken.
       const res = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...newSKU,
-          sku: generatedSKU,
           originalCost: parseFloat(newSKU.originalCost),
           sellingPrice: parseFloat(newSKU.sellingPrice),
           lowStockAlert: parseInt(newSKU.lowStockAlert),
@@ -259,17 +241,20 @@ export function SKUTab() {
     setAppliedSku(draftSku)
     setAppliedName(draftName)
     setAppliedCategory(draftCategory)
+    setAppliedStatus(draftStatus)
   }
 
   const resetFilters = () => {
-    setDraftSku(""); setDraftName(""); setDraftCategory("all")
-    setAppliedSku(""); setAppliedName(""); setAppliedCategory("all")
+    setDraftSku(""); setDraftName(""); setDraftCategory("all"); setDraftStatus("all")
+    setAppliedSku(""); setAppliedName(""); setAppliedCategory("all"); setAppliedStatus("all")
   }
 
   const filteredProducts = products.filter((p) => {
     if (appliedSku && !p.sku.toLowerCase().includes(appliedSku.toLowerCase())) return false
     if (appliedName && !p.name.toLowerCase().includes(appliedName.toLowerCase())) return false
     if (appliedCategory !== "all" && p.categoryId !== appliedCategory) return false
+    if (appliedStatus === "active" && !p.active) return false
+    if (appliedStatus === "inactive" && p.active) return false
     return true
   })
 
@@ -396,7 +381,10 @@ export function SKUTab() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Existing Products</CardTitle>
-              <CardDescription>{filteredProducts.length} of {products.length} products</CardDescription>
+              <CardDescription>
+                {filteredProducts.length} of {products.length} products
+                {products.some((p) => !p.active) && ` · ${products.filter((p) => !p.active).length} inactive`}
+              </CardDescription>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -419,6 +407,14 @@ export function SKUTab() {
                 {categories.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>{cat.displayName}</SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+            <Select value={draftStatus} onValueChange={setDraftStatus}>
+              <SelectTrigger className="h-8 w-32 text-sm"><SelectValue placeholder="Status" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
               </SelectContent>
             </Select>
             <Button type="button" size="sm" className="h-8" onClick={applyFilters}>Apply</Button>
