@@ -1,5 +1,26 @@
-export function generatePrintHTML(billNo: number, billData: any, options?: { copies?: number }) {
+import { resolveShopInfo, type ShopSettings } from "./shop-info"
+
+// Shop fields come from admin input and are injected into markup, so escape them.
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+}
+
+export function generatePrintHTML(
+  billNo: number,
+  billData: any,
+  options?: { copies?: number; shop?: ShopSettings | null },
+) {
+  const shop = resolveShopInfo(options?.shop)
   const { customerName, customerMobile, grandTotal, lineItems, remarks, displayBillNo } = billData
+  const discountAmount = Math.max(Number(billData.discountAmount) || 0, 0)
+  const discountPercent = Number(billData.discountPercent) || 0
+  // Subtotal is derived, not stored: grandTotal is already net of the discount.
+  const subtotal = Number(grandTotal) + discountAmount
+  const discountLabel = discountPercent > 0 ? `Discount (${discountPercent}%)` : "Discount"
   const displayNo = displayBillNo ?? billNo
   const copies = Math.max(1, Math.min(Number(options?.copies) || 1, 5))
 
@@ -36,8 +57,8 @@ export function generatePrintHTML(billNo: number, billData: any, options?: { cop
   const receiptHtml = `
   <div class="receipt-copy">
     <div class="center">
-      <div class="brand">ACHYUTAM FRUITAM</div>
-      <div class="tagline">Pure &bull; Fresh &bull; Premium</div>
+      <div class="brand">${escapeHtml(shop.name)}</div>
+      ${shop.tagline ? `<div class="tagline">${escapeHtml(shop.tagline)}</div>` : ""}
     </div>
     <div class="dash"></div>
 
@@ -51,6 +72,8 @@ export function generatePrintHTML(billNo: number, billData: any, options?: { cop
     </table>
 
     <div class="total-line">
+      ${discountAmount > 0 ? `<div class="row sub"><span>Subtotal</span><span>₹${subtotal.toFixed(0)}</span></div>
+      <div class="row sub"><span>${discountLabel}</span><span>-₹${discountAmount.toFixed(0)}</span></div>` : ""}
       <div class="row grand"><span>TOTAL</span><span>₹${grandTotal.toFixed(0)}</span></div>
     </div>
     ${remarks ? `<div class="row" style="font-size:9px;margin-top:2px;"><span>${remarks}</span></div>` : ""}
@@ -58,6 +81,7 @@ export function generatePrintHTML(billNo: number, billData: any, options?: { cop
     <div class="dash"></div>
     <div class="footer center">
       <div class="ty">Thank You! Visit Again!</div>
+      ${shop.address ? `<div class="addr">${escapeHtml(shop.address)}</div>` : ""}
     </div>
   </div>`
 
@@ -89,9 +113,11 @@ export function generatePrintHTML(billNo: number, billData: any, options?: { cop
     .amt{width:25%;text-align:right;white-space:nowrap;}
     .mix{font-size:8px;color:#666;}
     .total-line{border-top:1px solid #000;margin-top:3px;padding-top:3px;}
+    .sub{font-size:10px;margin-bottom:1px;}
     .grand{font-size:15px;font-weight:bold;}
     .footer{font-size:9px;margin-top:4px;}
     .ty{font-weight:bold;font-size:10px;margin-top:2px;}
+    .addr{font-size:8px;color:#555;margin-top:2px;line-height:1.25;}
     .receipt-copy{page-break-after:always;break-after:page;}
     .receipt-copy:last-child{page-break-after:auto;break-after:auto;}
   </style>

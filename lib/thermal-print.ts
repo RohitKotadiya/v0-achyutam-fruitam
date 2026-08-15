@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core"
 import { CapacitorThermalPrinter } from "capacitor-thermal-printer"
+import { resolveShopInfo } from "./shop-info"
 
 type PrintableLineItem = {
   product?: { name?: string | null }
@@ -12,6 +13,8 @@ type PrintableBillData = {
   customerName: string
   customerMobile?: string | null
   grandTotal: number
+  discountAmount?: number | null
+  discountPercent?: number | null
   lineItems: PrintableLineItem[]
   remarks?: string | null
   displayBillNo?: string | null
@@ -97,7 +100,7 @@ export async function printBillSilently(
     return false
   }
 
-  const shopName = settings.shopName?.trim() || "ACHYUTAM FRUITAM"
+  const shop = resolveShopInfo(settings)
   const copies = Math.max(1, Math.min(Number(settings.receiptPrintCopies) || 1, 5))
   const dateTimeStr = formatDateTime()
 
@@ -115,8 +118,16 @@ export async function printBillSilently(
     job = job
       .align("center")
       .bold()
-      .text(`${shopName}\n`)
+      .text(`${shop.name}\n`)
       .clearFormatting()
+
+    if (shop.tagline) {
+      for (const line of wrapText(shop.tagline, RECEIPT_WIDTH)) {
+        job = job.text(`${centerText(line)}\n`)
+      }
+    }
+
+    job = job
       .text(`${centerText("Receipt")}\n`)
       .text(`${divider()}\n`)
       .align("left")
@@ -137,8 +148,24 @@ export async function printBillSilently(
       job = job.text(`${fitLine(`${quantity} x ${price.toFixed(0)}`, `Rs ${total.toFixed(0)}`)}\n`)
     }
 
+    job = job.text(`${divider()}\n`)
+
+    const discountAmount = Math.max(Number(billData.discountAmount) || 0, 0)
+    if (discountAmount > 0) {
+      const discountPercent = Number(billData.discountPercent) || 0
+      // Subtotal is derived, not stored: grandTotal is already net of the discount.
+      const subtotal = Number(billData.grandTotal || 0) + discountAmount
+      job = job
+        .text(`${fitLine("Subtotal", `Rs ${subtotal.toFixed(0)}`)}\n`)
+        .text(
+          `${fitLine(
+            discountPercent > 0 ? `Discount (${discountPercent}%)` : "Discount",
+            `-Rs ${discountAmount.toFixed(0)}`,
+          )}\n`,
+        )
+    }
+
     job = job
-      .text(`${divider()}\n`)
       .bold()
       .text(`${fitLine("TOTAL", `Rs ${Number(billData.grandTotal || 0).toFixed(0)}`)}\n`)
       .clearFormatting()
@@ -153,6 +180,14 @@ export async function printBillSilently(
       .text(`${divider()}\n`)
       .align("center")
       .text(`Thank You! Visit Again!\n`)
+
+    if (shop.address) {
+      for (const line of wrapText(shop.address, RECEIPT_WIDTH)) {
+        job = job.text(`${centerText(line)}\n`)
+      }
+    }
+
+    job = job
       .align("left")
       .feedCutPaper()
   }

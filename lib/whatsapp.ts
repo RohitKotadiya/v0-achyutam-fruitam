@@ -1,3 +1,5 @@
+import { resolveShopInfo, type ShopSettings } from "./shop-info"
+
 function formatBillDateTime(value?: string) {
   const date = value ? new Date(value) : new Date()
   if (Number.isNaN(date.getTime())) {
@@ -35,12 +37,16 @@ function formatPaymentMethod(value?: string) {
   }
 }
 
-export function generateWhatsAppMessage(billNo: number, billData: any) {
+export function generateWhatsAppMessage(billNo: number, billData: any, shopSettings?: ShopSettings | null) {
   const { customerName, grandTotal, lineItems, paymentMethod, remarks, billDate, displayBillNo } = billData
   const displayNo = displayBillNo ?? billNo
+  const shop = resolveShopInfo(shopSettings)
   const lines: string[] = []
 
-  lines.push("*ACHYUTAM FRUITAM*")
+  lines.push(`*${shop.name}*`)
+  if (shop.tagline) {
+    lines.push(shop.tagline)
+  }
 
   const billStamp = formatBillDateTime(billDate)
   lines.push(billStamp ? `Bill #${displayNo} | ${billStamp}` : `Bill #${displayNo}`)
@@ -58,6 +64,16 @@ export function generateWhatsAppMessage(billNo: number, billData: any) {
   })
 
   lines.push("─────────────────")
+
+  const discountAmount = Math.max(Number(billData.discountAmount) || 0, 0)
+  if (discountAmount > 0) {
+    const discountPercent = Number(billData.discountPercent) || 0
+    // Subtotal is derived, not stored: grandTotal is already net of the discount.
+    const subtotal = Number(grandTotal || 0) + discountAmount
+    lines.push(`Subtotal: ₹${subtotal.toFixed(0)}`)
+    lines.push(`Discount${discountPercent > 0 ? ` (${discountPercent}%)` : ""}: -₹${discountAmount.toFixed(0)}`)
+  }
+
   lines.push(`*Total: ₹${Number(grandTotal || 0).toFixed(0)}*`)
   lines.push(`Paid: ${formatPaymentMethod(paymentMethod)}`)
 
@@ -68,6 +84,9 @@ export function generateWhatsAppMessage(billNo: number, billData: any) {
 
   lines.push("")
   lines.push("Thank you!")
+  if (shop.address) {
+    lines.push(shop.address)
+  }
 
   return lines.join("\n")
 }
@@ -75,22 +94,25 @@ export function generateWhatsAppMessage(billNo: number, billData: any) {
 export function generateBillLinkMessage(
   billNo: number,
   billData: { customerName?: string; grandTotal: number; paymentMethod?: string; displayBillNo?: string | null },
-  shopName = "Achyutam Fruitam",
+  shopSettings?: ShopSettings | null,
 ): string {
   const { customerName, grandTotal, paymentMethod, displayBillNo } = billData
   const displayNo = displayBillNo ?? billNo
+  const shop = resolveShopInfo(shopSettings)
   const appUrl = typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_APP_URL || "")
   const name = customerName && customerName !== "Walk-in-Cust" ? `Hi ${customerName}! ` : ""
   const payment = paymentMethod === "ONLINE" ? "Online" : paymentMethod === "SPLIT" ? "Split" : paymentMethod === "PENDING" ? "Pending" : "Cash"
 
   return [
     ...(name ? [name.trim(), ``] : []),
-    `Your bill from *${shopName}* is ready.`,
+    `Your bill from *${shop.name}* is ready.`,
+    ...(shop.tagline ? [shop.tagline] : []),
     `Bill #${displayNo} · ₹${Number(grandTotal).toFixed(0)} · ${payment}`,
     ``,
     `${appUrl}/bill/${displayNo}`,
     ``,
     `Thank you for shopping with us! 🙏`,
+    ...(shop.address ? [shop.address] : []),
   ].join("\n")
 }
 

@@ -237,6 +237,8 @@ model Bill {
   onlineAmount       Float?
   cashReceived       Float?
   changeGiven        Float?
+  discountAmount     Float               @default(0)
+  discountPercent    Float               @default(0)
   refundTotal        Float               @default(0)
   customer           Customer?           @relation(fields: [customerId], references: [id])
   editLogs           BillEditLog[]

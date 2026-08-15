@@ -65,6 +65,8 @@ interface LastSavedBill {
   customerName: string
   customerMobile: string | null
   grandTotal: number
+  discountAmount?: number
+  discountPercent?: number
   lineItems: BillItem[]
   paymentMethod: "CASH" | "ONLINE" | "SPLIT" | "PENDING"
   remarks: string
@@ -217,6 +219,11 @@ export default function POSPage() {
           : "CASH"
       )
       setRemarks(bill.remarks || '')
+      // Restore the saved discount so editing a bill does not silently drop it
+      const loadedDiscountPercent = Number(bill.discountPercent) || 0
+      const loadedDiscountAmount = Number(bill.discountAmount) || 0
+      setDiscountPercent(loadedDiscountPercent > 0 ? String(loadedDiscountPercent) : "")
+      setDiscountRupee(loadedDiscountPercent > 0 || loadedDiscountAmount <= 0 ? "" : String(loadedDiscountAmount))
       const loadedDateTime = bill.dateTime ? String(bill.dateTime) : new Date().toISOString()
       setBillDateTimeOriginal(loadedDateTime)
       setBillDateTimeDisplay(loadedDateTime)
@@ -837,7 +844,7 @@ export default function POSPage() {
       if (canUseSilentThermalPrint(posSettings)) {
         await printBillSilently(bill.billNo, bill, posSettings)
       } else {
-        const printHTML = generatePrintHTML(bill.billNo, bill, { copies: receiptPrintCopies })
+        const printHTML = generatePrintHTML(bill.billNo, bill, { copies: receiptPrintCopies, shop: posSettings })
         openPrintDialogInPage(printHTML)
       }
     } catch (error) {
@@ -876,8 +883,8 @@ export default function POSPage() {
     try {
       const useLink = posSettings.whatsappMessageType === "link"
       const whatsappMessage = useLink
-        ? generateBillLinkMessage(bill.billNo, { customerName: bill.customerName, grandTotal: bill.grandTotal, paymentMethod: bill.paymentMethod, displayBillNo: bill.displayBillNo }, posSettings.shopName)
-        : generateWhatsAppMessage(bill.billNo, { customerName: bill.customerName, customerMobile: mobile, grandTotal: bill.grandTotal, lineItems: bill.lineItems, paymentMethod: bill.paymentMethod, remarks: bill.remarks })
+        ? generateBillLinkMessage(bill.billNo, { customerName: bill.customerName, grandTotal: bill.grandTotal, paymentMethod: bill.paymentMethod, displayBillNo: bill.displayBillNo }, posSettings)
+        : generateWhatsAppMessage(bill.billNo, { customerName: bill.customerName, customerMobile: mobile, grandTotal: bill.grandTotal, discountAmount: bill.discountAmount, discountPercent: bill.discountPercent, lineItems: bill.lineItems, paymentMethod: bill.paymentMethod, remarks: bill.remarks }, posSettings)
 
       const sent = await sendWhatsAppViaAPI(mobile, whatsappMessage)
       if (sent) {
@@ -970,6 +977,8 @@ export default function POSPage() {
           remarks,
           lineItems: billItems,
           grandTotal,
+          discountAmount,
+          discountPercent: discountPercentNum,
           dateTime: billDateTimeOverride ?? undefined,
           ...(() => {
             const cashReceivedNum = Number(cashReceived) || 0
@@ -1013,6 +1022,8 @@ export default function POSPage() {
           customerName: customerNameFinal,
           customerMobile: customerMobileFinal,
           grandTotal,
+          discountAmount,
+          discountPercent: discountPercentNum,
           lineItems: billItems,
           paymentMethod,
           remarks,
@@ -1026,15 +1037,15 @@ export default function POSPage() {
           if (canUseSilentThermalPrint(posSettings)) {
             await printBillSilently(savedBill.billNo, savedBill, posSettings)
           } else {
-            const printHTML = generatePrintHTML(savedBill.billNo, savedBill, { copies: receiptPrintCopies })
+            const printHTML = generatePrintHTML(savedBill.billNo, savedBill, { copies: receiptPrintCopies, shop: posSettings })
             openPrintDialogInPage(printHTML)
           }
         } else if (afterSave === "whatsapp") {
           const mobile = savedBill.customerMobile || ""
           const useLink = posSettings.whatsappMessageType === "link"
           const whatsappMessage = useLink
-            ? generateBillLinkMessage(savedBill.billNo, { customerName: savedBill.customerName, grandTotal: savedBill.grandTotal, paymentMethod: savedBill.paymentMethod, displayBillNo: savedBill.displayBillNo }, posSettings.shopName)
-            : generateWhatsAppMessage(savedBill.billNo, { customerName: savedBill.customerName, customerMobile: mobile, grandTotal: savedBill.grandTotal, lineItems: savedBill.lineItems, paymentMethod: savedBill.paymentMethod, remarks: savedBill.remarks, displayBillNo: savedBill.displayBillNo })
+            ? generateBillLinkMessage(savedBill.billNo, { customerName: savedBill.customerName, grandTotal: savedBill.grandTotal, paymentMethod: savedBill.paymentMethod, displayBillNo: savedBill.displayBillNo }, posSettings)
+            : generateWhatsAppMessage(savedBill.billNo, { customerName: savedBill.customerName, customerMobile: mobile, grandTotal: savedBill.grandTotal, discountAmount: savedBill.discountAmount, discountPercent: savedBill.discountPercent, lineItems: savedBill.lineItems, paymentMethod: savedBill.paymentMethod, remarks: savedBill.remarks, displayBillNo: savedBill.displayBillNo }, posSettings)
           const sent = await sendWhatsAppViaAPI(mobile, whatsappMessage)
           if (sent) {
             toast({ title: "WhatsApp sent!", description: "Message delivered to customer" })

@@ -28,6 +28,8 @@ export async function POST(request: Request) {
       remarks,
       lineItems,
       grandTotal,
+      discountAmount,
+      discountPercent,
       dateTime,
       cashReceived,
       changeGiven,
@@ -35,6 +37,8 @@ export async function POST(request: Request) {
     } = data
 
     const grandTotalNum = Number(grandTotal) || 0
+    const discountAmountNum = Math.max(Number(discountAmount) || 0, 0)
+    const discountPercentNum = Math.min(Math.max(Number(discountPercent) || 0, 0), 100)
     const parsedEditBillNo = Number(editBillNo)
     const requestedDateTime = dateTime ? new Date(String(dateTime)) : null
 
@@ -319,6 +323,8 @@ export async function POST(request: Request) {
             changeGiven: changeGivenNum,
             remarks: remarks || null,
             grandTotal: grandTotalNum,
+            discountAmount: discountAmountNum,
+            discountPercent: discountPercentNum,
             totalCost,
             totalProfit,
             ...(requestedDateTime ? { dateTime: requestedDateTime, createdAt: requestedDateTime } : {}),
@@ -561,6 +567,8 @@ export async function POST(request: Request) {
             changeGiven: changeGivenNum,
             remarks: remarks || null,
             grandTotal: grandTotalNum,
+            discountAmount: discountAmountNum,
+            discountPercent: discountPercentNum,
             totalCost,
             totalProfit,
             ...(requestedDateTime ? { dateTime: requestedDateTime, createdAt: requestedDateTime } : {}),
@@ -616,6 +624,8 @@ export async function POST(request: Request) {
                 changeGiven: changeGivenNum,
                 remarks: remarks || null,
                 grandTotal: grandTotalNum,
+                discountAmount: discountAmountNum,
+                discountPercent: discountPercentNum,
                 totalCost,
                 totalProfit,
                 displayBillNo,

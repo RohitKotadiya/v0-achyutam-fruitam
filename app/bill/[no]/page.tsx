@@ -138,6 +138,20 @@ export default async function BillPage({ params }: Props) {
         {/* Divider */}
         <div style={{ margin: "0 20px", borderTop: "2px dashed #e5e7eb" }} />
 
+        {/* Subtotal + Discount (grandTotal is already net of the discount) */}
+        {Number(bill.discountAmount) > 0 && (
+          <div style={{ padding: "12px 20px 0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", color: "#6b7280" }}>
+              <div>Subtotal</div>
+              <div>₹{(Number(bill.grandTotal) + Number(bill.discountAmount)).toFixed(0)}</div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", color: "#16a34a", marginTop: "4px" }}>
+              <div>Discount{Number(bill.discountPercent) > 0 ? ` (${Number(bill.discountPercent)}%)` : ""}</div>
+              <div>-₹{Number(bill.discountAmount).toFixed(0)}</div>
+            </div>
+          </div>
+        )}
+
         {/* Total */}
         <div style={{ padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontSize: "16px", fontWeight: "700", color: "#111" }}>Total</div>

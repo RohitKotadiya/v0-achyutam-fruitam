@@ -40,6 +40,8 @@ interface Bill {
   customerId: string | null
   paymentMethod: string
   grandTotal: number
+  discountAmount?: number
+  discountPercent?: number
   refundTotal: number
   collectedAmount: number
   remainingDue: number
@@ -473,6 +475,8 @@ export default function BillsPage() {
       customerName: bill.customerName,
       customerMobile: bill.mobile,
       grandTotal: bill.grandTotal,
+      discountAmount: bill.discountAmount,
+      discountPercent: bill.discountPercent,
       lineItems: bill.lineItems,
       paymentMethod: bill.paymentMethod,
       remarks: bill.remarks || "",
@@ -484,7 +488,7 @@ export default function BillsPage() {
       return
     }
 
-    const printHTML = generatePrintHTML(bill.billNo, printData, { copies: receiptPrintCopies })
+    const printHTML = generatePrintHTML(bill.billNo, printData, { copies: receiptPrintCopies, shop: printSettings })
     // Use hidden iframe to print, like POS page
     const iframe = document.createElement("iframe")
     iframe.style.position = "fixed"
@@ -528,8 +532,8 @@ export default function BillsPage() {
     }
     const useLink = printSettings.whatsappMessageType === "link"
     const message = useLink
-      ? generateBillLinkMessage(bill.billNo, { customerName: bill.customerName, grandTotal: bill.grandTotal, paymentMethod: bill.paymentMethod, displayBillNo: bill.displayBillNo }, printSettings.shopName)
-      : generateWhatsAppMessage(bill.billNo, { customerName: bill.customerName, customerMobile: bill.mobile, grandTotal: bill.grandTotal, lineItems: bill.lineItems, billDate: bill.dateTime, paymentMethod: bill.paymentMethod, remarks: bill.remarks || "", displayBillNo: bill.displayBillNo })
+      ? generateBillLinkMessage(bill.billNo, { customerName: bill.customerName, grandTotal: bill.grandTotal, paymentMethod: bill.paymentMethod, displayBillNo: bill.displayBillNo }, printSettings)
+      : generateWhatsAppMessage(bill.billNo, { customerName: bill.customerName, customerMobile: bill.mobile, grandTotal: bill.grandTotal, discountAmount: bill.discountAmount, discountPercent: bill.discountPercent, lineItems: bill.lineItems, billDate: bill.dateTime, paymentMethod: bill.paymentMethod, remarks: bill.remarks || "", displayBillNo: bill.displayBillNo }, printSettings)
     const sent = await sendWhatsAppViaAPI(bill.mobile, message)
     if (sent) {
       toast({ title: "WhatsApp sent!", description: "Message delivered to customer" })
